@@ -21,8 +21,15 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **CSC** | Bluetooth Cycling Speed and Cadence Service (UUID `0x1816`), CSC Measurement `0x2A5B`. |
 | **Simulator** | Software-Gerät, das Telemetrie erzeugt, damit ohne Rad entwickelt werden kann. |
 | **Prototyp-Game** | Das eine Spiel in v1, das die Kette Kurbel → Spiel end-to-end beweist. |
+| **Bridge** (`vspin-bridge`) | Python-Prozess, der als einziger BLE spricht und Telemetrie auf den Bus publiziert. |
+| **Bus** | Lokaler WebSocket (`ws://127.0.0.1:8765`, JSON), über den Bridge und Clients kommunizieren. |
+| **Client** | Alles, was am Bus hängt: Games, Logger, Dashboard. |
 | **Session** | Ein zusammenhängender Trainings-/Spiel-Zeitraum, dessen Telemetrie aufgezeichnet wird. |
 
 ## Scope v1
 
 Siehe [ADR-0001](docs/adr/0001-scope-v1.md). Telemetrie + Simulator + genau ein Prototyp-Game.
+
+## Architektur
+
+Siehe [ADR-0002](docs/adr/0002-tech-stack-und-bus.md): Python-Bridge (bleak) → WebSocket-Bus → Godot-Games.
