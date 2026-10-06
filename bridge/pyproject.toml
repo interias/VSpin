@@ -4,7 +4,16 @@ version = "0.0.0"
 description = "BLE-Bridge für das Wenoker JC312 – Telemetrie auf einen lokalen WebSocket-Bus"
 requires-python = ">=3.12"
 license = "MIT"
-dependencies = []
+dependencies = [
+    "websockets>=13",  # neue asyncio-API (websockets.asyncio.server)
+    "bleak",           # BLE-Quelle (Folgeticket)
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+vspin-bridge = "vspin_bridge.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -12,3 +21,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/vspin_bridge"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

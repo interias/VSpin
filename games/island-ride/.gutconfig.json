@@ -1,0 +1,11 @@
+{
+  "dirs": [
+    "res://tests"
+  ],
+  "include_subdirs": true,
+  "prefix": "test_",
+  "suffix": ".gd",
+  "should_exit": true,
+  "log_level": 1,
+  "post_run_script": "res://tests/support/post_run_check.gd"
+}

@@ -1,0 +1,5 @@
+[
+  {"at": 0.0, "send": {"v": 0, "type": "status", "t_ms": 0, "state": "connected", "source": "sim", "capabilities": ["CADENCE"]}},
+  {"at": 0.1, "send": {"v": 0, "type": "telemetry", "t_ms": 100, "cadence": 90.0, "speed_kmh": null, "power_w": null, "power_estimated": null, "heart_rate": null}},
+  {"at": 0.5, "send": {"v": 0, "type": "telemetry", "t_ms": 500, "cadence": 40.0, "speed_kmh": null, "power_w": null, "power_estimated": null, "heart_rate": null}}
+]

@@ -1,0 +1,16 @@
+# Stillstand: Fahren, dann Kadenz 0 bei weiterlaufenden Daten, dann wieder fahren. Endlos.
+# Kadenz 0 ist kein Datenausfall – der Status bleibt `connected`, nie `stale`.
+name = "Stillstand"
+repeat = true
+
+[[steps]]
+duration_s = 5
+cadence = 70
+
+[[steps]]
+duration_s = 8
+cadence = 0
+
+[[steps]]
+duration_s = 5
+cadence = 70
