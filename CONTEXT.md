@@ -34,6 +34,9 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **Client** | Alles, was am Bus hängt: Games, Logger, Dashboard. |
 | **measured / estimated** | Herkunft eines Werts: gemessen vom Gerät bzw. hochgerechnet. Geschätzte Watt werden als „~142 W“ angezeigt. |
 | **stale** | Verbindungsstatus: verbunden, aber > 3 s keine Daten. Games pausieren. |
+| **set_grade** | Bus-Nachricht vom Game an die Bridge mit der aktuellen virtuellen Steigung; ab v1 gesendet, bis zum ESP32 mit `not_supported` beantwortet. |
+| **ESP32-Retrofit** | Spätere Ausbaustufe: Stepper am Widerstandsknopf + Hall-Sensor; meldet sich als FTMS-Smart-Bike mit Control Point. |
+| **Control Point** | FTMS-Characteristic `0x2AD9` zum Steuern des Geräts; wir nutzen Op `0x11` (Indoor Bike Simulation). |
 | **Session** | Ein zusammenhängender Trainings-/Spiel-Zeitraum, dessen Telemetrie aufgezeichnet wird. |
 
 ## Scope v1
@@ -51,3 +54,5 @@ Datenqualität: [ADR-0004](docs/adr/0004-datenqualitaet.md) – Kadenz ist einzi
 Insel-Welt: [ADR-0006](docs/adr/0006-insel-welt.md) – handgebaut, Mallorca-Stil.
 
 Prototyp-Game: [ADR-0005](docs/adr/0005-prototyp-game-radsimulator.md) – 3D-Radsimulator auf einer Insel.
+
+Widerstandssteuerung: [ADR-0007](docs/adr/0007-widerstandssteuerung-esp32.md) – Steigung über FTMS, ESP32 als Smart-Bike.
