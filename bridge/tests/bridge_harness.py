@@ -6,6 +6,7 @@ Spätere Pakete übernehmen `bridge_process` bzw. `BridgeProcess` für andere Qu
 """
 
 import contextlib
+import csv
 import json
 import os
 import signal
@@ -25,6 +26,7 @@ PORT = 8765
 BUS_URL = f"ws://{HOST}:{PORT}"
 
 PROFILES_DIR = BRIDGE_ROOT / "profiles"
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 START_TIMEOUT_S = 10.0
 STOP_TIMEOUT_S = 5.0
@@ -163,3 +165,45 @@ def receive_json(client: ClientConnection, timeout_s: float = 3.0) -> dict:
     raw = client.recv(timeout=timeout_s)
     assert isinstance(raw, str), "Bus-Nachrichten sind UTF-8-JSON-Textframes"
     return json.loads(raw)
+
+
+def read_jsonl(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+class ReplayRun:
+    """Ergebnis eines kompletten Replays (siehe `replay_to_end`)."""
+
+    def __init__(self, messages: list[dict], sessions_dir: Path, log: str, returncode: int | None) -> None:
+        self.messages = messages
+        self.log = log
+        self.returncode = returncode
+        [self.csv_path] = sessions_dir.glob("*.csv")
+        [self.raw_path] = sessions_dir.glob("*.raw.jsonl")
+        with open(self.csv_path, encoding="utf-8", newline="") as stream:
+            self.rows = list(csv.DictReader(stream))
+
+    @property
+    def telemetry(self) -> list[dict]:
+        return [m for m in self.messages if m["type"] == "telemetry"]
+
+    @property
+    def states(self) -> list[str]:
+        return [m["state"] for m in self.messages if m["type"] == "status"]
+
+
+def replay_to_end(bridge_process, bus_client, fixture: Path, out: Path, *args: str, timeout_s: float = 30.0) -> ReplayRun:
+    """Bridge mit `--source replay fixture --wait-client` starten, als erster Client alles bis
+    zum Ende der Aufnahme (`disconnected`) mitschneiden, Bridge stoppen."""
+    bridge = bridge_process(
+        "--source", "replay", str(fixture), "--wait-client", "--sessions-dir", str(out), *args
+    )
+    client = bus_client()
+    messages = [receive_json(client)]
+    assert messages[0]["type"] == "status" and messages[0]["state"] == "disconnected", messages
+    deadline = time.monotonic() + timeout_s
+    while not (messages[-1]["type"] == "status" and messages[-1]["state"] == "disconnected" and len(messages) > 1):
+        assert time.monotonic() < deadline, "Replay endet nicht"
+        messages.append(receive_json(client, timeout_s=5.0))
+    returncode = bridge.stop()
+    return ReplayRun(messages, out, bridge.log(), returncode)

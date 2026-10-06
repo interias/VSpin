@@ -12,7 +12,21 @@ Bridge-Zeit in Millisekunden. Wird finalisiert, sobald das JC312-Protokoll bekan
  "power_w": 142, "power_estimated": true,
  "heart_rate": null}
 ```
-Fehlende Werte sind `null`. `cadence` ist geglättet (ADR-0004).
+Fehlende Werte sind `null`. Eine `telemetry` je Sample der Quelle (Simulator: alle 250 ms;
+Replay/BLE: je auswertbarer Notification). `t_ms` ist immer die Bridge-Zeit beim Senden,
+auch beim Replay (die Zeiten der Aufnahme stehen nur in den Rohdaten).
+
+Datenaufbereitung (ADR-0004, für alle Quellen gleich):
+
+| Feld | Bedeutung |
+|---|---|
+| `cadence` | rpm, geglättet (EMA, Zeitkonstante 1 s, auf 0,1 gerundet). `null`, solange die Quelle noch keinen Wert hatte (CSC: erst ab dem zweiten Kurbel-Event). `0`, wenn 2,5 s lang kein neuer Wert kam, obwohl Daten kommen (CSC: kein neues Kurbel-Event; FTMS: kein Kadenzfeld). Liefert die Quelle gar keine Kadenz, bleibt sie `null`. Werte außerhalb 0–200 rpm verwirft die Bridge (sie werden nicht begrenzt). |
+| `speed_kmh` | km/h, ungeglättet; `null`, wenn die Quelle keine liefert (Simulator, CSC – Radumfang unbekannt). |
+| `power_w` | Watt, ungeglättet; `null` ohne Wert. |
+| `power_estimated` | `true` = geschätzt, `false` = gemessen, `null` ohne `power_w`. Watt vom JC312 (FTMS) sind immer geschätzt. |
+| `heart_rate` | bpm, falls die Quelle ihn mitliefert (FTMS Indoor Bike Data), sonst `null`. |
+
+Kommen gar keine Daten, gibt es keine erfundene Kadenz 0 – dann greift `stale` (unten).
 
 ```json
 {"v": 0, "type": "status", "t_ms": 123456,
@@ -20,6 +34,8 @@ Fehlende Werte sind `null`. `cadence` ist geglättet (ADR-0004).
  "capabilities": ["CADENCE", "SPEED"]}
 ```
 `state`: `connected | stale | disconnected`. `source`: `ble | sim | replay`.
+`capabilities`: was die Quelle liefert (`CADENCE`, `SPEED`, `POWER`, `RESISTANCE_CONTROL`);
+beim Replay das, was die Aufnahme enthält.
 
 `status` kommt
 - als **erste Nachricht** an jeden neuen Client (aktueller Stand), und
@@ -30,7 +46,7 @@ Fehlende Werte sind `null`. `cadence` ist geglättet (ADR-0004).
 |---|---|
 | `connected` | Quelle verbunden, Daten kommen. Kadenz 0 mit weiterlaufenden Daten bleibt `connected`. |
 | `stale` | verbunden, aber seit > 3 s keine Daten. Games pausieren. |
-| `disconnected` | Verbindung weg (oder Quelle beendet). Die Bridge versucht alle 3 s neu zu verbinden. Games pausieren. |
+| `disconnected` | Verbindung weg (oder Quelle beendet, z. B. Ende des Replays). Die Bridge versucht alle 3 s neu zu verbinden. Games pausieren. Auch vor dem Start der Quelle (Replay mit `--wait-client` bis zum ersten Client). |
 
 Übergänge: `connected → stale → connected` (Daten kommen wieder), `connected | stale →
 disconnected → connected`. `telemetry` gibt es nur bei `connected`: kommen nach `stale`

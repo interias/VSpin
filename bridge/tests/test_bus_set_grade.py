@@ -30,11 +30,18 @@ def reply_to(client, payload, max_messages: int = 40) -> dict:
     raise AssertionError("keine Antwort auf die Client-Nachricht")
 
 
-def settled_cadence(client, samples: int = 6) -> float:
-    """Kadenz nach einer Änderung: einige Samples abwarten, dann die letzten müssen gleich sein."""
-    cadences = [m["cadence"] for m in (receive_json(client) for _ in range(samples)) if m["type"] == "telemetry"]
-    assert len(set(cadences[-3:])) == 1, cadences
-    return cadences[-1]
+def settled_cadence(client, max_samples: int = 40) -> float:
+    """Kadenz nach einer Änderung: Am Bus ist die Kadenz geglättet (EMA ~1 s, ADR-0004), sie
+    läuft also auf den neuen Wert zu. Abwarten, bis sich drei Samples um < 0,2 rpm
+    unterscheiden (Restabstand zum Ziel dann < 0,5 rpm)."""
+    cadences: list[float] = []
+    while len(cadences) < max_samples:
+        message = receive_json(client)
+        if message["type"] == "telemetry":
+            cadences.append(message["cadence"])
+            if len(cadences) >= 3 and max(cadences[-3:]) - min(cadences[-3:]) < 0.2:
+                return cadences[-1]
+    raise AssertionError(f"Kadenz pendelt sich nicht ein: {cadences}")
 
 
 def test_set_grade_is_acked_not_supported_and_logged(bridge_process, bus_client):
@@ -61,7 +68,7 @@ def test_simulator_cadence_drops_uphill_and_recovers_at_zero(bridge_process, bus
     assert settled_cadence(client) < uphill  # steiler → noch weniger
 
     assert reply_to(client, {"v": 0, "type": "set_grade", "grade": 0})["type"] == "ack"
-    assert settled_cadence(client) == 80
+    assert abs(settled_cadence(client) - 80) < 0.5
 
 
 BROKEN_MESSAGES = [
