@@ -110,3 +110,21 @@ func test_script_from_json_file() -> void:
 	var client := connect_client(bus)
 	assert_true(await run_until(func(): return client.cadence == 90.0, 3.0))
 	assert_true(await run_until(func(): return client.cadence == 40.0, 3.0))
+
+
+func test_reconnects_when_connecting_hangs() -> void:
+	# Ein TCP-Server, der nie den WebSocket-Handshake beantwortet: der Client hängt in CONNECTING.
+	var server := TCPServer.new()
+	var port := FakeBusServer.DEFAULT_PORT + 52
+	assert_eq(server.listen(port, FakeBusServer.HOST), OK)
+	var held: Array = []
+	var client := connect_client_to("ws://%s:%d" % [FakeBusServer.HOST, port], 0.1, 0.4)
+	var start := Time.get_ticks_msec()
+	while held.size() < 3 and Time.get_ticks_msec() - start < 4000:
+		await run_for(0.05)
+		while server.is_connection_available():
+			held.append(server.take_connection())
+	server.stop()
+	assert_gte(held.size(), 3, "nach Timeout neuer Verbindungsversuch")
+	assert_false(client.bus_connected)
+	assert_eq(client.status, "disconnected")

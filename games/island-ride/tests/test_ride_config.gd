@@ -12,6 +12,7 @@ func test_values_are_read_from_file() -> void:
 	var config := RideConfig.load_file("res://tests/fixtures/steep_feel.cfg")
 	assert_eq(config.bus_url, "ws://127.0.0.1:18799")
 	assert_eq(config.bus_reconnect_s, 0.5)
+	assert_eq(config.bus_connect_timeout_s, 1.5)
 	assert_eq(config.uphill_damping, 20.0)
 	assert_eq(config.downhill_boost, 6.0)
 	assert_eq(config.inertia_s, 0.0)

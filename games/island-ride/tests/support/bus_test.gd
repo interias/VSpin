@@ -52,15 +52,31 @@ func spawn_ride(bus: FakeBusServer, start_m: float = 0.0, config: RideConfig = n
 	var ride := MAIN_SCENE.instantiate()
 	ride.config = config if config != null else config_for(bus)
 	ride.start_distance_m = start_m
+	ride.quit_on_request = false
 	add_child_autofree(ride)
 	return ride
 
 
 ## Ein BusClient direkt am Fake-Bus (wird in `run_for` mitgepollt).
-func connect_client(bus: FakeBusServer, reconnect_s: float = 0.2) -> BusClient:
-	var client := BusClient.new(bus.url(), reconnect_s)
+func connect_client(bus: FakeBusServer, reconnect_s: float = 0.2, connect_timeout_s: float = 5.0) -> BusClient:
+	return connect_client_to(bus.url(), reconnect_s, connect_timeout_s)
+
+
+## Ein BusClient an einer beliebigen Adresse (wird in `run_for` mitgepollt).
+func connect_client_to(url: String, reconnect_s: float = 0.2, connect_timeout_s: float = 5.0) -> BusClient:
+	var client := BusClient.new(url, reconnect_s, connect_timeout_s)
 	_clients.append(client)
 	return client
+
+
+## Drückt eine Taste (physische Position) und lässt sie wieder los, wie ein Spieler.
+func press_key(key: Key) -> void:
+	for pressed in [true, false]:
+		var event := InputEventKey.new()
+		event.physical_keycode = key
+		event.pressed = pressed
+		Input.parse_input_event(event)
+		await get_tree().process_frame
 
 
 ## Lässt `seconds` Echtzeit vergehen; Fake-Busse und direkte Clients werden je Frame gepollt,

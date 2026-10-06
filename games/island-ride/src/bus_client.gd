@@ -2,7 +2,7 @@
 ## reconnectet nach Abbruch, parst `status`/`telemetry` und stellt den Zustand bereit.
 ##
 ## Kein Node: der Besitzer ruft `poll(delta)` regelmäßig auf (z. B. in `_process`).
-## Senden an die Bridge (z. B. `set_grade`, #12) läuft über `send_message`.
+## Senden an die Bridge (z. B. `set_grade`) läuft über `send_message`; Antworten kommen als `ack_received`.
 class_name BusClient
 extends RefCounted
 
@@ -12,6 +12,8 @@ signal bus_connection_changed(connected: bool)
 signal status_changed(state: String)
 ## Telemetrie-Nachricht empfangen (geparstes JSON).
 signal telemetry_received(message: Dictionary)
+## Antwort der Bridge auf eine eigene Nachricht (`ack`, z. B. auf `set_grade`; geparstes JSON).
+signal ack_received(message: Dictionary)
 
 const PROTOCOL_VERSION := 0
 const STATE_CONNECTED := "connected"
@@ -20,6 +22,8 @@ const STATE_DISCONNECTED := "disconnected"
 
 var url: String
 var reconnect_s: float
+## Höchstdauer eines Verbindungsaufbaus (Sekunden); hängt er länger in CONNECTING, wird neu verbunden.
+var connect_timeout_s: float
 
 ## Letzte gemeldete Kadenz in rpm. Bleibt bei Abbruch stehen – ein Abbruch ist keine
 ## Kadenz 0 (ADR-0004); ob gefahren wird, entscheidet der Besitzer anhand von `status`.
@@ -32,24 +36,48 @@ var source := ""
 var capabilities := PackedStringArray()
 ## `t_ms` der letzten Telemetrie (-1 = noch keine).
 var last_telemetry_t_ms := -1
+## Letzte Telemetrie-Nachricht unverändert, wie empfangen (leer = noch keine) – z. B. für die Debug-Anzeige.
+var last_telemetry := {}
+## Empfangszeit der letzten Telemetrie (`Time.get_ticks_msec()`, -1 = noch keine).
+var last_telemetry_received_ms := -1
 ## Besteht die WebSocket-Verbindung zum Bus?
 var bus_connected := false
 
 var _peer: WebSocketPeer = null
 var _retry_in_s := 0.0
+var _connecting_s := 0.0
 
 
-func _init(bus_url: String, reconnect_interval_s: float = 2.0) -> void:
+func _init(bus_url: String, reconnect_interval_s: float = 2.0, connect_timeout: float = 5.0) -> void:
 	url = bus_url
 	reconnect_s = reconnect_interval_s
+	connect_timeout_s = connect_timeout
 
 
 static func from_config(config: RideConfig) -> BusClient:
-	return BusClient.new(config.bus_url, config.bus_reconnect_s)
+	return BusClient.new(config.bus_url, config.bus_reconnect_s, config.bus_connect_timeout_s)
 
 
 func has_capability(capability: String) -> bool:
 	return capabilities.has(capability)
+
+
+## Leistung in Watt aus der letzten Telemetrie; NAN, wenn die Quelle keine liefert (`power_w: null`).
+func power_w() -> float:
+	var value = last_telemetry.get("power_w")
+	return float(value) if value is float else NAN
+
+
+## Ist die Leistung geschätzt? Nur ein ausdrückliches `power_estimated: false` gilt als gemessen (ADR-0004).
+func power_estimated() -> bool:
+	return last_telemetry.get("power_estimated") != false
+
+
+## Alter der letzten Telemetrie in Millisekunden (-1 = noch keine).
+func telemetry_age_ms() -> int:
+	if last_telemetry_received_ms < 0:
+		return -1
+	return Time.get_ticks_msec() - last_telemetry_received_ms
 
 
 ## Treibt Verbindung, Reconnect und Empfang voran. `delta_s` = vergangene Zeit seit dem letzten Aufruf.
@@ -61,6 +89,12 @@ func poll(delta_s: float) -> void:
 		return
 	_peer.poll()
 	match _peer.get_ready_state():
+		WebSocketPeer.STATE_CONNECTING:
+			_connecting_s += delta_s
+			if _connecting_s >= connect_timeout_s:
+				push_warning("BusClient: Verbindungsaufbau zu %s nach %.1f s abgebrochen, verbinde neu" % [url, _connecting_s])
+				_peer.close()
+				_lost()
 		WebSocketPeer.STATE_OPEN:
 			if not bus_connected:
 				bus_connected = true
@@ -91,6 +125,7 @@ func close() -> void:
 
 func _open() -> void:
 	_peer = WebSocketPeer.new()
+	_connecting_s = 0.0
 	var err := _peer.connect_to_url(url)
 	if err != OK:
 		push_warning("BusClient: Verbindung zu %s nicht möglich (Fehler %d)" % [url, err])
@@ -136,6 +171,12 @@ func _handle(text: String) -> void:
 				cadence = value
 			if message.get("t_ms") is float:
 				last_telemetry_t_ms = int(message["t_ms"])
+			last_telemetry = message
+			last_telemetry_received_ms = Time.get_ticks_msec()
 			telemetry_received.emit(message)
+		"ack":
+			ack_received.emit(message)
+		"error":
+			push_warning("BusClient: Bridge meldet Fehler %s: %s" % [message.get("reason"), message.get("detail")])
 		_:
-			pass  # andere Typen (z. B. `ack`, #4) sind hier noch nicht relevant
+			pass  # unbekannte Typen ignorieren (Vorwärtskompatibilität)
