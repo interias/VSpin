@@ -1,6 +1,6 @@
 """Bus: WebSocket-Server, ausschließlich auf 127.0.0.1:8765, beliebig viele Clients."""
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from websockets.asyncio.server import Server, ServerConnection, broadcast, serve
 from websockets.exceptions import ConnectionClosed
@@ -14,15 +14,21 @@ class BusStartError(Exception):
 
 
 class BusServer:
-    """Verteilt Nachrichten an alle Clients. Jeder neue Client bekommt zuerst `status`."""
+    """Verteilt Nachrichten an alle Clients. Jeder neue Client bekommt zuerst `status`.
+
+    Eingehende Client-Nachrichten gehen an `on_message`; dessen Antwort (`ack`/`error`)
+    bekommt nur der sendende Client, nie ein Broadcast.
+    """
 
     def __init__(
         self,
         status: Callable[[], str],
         on_clients_changed: Callable[[int], None] = lambda n: None,
+        on_message: Callable[[str | bytes], Awaitable[str | None]] | None = None,
     ) -> None:
         self._status = status
         self._on_clients_changed = on_clients_changed
+        self._on_message = on_message
         self._clients: set[ServerConnection] = set()
         self._server: Server | None = None
 
@@ -52,9 +58,12 @@ class BusServer:
         self._clients.add(connection)
         self._on_clients_changed(len(self._clients))
         try:
-            # Clients → Bridge (set_grade) kommt in einem Folgeticket; bis dahin ignorieren.
-            async for _ in connection:
-                pass
+            async for raw in connection:
+                if self._on_message is None:
+                    continue
+                reply = await self._on_message(raw)
+                if reply is not None:
+                    await connection.send(reply)  # nur an den Absender
         except ConnectionClosed:
             pass  # Client ist ohne sauberen Close-Handshake weg – kein Fehler der Bridge
         finally:

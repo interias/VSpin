@@ -4,11 +4,20 @@ import asyncio
 import contextlib
 
 from .bus import HOST, PORT, BusServer
-from .bus.messages import status_message, telemetry_message
+from .bus.messages import (
+    SET_GRADE,
+    ClientMessageError,
+    SetGrade,
+    ack_message,
+    error_message,
+    parse_client_message,
+    status_message,
+    telemetry_message,
+)
 from .clock import bridge_time_ms
 from .console import Console
 from .keyboard import HELP, Key, Keyboard, keyboard_available
-from .sources.base import DeviceSource
+from .sources.base import DeviceSource, NotSupportedError
 from .sources.sim import SimulatorSource
 
 CONNECTED = "connected"
@@ -23,7 +32,12 @@ class Bridge:
         self._console = console
         self._state = DISCONNECTED
         self._cadence: float | None = None
-        self._bus = BusServer(self._status_message, on_clients_changed=lambda _: self._render())
+        self._grade: float | None = None
+        self._bus = BusServer(
+            self._status_message,
+            on_clients_changed=lambda _: self._render(),
+            on_message=self._on_client_message,
+        )
         self._stop: asyncio.Event | None = None
 
     async def run(self, stop: asyncio.Event) -> None:
@@ -63,6 +77,36 @@ class Bridge:
             self._bus.publish(telemetry_message(sample))
             self._render()
         self._set_state(DISCONNECTED)
+
+    @property
+    def grade(self) -> float | None:
+        """Zuletzt per `set_grade` gesetzte virtuelle Steigung (Anteil) – für das Session-Logging."""
+        return self._grade
+
+    async def _on_client_message(self, raw: str | bytes) -> str:
+        """Antwort (`ack`/`error`) für genau den Client, der `raw` gesendet hat."""
+        try:
+            message = parse_client_message(raw)
+        except ClientMessageError as exc:
+            return error_message(exc.reason, exc.detail)
+        return await self._set_grade(message)
+
+    async def _set_grade(self, message: SetGrade) -> str:
+        self._grade = message.grade
+        if isinstance(self._source, SimulatorSource):
+            self._source.set_grade(message.grade)  # virtuelle Steigung im Simulator (ADR-0007)
+        # Andockpunkt Widerstandssteuerung: eine Quelle mit RESISTANCE_CONTROL setzt die
+        # Steigung um, alle anderen werfen NotSupportedError (ADR-0003, ADR-0007).
+        try:
+            await self._source.set_resistance(message.grade)
+        except NotSupportedError:
+            ok, reason = False, "not_supported"
+        else:
+            ok, reason = True, None
+        result = "ok" if ok else reason
+        self._console.info(f"set_grade {message.grade:+.3f} ({message.grade * 100:+.1f} %) -> {result}")
+        self._render()
+        return ack_message(SET_GRADE, ok, reason)
 
     def _status_message(self) -> str:
         return status_message(
