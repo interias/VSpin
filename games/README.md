@@ -2,5 +2,7 @@
 
 Godot-4-Projekte, die als Clients am Bus hängen (`docs/bus-protocol.md`).
 
-Geplant: `island-ride/` – 3D-Radsimulator auf einer Mallorca-Stil-Insel
-(ADR-0005, ADR-0006). Asset-Lizenzen je Game in `ASSETS.md`.
+- [`island-ride/`](island-ride/) – „Inselfahrt“, 3D-Radsimulator (ADR-0005, ADR-0006); derzeit
+  Graybox-Strecke. Spielen und Tests starten: siehe [`island-ride/README.md`](island-ride/README.md).
+
+Asset-Lizenzen je Game in `ASSETS.md`.
