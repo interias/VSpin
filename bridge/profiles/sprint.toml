@@ -1,0 +1,25 @@
+# Sprint-Intervalle: locker fahren, kurz hochziehen, Spitze halten, auslaufen. Endlos.
+name = "Sprint"
+repeat = true
+
+[[steps]]
+duration_s = 10
+cadence = 80
+
+[[steps]]
+duration_s = 2
+cadence = 80
+cadence_to = 130
+
+[[steps]]
+duration_s = 10
+cadence = 130
+
+[[steps]]
+duration_s = 5
+cadence = 130
+cadence_to = 70
+
+[[steps]]
+duration_s = 20
+cadence = 70

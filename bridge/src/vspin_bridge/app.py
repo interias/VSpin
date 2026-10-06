@@ -19,15 +19,29 @@ from .clock import bridge_time_ms
 from .console import Console
 from .keyboard import HELP, Key, Keyboard, keyboard_available
 from .session import SessionCsv, open_session_csv
-from .sources.base import DeviceSource, NotSupportedError
+from .sources.base import (
+    DeviceSource,
+    NotSupportedError,
+    SourceDisconnectedError,
+    TelemetrySample,
+)
 from .sources.sim import SimulatorSource
 
+# Verbindungsstatus (ADR-0004). Jede Änderung geht genau einmal als `status` auf den Bus.
 CONNECTED = "connected"
+STALE = "stale"
 DISCONNECTED = "disconnected"
+
+STALE_AFTER_S = 3.0  # verbunden, aber so lange keine Daten → stale (ADR-0004)
+RECONNECT_INTERVAL_S = 3.0  # nach einem Abbruch alle 3 s neu verbinden (ADR-0004)
 
 CADENCE_STEP = 5.0
 
 DEFAULT_SESSIONS_DIR = Path("sessions")  # relativ zum Arbeitsverzeichnis der Bridge
+
+
+class SessionStartError(Exception):
+    """Die Session-CSV konnte nicht angelegt werden (z. B. Verzeichnis nicht beschreibbar)."""
 
 
 class Bridge:
@@ -47,24 +61,33 @@ class Bridge:
             on_message=self._on_client_message,
         )
         self._stop: asyncio.Event | None = None
+        self._stale_timer: asyncio.TimerHandle | None = None
 
     async def run(self, stop: asyncio.Event) -> None:
-        """Läuft, bis `stop` gesetzt wird. Wirft `BusStartError`, wenn der Bus-Port belegt ist."""
+        """Läuft, bis `stop` gesetzt wird. Wirft `BusStartError`, wenn der Bus-Port belegt ist,
+        und `SessionStartError`, wenn die Session-CSV nicht angelegt werden kann."""
         self._stop = stop
         await self._bus.start()
         keyboard: Keyboard | None = None
         try:
             self._console.info(f"vspin-bridge: Bus auf ws://{HOST}:{PORT}")
             # Session = ein Bridge-Lauf (ADR-0008); erst nach erfolgreichem Bus-Start.
-            self._session = open_session_csv(self._sessions_dir)
+            try:
+                self._session = open_session_csv(self._sessions_dir)
+            except OSError as exc:
+                raise SessionStartError(f"{self._sessions_dir}: {exc.strerror or exc}") from exc
             self._console.info(f"Session: {self._session.path}")
             if isinstance(self._source, SimulatorSource) and keyboard_available():
                 keyboard = Keyboard(self._on_key)
                 keyboard.start()
                 self._console.info(HELP)
+            if isinstance(self._source, SimulatorSource) and self._source.profile is not None:
+                profile = self._source.profile
+                repeat = ", wiederholt" if profile.repeat else ""
+                self._console.info(
+                    f"Profil: {profile.name} ({len(profile.steps)} Schritte{repeat}) – gibt die Kadenz vor"
+                )
             self._render()
-            await self._source.connect()
-            self._set_state(CONNECTED)
 
             pump = asyncio.create_task(self._pump())
             stopped = asyncio.create_task(stop.wait())
@@ -77,6 +100,7 @@ class Bridge:
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
         finally:
+            self._cancel_stale_timer()
             if keyboard is not None:
                 keyboard.stop()
             await self._bus.stop()
@@ -85,13 +109,50 @@ class Bridge:
             self._console.close()
 
     async def _pump(self) -> None:
-        async for sample in self._source.samples():
-            self._cadence = sample.cadence
-            self._bus.publish(telemetry_message(sample))
-            # Eine CSV-Zeile pro Sample am Bus – ohne `await` dazwischen, also nie nur eins von beiden.
-            self._session.write(sample, self._grade, self._state)
-            self._render()
-        self._set_state(DISCONNECTED)
+        """Verbinden, Samples weiterreichen; nach einem Abbruch alle 3 s neu verbinden."""
+        while True:
+            try:
+                await self._source.connect()
+                self._set_state(CONNECTED, "Quelle verbunden")
+                self._arm_stale_timer()
+                async for sample in self._source.samples():
+                    self._on_sample(sample)
+            except SourceDisconnectedError as exc:
+                if self._state == DISCONNECTED:
+                    retry = f"neuer Versuch in {RECONNECT_INTERVAL_S:g} s"
+                    self._console.info(f"Verbindung gescheitert: {exc} – {retry}")
+                self._set_state(DISCONNECTED, str(exc))
+                await asyncio.sleep(RECONNECT_INTERVAL_S)
+                continue
+            self._set_state(DISCONNECTED, "Quelle beendet")
+            return
+
+    def _on_sample(self, sample: TelemetrySample) -> None:
+        # Daten nach einer Lücke: erst `status: connected`, dann die Telemetrie.
+        self._set_state(CONNECTED, "wieder Daten")
+        self._arm_stale_timer()
+        self._cadence = sample.cadence
+        self._bus.publish(telemetry_message(sample))
+        # Eine CSV-Zeile pro Sample am Bus – ohne `await` dazwischen, also nie nur eins von beiden.
+        self._session.write(sample, self._grade, self._state)
+        self._render()
+
+    def _arm_stale_timer(self) -> None:
+        """(Neu) starten: kommt STALE_AFTER_S lang kein Sample, wird der Status `stale`.
+        Kadenz 0 ist ein normales Sample – nur ausbleibende Daten zählen."""
+        self._cancel_stale_timer()
+        loop = asyncio.get_running_loop()
+        self._stale_timer = loop.call_later(STALE_AFTER_S, self._on_stale)
+
+    def _cancel_stale_timer(self) -> None:
+        if self._stale_timer is not None:
+            self._stale_timer.cancel()
+            self._stale_timer = None
+
+    def _on_stale(self) -> None:
+        self._stale_timer = None
+        if self._state == CONNECTED:
+            self._set_state(STALE, f"seit {STALE_AFTER_S:g} s keine Daten")
 
     @property
     def grade(self) -> float | None:
@@ -128,11 +189,14 @@ class Bridge:
             bridge_time_ms(), self._state, self._source.name, self._source.capabilities
         )
 
-    def _set_state(self, state: str) -> None:
+    def _set_state(self, state: str, reason: str) -> None:
         if state == self._state:
             return
         self._state = state
-        self._bus.publish(self._status_message())  # `status` bei jeder Änderung
+        if state != CONNECTED:
+            self._cancel_stale_timer()
+        self._bus.publish(self._status_message())  # genau ein `status` je Änderung
+        self._console.info(f"Status: {state} ({reason})")
         self._render()
 
     def _on_key(self, key: Key) -> None:

@@ -1,0 +1,17 @@
+# Einrollen: ruhig anfangen, Kadenz langsam steigern. Endet danach
+# (Quelle beendet → status disconnected).
+name = "Einrollen"
+
+[[steps]]
+duration_s = 30
+cadence = 50
+cadence_to = 70
+
+[[steps]]
+duration_s = 60
+cadence = 70
+cadence_to = 85
+
+[[steps]]
+duration_s = 120
+cadence = 85

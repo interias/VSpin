@@ -1,0 +1,22 @@
+# Verbindungsabbruch: Fahren → Daten bleiben aus (nach 3 s `stale`) → Verbindung reißt ab
+# (`disconnected`) → die Bridge verbindet sich neu (`connected`) → weiterfahren. Endlos.
+# Zeitlinie (s): 0–3 Fahren, 3–7 keine Daten (stale ab ~6), 7 Abbruch, Gerät 2 s weg,
+# 10 Neuverbindung (die Bridge versucht es alle 3 s), 10–15 Fahren, dann von vorn.
+name = "Abbruch"
+repeat = true
+
+[[steps]]
+duration_s = 3
+cadence = 80
+
+[[steps]]
+duration_s = 4
+action = "pause"
+
+[[steps]]
+duration_s = 2
+action = "disconnect"
+
+[[steps]]
+duration_s = 5
+cadence = 80

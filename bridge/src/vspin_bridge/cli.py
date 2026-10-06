@@ -2,20 +2,30 @@
 
 import argparse
 import asyncio
+import random
 import signal
 import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from .app import DEFAULT_SESSIONS_DIR, Bridge
+from .app import DEFAULT_SESSIONS_DIR, Bridge, SessionStartError
 from .bus import BusStartError
 from .console import Console
 from .sources.base import DeviceSource
-from .sources.sim import SimulatorSource
+from .sources.profile import ProfileError, load_profile
+from .sources.sim import Noise, SimulatorSource
+
+
+def _simulator(args: argparse.Namespace) -> SimulatorSource:
+    profile = None if args.profile is None else load_profile(args.profile)
+    noise = Noise(random.Random(args.seed)) if args.noise else None
+    cadence = 0.0 if args.sim_cadence is None else args.sim_cadence
+    return SimulatorSource(cadence=cadence, profile=profile, noise=noise)
+
 
 # Quellenwahl: ble und replay docken in Folgetickets hier an.
 SOURCES: dict[str, Callable[[argparse.Namespace], DeviceSource]] = {
-    "sim": lambda args: SimulatorSource(cadence=args.sim_cadence),
+    "sim": _simulator,
 }
 
 
@@ -28,9 +38,28 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sim-cadence",
         type=float,
-        default=0.0,
+        default=None,
         metavar="RPM",
         help="Start-Kadenz des Simulators in rpm (Standard: 0)",
+    )
+    parser.add_argument(
+        "--profile",
+        type=Path,
+        default=None,
+        metavar="DATEI",
+        help="Simulator spielt dieses Profil (TOML) ab statt manueller Kadenz, z. B. profiles/abbruch.toml",
+    )
+    parser.add_argument(
+        "--noise",
+        action="store_true",
+        help="Simulator: Rauschen auf der Kadenz und Jitter im Sample-Takt",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Seed für --noise: gleicher Seed, gleiche Folge (Standard: zufällig)",
     )
     parser.add_argument(
         "--sessions-dir",
@@ -43,8 +72,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    source = SOURCES[args.source](args)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.source != "sim" and (args.profile is not None or args.noise or args.sim_cadence is not None):
+        parser.error("--profile, --noise und --sim-cadence gibt es nur mit --source sim")
+    if args.profile is not None and args.sim_cadence is not None:
+        parser.error("--profile und --sim-cadence schließen sich aus (das Profil gibt die Kadenz vor)")
+    if args.seed is not None and not args.noise:
+        parser.error("--seed wirkt nur zusammen mit --noise")
+    try:
+        source = SOURCES[args.source](args)
+    except ProfileError as exc:
+        parser.error(str(exc))
     console = Console()
     try:
         return asyncio.run(_run(source, console, args.sessions_dir))
@@ -65,6 +104,9 @@ async def _run(source: DeviceSource, console: Console, sessions_dir: Path) -> in
         await Bridge(source, console, sessions_dir).run(stop)
     except BusStartError as exc:
         console.info(f"vspin-bridge: Bus konnte nicht starten: {exc}")
+        return 1
+    except SessionStartError as exc:
+        console.info(f"vspin-bridge: Session-Datei konnte nicht angelegt werden: {exc}")
         return 1
     return 0
 

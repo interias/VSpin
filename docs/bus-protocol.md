@@ -21,6 +21,21 @@ Fehlende Werte sind `null`. `cadence` ist geglättet (ADR-0004).
 ```
 `state`: `connected | stale | disconnected`. `source`: `ble | sim | replay`.
 
+`status` kommt
+- als **erste Nachricht** an jeden neuen Client (aktueller Stand), und
+- als Broadcast an alle Clients **genau einmal je Änderung** des Zustands – nie doppelt,
+  nie ohne Änderung.
+
+| `state` | Bedeutung (ADR-0004) |
+|---|---|
+| `connected` | Quelle verbunden, Daten kommen. Kadenz 0 mit weiterlaufenden Daten bleibt `connected`. |
+| `stale` | verbunden, aber seit > 3 s keine Daten. Games pausieren. |
+| `disconnected` | Verbindung weg (oder Quelle beendet). Die Bridge versucht alle 3 s neu zu verbinden. Games pausieren. |
+
+Übergänge: `connected → stale → connected` (Daten kommen wieder), `connected | stale →
+disconnected → connected`. `telemetry` gibt es nur bei `connected`: kommen nach `stale`
+wieder Daten, geht zuerst `status: connected` raus, dann die Telemetrie.
+
 ## Clients → Bridge
 
 ```json

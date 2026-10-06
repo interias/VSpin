@@ -5,6 +5,7 @@ Test-Clients an den Bus und prüfen nur das dort beobachtbare Verhalten.
 Spätere Pakete übernehmen `bridge_process` bzw. `BridgeProcess` für andere Quellen.
 """
 
+import contextlib
 import json
 import os
 import signal
@@ -12,6 +13,7 @@ import socket
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 from websockets.sync.client import ClientConnection
@@ -22,8 +24,39 @@ HOST = "127.0.0.1"
 PORT = 8765
 BUS_URL = f"ws://{HOST}:{PORT}"
 
+PROFILES_DIR = BRIDGE_ROOT / "profiles"
+
 START_TIMEOUT_S = 10.0
 STOP_TIMEOUT_S = 5.0
+
+# Port 8765 ist fest (ADR-0002): Testläufe aus mehreren Checkouts dürfen nie gleichzeitig
+# Bridges starten. Die Sperre gilt rechnerweit über eine Datei in /tmp.
+LOCK_PATH = Path("/tmp/vspin-bridge-tests.lock")
+LOCK_WAIT_NOTICE_S = 1.0
+
+
+@contextlib.contextmanager
+def port_lock(path: Path = LOCK_PATH) -> Iterator[None]:
+    """Exklusive Sperre (flock) für alle Bridge-Tests eines Laufs; andere Läufe warten.
+
+    Linux/macOS: `fcntl.flock`, gibt das OS beim Prozessende von selbst frei – auch nach
+    SIGKILL bleibt keine verwaiste Sperre. Windows: ohne Sperre (kein fcntl).
+    """
+    try:
+        import fcntl
+    except ImportError:  # Windows
+        yield
+        return
+    with open(path, "a") as lock_file:
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print(f"\nWarte auf {path} – ein anderer Bridge-Testlauf belegt Port {PORT} …", file=sys.__stderr__)
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
 def port_open(host: str = HOST, port: int = PORT) -> bool:
@@ -43,6 +76,30 @@ def wait_until(predicate, timeout_s: float, what: str) -> None:
     raise TimeoutError(f"Zeitüberschreitung: {what}")
 
 
+def bridge_env() -> dict[str, str]:
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(SRC_DIR), env.get("PYTHONPATH")]))
+    env["PYTHONUNBUFFERED"] = "1"
+    return env
+
+
+def run_bridge(args: list[str], cwd: Path, timeout_s: float = START_TIMEOUT_S) -> subprocess.CompletedProcess:
+    """Für Läufe, die von selbst enden (Fehler beim Start): Exit-Code und Ausgabe."""
+    wait_until(lambda: not port_open(), STOP_TIMEOUT_S, f"Port {PORT} wird frei")
+    result = subprocess.run(
+        [sys.executable, "-m", "vspin_bridge", *args],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        env=bridge_env(),
+        cwd=cwd,
+        timeout=timeout_s,
+        check=False,
+    )
+    wait_until(lambda: not port_open(), STOP_TIMEOUT_S, f"Port {PORT} nach Ende frei")
+    return result
+
+
 class BridgeProcess:
     """Startet die Bridge als Subprozess, wartet auf den Bus und beendet sie sauber."""
 
@@ -55,9 +112,7 @@ class BridgeProcess:
     def start(self) -> None:
         # Port muss frei sein, sonst würde der Test gegen eine fremde Bridge laufen.
         wait_until(lambda: not port_open(), STOP_TIMEOUT_S, f"Port {PORT} wird frei")
-        env = dict(os.environ)
-        env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(SRC_DIR), env.get("PYTHONPATH")]))
-        env["PYTHONUNBUFFERED"] = "1"
+        env = bridge_env()
         self._log = open(self.log_path, "w", encoding="utf-8")
         self.proc = subprocess.Popen(
             [sys.executable, "-m", "vspin_bridge", *self.args],
