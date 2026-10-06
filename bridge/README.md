@@ -24,6 +24,13 @@ Im Terminal: Pfeil hoch/`+` = Kadenz +5, Pfeil runter/`-` = Kadenz −5 (0–200
 Strg+C = beenden. Die Statuszeile zeigt Quelle, Verbindungsstatus, Kadenz und Anzahl Clients.
 Ohne Terminal (stdin kein TTY) ist die Tastatur aus, die Bridge läuft normal weiter.
 
+Clients können `set_grade` senden (virtuelle Steigung, ADR-0007). Die Bridge antwortet dem
+Absender mit `ack` (bis zur Widerstandssteuerung `ok: false, reason: "not_supported"`) und
+schreibt eine Zeile ins Terminal, z. B. `set_grade +0.070 (+7.0 %) -> not_supported`.
+Der Simulator senkt bergauf die Kadenz (um 2 × Steigung, höchstens auf die Hälfte);
+bei Steigung 0 oder bergab gilt wieder die per Tastatur eingestellte Kadenz.
+Kaputte oder unbekannte Nachrichten werden mit `error` beantwortet (docs/bus-protocol.md).
+
 ## Testen
 
 ```
