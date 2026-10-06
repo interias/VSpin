@@ -1,0 +1,62 @@
+"""Bus: WebSocket-Server, ausschließlich auf 127.0.0.1:8765, beliebig viele Clients."""
+
+from collections.abc import Callable
+
+from websockets.asyncio.server import Server, ServerConnection, broadcast, serve
+from websockets.exceptions import ConnectionClosed
+
+HOST = "127.0.0.1"  # nur localhost – niemand im Netz liest mit oder steuert
+PORT = 8765
+
+
+class BusStartError(Exception):
+    """Der Bus konnte nicht auf 127.0.0.1:8765 lauschen (z. B. Port belegt)."""
+
+
+class BusServer:
+    """Verteilt Nachrichten an alle Clients. Jeder neue Client bekommt zuerst `status`."""
+
+    def __init__(
+        self,
+        status: Callable[[], str],
+        on_clients_changed: Callable[[int], None] = lambda n: None,
+    ) -> None:
+        self._status = status
+        self._on_clients_changed = on_clients_changed
+        self._clients: set[ServerConnection] = set()
+        self._server: Server | None = None
+
+    @property
+    def client_count(self) -> int:
+        return len(self._clients)
+
+    async def start(self) -> None:
+        try:
+            self._server = await serve(self._handle, HOST, PORT)
+        except OSError as exc:
+            raise BusStartError(f"ws://{HOST}:{PORT} nicht verfügbar: {exc}") from exc
+
+    async def stop(self) -> None:
+        if self._server is not None:
+            self._server.close()
+            await self._server.wait_closed()
+            self._server = None
+
+    def publish(self, message: str) -> None:
+        broadcast(self._clients, message)
+
+    async def _handle(self, connection: ServerConnection) -> None:
+        # Synchron senden und erst danach registrieren: so ist `status` garantiert
+        # die erste Nachricht, und kein späterer Broadcast geht dazwischen verloren.
+        broadcast([connection], self._status())
+        self._clients.add(connection)
+        self._on_clients_changed(len(self._clients))
+        try:
+            # Clients → Bridge (set_grade) kommt in einem Folgeticket; bis dahin ignorieren.
+            async for _ in connection:
+                pass
+        except ConnectionClosed:
+            pass  # Client ist ohne sauberen Close-Handshake weg – kein Fehler der Bridge
+        finally:
+            self._clients.discard(connection)
+            self._on_clients_changed(len(self._clients))
