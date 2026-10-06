@@ -1,8 +1,11 @@
 # vspin-bridge
 
 Python-Prozess, der als einziger BLE spricht und Telemetrie auf den Bus publiziert
-(ADR-0002, ADR-0003). Bisher implementiert: Quelle `sim` (Simulator: manuell, Profile,
-Rauschen), Verbindungsstatus `connected | stale | disconnected` und der Bus nach [`docs/bus-protocol.md`](../docs/bus-protocol.md) – nur `ws://127.0.0.1:8765`.
+(ADR-0002, ADR-0003). Bisher implementiert: Quellen `sim` (Simulator: manuell, Profile,
+Rauschen) und `replay` (aufgezeichnete Roh-Notifications durch die Parser, bisher CSC),
+die Datenaufbereitung (Glättung, Kadenz 0, Ausreißer – ADR-0004), Verbindungsstatus
+`connected | stale | disconnected`, Session-Dateien und der Bus nach
+[`docs/bus-protocol.md`](../docs/bus-protocol.md) – nur `ws://127.0.0.1:8765`.
 
 ## Installieren
 
@@ -18,6 +21,7 @@ python -m venv .venv
 ```
 vspin-bridge --source sim                  # oder: python -m vspin_bridge --source sim
 vspin-bridge --source sim --sim-cadence 80 # Start-Kadenz in rpm (Standard 0)
+vspin-bridge --source replay DATEI.raw.jsonl --speed 10   # Aufnahme abspielen (siehe Replay)
 ```
 
 Im Terminal: Pfeil hoch/`+` = Kadenz +5, Pfeil runter/`-` = Kadenz −5 (0–200 rpm), `q` oder
@@ -80,6 +84,62 @@ beim echten Rad; nach der Neuverbindung geht das Profil mit dem nächsten Schrit
 Unbekannte Schlüssel und ungültige Werte (Kadenz außerhalb 0–200, Dauer ≤ 0) werden beim
 Start mit Meldung abgelehnt.
 
+## Replay
+
+```
+vspin-bridge --source replay aufnahme.raw.jsonl              # im Takt der Aufnahme
+vspin-bridge --source replay aufnahme.raw.jsonl --speed 10   # zehnmal so schnell
+vspin-bridge --source replay aufnahme.raw.jsonl --wait-client
+```
+
+Spielt rohe BLE-Notifications ab – aus `tools/ble_discovery.py` (`jc312_notify_*.raw.jsonl`)
+oder aus einer Session (`sessions/*.raw.jsonl`) – und schickt sie durch dieselben Parser wie
+später beim echten Rad. Format: eine Zeile pro Notification,
+
+```
+{"t_ms": 1750, "char": "00002a5b-0000-1000-8000-00805f9b34fb", "hex": "03ef030000000301000003"}
+```
+
+(`t_ms` Zeit der Aufnahme in ms, nicht fallend; `char` volle 128-Bit-UUID; `hex` die Bytes).
+Leere Zeilen werden übersprungen; eine kaputte Zeile bricht den Start mit Zeilennummer ab.
+`--speed` (> 0, Standard 1) teilt die Abstände der Aufnahme. Mit `--wait-client` beginnt das
+Abspielen erst, wenn sich der erste Client mit dem Bus verbindet (bis dahin `disconnected`) –
+so verpasst ein Game oder Test nichts. Am Ende der Datei endet die Quelle (`disconnected`), die
+Bridge bleibt erreichbar. `capabilities` im `status` ist das, was die Aufnahme enthält.
+
+Ausgewertete Characteristics:
+
+| Characteristic | Werte |
+|---|---|
+| CSC Measurement `0x2A5B` | Kadenz aus den Kurbeldaten (Δ Umdrehungen / Δ Event-Zeit, Überlauf beider uint16-Zähler berücksichtigt). Raddaten werden gelesen, aber nicht ausgewertet: ohne Radumfang keine Geschwindigkeit (`speed_kmh` bleibt `null`). Nach > 64 s ohne neues Kurbel-Event ist die Event-Zeit nicht mehr eindeutig – das nächste Event ist dann nur neuer Bezugspunkt. |
+
+Andere Characteristics und zu kurze Pakete werden übersprungen (eine Zeile im Terminal je Art),
+stehen aber trotzdem in den Session-Rohdaten. Jede ausgewertete Notification ergibt genau ein
+Sample am Bus.
+
+## Datenaufbereitung
+
+Gilt für alle Quellen gleich, auch für den Simulator (ADR-0004):
+
+- **Ausreißer:** Kadenzwerte außerhalb 0–200 rpm werden verworfen (nicht begrenzt); im
+  Terminal steht z. B. `Kadenz 800.0 rpm verworfen (außerhalb 0–200 rpm)`.
+- **Glättung:** EMA mit Zeitkonstante 1 s, zeitbasiert (`ema += (1 − e^(−Δt/1 s)) · (wert − ema)`),
+  nicht pro Sample. Auf den Bus geht der geglättete Wert (0,1 rpm), in die CSV zusätzlich der
+  Rohwert (`cadence_raw`). Konstante Kadenz bleibt exakt; nach einer Änderung läuft der Wert in
+  ~1 s zu 63 % nach.
+- **Kadenz 0:** kommt 2,5 s lang kein neuer Kadenzwert, obwohl Samples kommen (CSC: der
+  Sensor wiederholt nur das letzte Kurbel-Event), ist die Kadenz 0. Wiederholte Events liefern
+  keinen neuen Wert, zählen aber für diese Regel. Kommen gar keine Daten, erfindet die Bridge
+  nichts – dann wird der Status nach 3 s `stale`. Der nächste Wert nach ≥ 2,5 s ohne Wert
+  startet die Glättung neu.
+- Geschwindigkeit, Leistung und Puls gehen ungeglättet durch.
+
+Gerechnet wird auf der Zeitachse der Quelle – beim Replay der Aufnahme. Ein Replay liefert
+daher bei jedem `--speed` dieselben Werte; am Bus steht trotzdem die Bridge-Zeit.
+
+Hinweis Simulator: er liefert explizite Werte, auch Kadenz 0. Die geglättete Kadenz fällt
+dann über einige Sekunden gegen 0 (EMA), statt nach 2,5 s auf 0 zu springen.
+
 ## Rauschen
 
 ```
@@ -101,12 +161,24 @@ Endet die Quelle (Profil ohne `repeat`), meldet die Bridge `disconnected` und bl
 
 ## Sessions
 
-Jeder Bridge-Lauf schreibt eine Session-CSV (ADR-0008) nach `sessions/YYYY-MM-DD_HH-MM-SS.csv`
-– relativ zum Arbeitsverzeichnis, anderer Ort mit `--sessions-dir DIR`. Der Pfad steht beim Start
-im Terminal. Eine Zeile pro Sample am Bus, Spalten
-`t_ms,cadence_raw,cadence,speed_kmh,power_w,power_estimated,hr_bpm,grade,status`; fehlende Werte
-bleiben leer (`grade` bis zum ersten `set_grade`, `hr_bpm` in v1 immer). Jede Zeile wird sofort
-geflusht, auch nach Strg+C oder Absturz bleibt eine lesbare Datei. `sessions/` ist in `.gitignore`.
+Jeder Bridge-Lauf schreibt zwei Dateien (ADR-0008) nach `sessions/` – relativ zum
+Arbeitsverzeichnis, anderer Ort mit `--sessions-dir DIR`. Die Pfade stehen beim Start im Terminal.
+
+- `YYYY-MM-DD_HH-MM-SS.csv`: eine Zeile pro Sample am Bus, Spalten
+  `t_ms,cadence_raw,cadence,speed_kmh,power_w,power_estimated,hr_bpm,grade,status`. `t_ms`,
+  `cadence` usw. wie am Bus; `cadence_raw` ist der Rohwert der Quelle vor der Aufbereitung –
+  leer, wenn das Sample keinen neuen Wert hatte (CSC: wiederholtes Event), und auch verworfene
+  Ausreißer stehen hier. Fehlende Werte bleiben leer (`grade` bis zum ersten `set_grade`,
+  `hr_bpm` in v1 immer).
+- `YYYY-MM-DD_HH-MM-SS.raw.jsonl`: alle rohen Notifications im Replay-Format (oben), auch nicht
+  ausgewertete. Beim Replay mit unverändertem `t_ms` der Aufnahme – für eine Eingabe im Format
+  von `ble_discovery.py` (Standard-`json.dumps`, `hex` klein) ist die Datei Byte für Byte gleich
+  der Eingabe. Der Simulator hat keine rohen Notifications: die Datei bleibt leer, damit eine
+  Session immer aus beiden Dateien besteht.
+
+Ist einer der beiden Namen schon belegt, bekommen beide `_2`, `_3`, … angehängt. Jede Zeile wird
+sofort geflusht, auch nach Strg+C oder Absturz bleiben lesbare Dateien. `sessions/` ist in
+`.gitignore`.
 
 ## Testen
 
@@ -121,14 +193,20 @@ Port 8765 muss frei sein. Kein Rad, kein Windows nötig. Laufen Tests aus mehrer
 gleichzeitig, wartet jeder Lauf auf die Sperre `/tmp/vspin-bridge-tests.lock` (flock, nur
 Linux/macOS; unter Windows ohne Sperre) – Bridge-Tests laufen so nie parallel.
 
+Parser und Aufbereitung werden ebenso nur von außen getestet: Replay-Fixtures unter
+`tests/fixtures/` (handgebaut, erzeugt von `tests/fixtures/make_fixtures.py`; neu erzeugen mit
+`python tests/fixtures/make_fixtures.py`) laufen beschleunigt durch die Bridge, geprüft werden Bus,
+Session-Dateien und Terminal.
+
 Struktur (teils noch geplant):
 
 ```
 profiles/        Beispielprofile für den Simulator (--profile)
 src/vspin_bridge/
-  sources/   ble (FTMS/CSC), sim (+ profile), replay  – alle implementieren DeviceSource
-  parsers/   Byte → TelemetrySample
-  bus/       WebSocket-Server (docs/bus-protocol.md)
-  session/   Session-CSV (ADR-0008); Roh-JSONL folgt
-tests/fixtures/  echte JC312-Dumps für Parser-Tests
+  sources/      sim (+ profile), replay, später ble  – alle implementieren DeviceSource
+  parsers/      rohe Notification → TelemetrySample (CSC)
+  processing.py Datenaufbereitung (ADR-0004)
+  bus/          WebSocket-Server (docs/bus-protocol.md)
+  session/      Session-CSV und Rohdaten (ADR-0008)
+tests/fixtures/  Replay-Fixtures (handgebaut; später echte JC312-Dumps)
 ```

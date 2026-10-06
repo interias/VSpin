@@ -4,6 +4,7 @@ Die Bridge läuft als echter Prozess mit dem Beispielprofil `profiles/abbruch.to
 geprüft wird nur, was Test-Clients am Bus sehen (und das Terminal-Log).
 """
 
+import csv
 import time
 
 from bridge_harness import PROFILES_DIR, receive_json
@@ -99,15 +100,28 @@ def test_cadence_zero_with_data_is_not_stale(bridge_process, bus_client, tmp_pat
         "[[steps]]\nduration_s = 1\ncadence = 60\n",
         encoding="utf-8",
     )
-    bridge = bridge_process("--source", "sim", "--profile", str(profile))
+    out = tmp_path / "out"
+    bridge = bridge_process("--source", "sim", "--profile", str(profile), "--sessions-dir", str(out))
     client = bus_client()
     seen = collect_until(client, lambda ms: states(ms)[-1:] == ["disconnected"])
 
     # Nur der Anfangsstatus und das Profilende – kein stale trotz 4,5 s Kadenz 0.
     assert states(seen) == ["connected", "disconnected"], summary(seen)
-    zeros = [m["t_ms"] for m in seen if m["type"] == "telemetry" and m["cadence"] == 0]
+    # Die Quelle lieferte 4,5 s lang Kadenz 0 (Rohwert in der Session-CSV) …
+    [path] = out.glob("*.csv")
+    with open(path, encoding="utf-8", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    zero_rows = [r for r in rows if r["cadence_raw"] and float(r["cadence_raw"]) == 0]
+    zeros = [int(r["t_ms"]) for r in zero_rows]
     assert zeros and zeros[-1] - zeros[0] > STALE_AFTER_MS + 500
-    assert seen[-2]["type"] == "telemetry" and seen[-2]["cadence"] == 60
+    # … am Bus fällt die geglättete Kadenz (EMA ~1 s) dabei stetig gegen 0, ohne Lücke.
+    on_bus = {m["t_ms"]: m["cadence"] for m in seen if m["type"] == "telemetry"}
+    falling = [on_bus[t] for t in zeros if t in on_bus]
+    assert len(falling) >= 12, falling
+    assert falling == sorted(falling, reverse=True) and falling[-1] < 2, falling
+    # Danach wieder 60 rpm: die Kadenz steigt wieder.
+    assert seen[-2]["type"] == seen[-3]["type"] == "telemetry"
+    assert falling[-1] < seen[-3]["cadence"] < seen[-2]["cadence"] < 60
     bridge.stop()
     assert "Status: stale" not in bridge.log()
     assert "Status: disconnected (Quelle beendet)" in bridge.log()

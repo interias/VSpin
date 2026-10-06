@@ -4,6 +4,7 @@ from .base import (
     Capability,
     DeviceSource,
     NotSupportedError,
+    RawNotification,
     SourceDisconnectedError,
     TelemetrySample,
 )
@@ -12,6 +13,7 @@ __all__ = [
     "Capability",
     "DeviceSource",
     "NotSupportedError",
+    "RawNotification",
     "SourceDisconnectedError",
     "TelemetrySample",
 ]

@@ -90,11 +90,15 @@ def test_simulator_run_writes_csv_matching_the_bus(bridge_process, bus_client, t
     assert len(rows) - len(tail) <= 8  # Client hing praktisch ab Start am Bus
     for row, message in zip(tail, seen):
         assert float(row["cadence"]) == message["cadence"] == 80
-        assert row["cadence_raw"] == row["cadence"]  # ohne Glättung identisch
+        # Konstante Kadenz: Rohwert und geglätteter Wert (EMA, ADR-0004) sind gleich.
+        assert float(row["cadence_raw"]) == 80
     for row in rows:
         assert row["speed_kmh"] == row["power_w"] == row["power_estimated"] == row["hr_bpm"] == ""
         assert row["grade"] == ""  # kein set_grade in diesem Lauf
         assert row["status"] == "connected"
+    # Rohdaten-Datei derselben Session: der Simulator hat keine rohen Notifications → leer.
+    raw = path.with_name(path.stem + ".raw.jsonl")
+    assert raw.exists() and raw.read_bytes() == b""
 
 
 def test_grade_is_logged_after_set_grade(bridge_process, bus_client, tmp_path):
@@ -177,6 +181,25 @@ def test_session_started_in_an_occupied_second_does_not_overwrite(bridge_process
     assert len(new) == 1, new
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_2\.csv", new[0].name)
     assert read_csv(new[0])[0] == HEADER
+
+
+def test_occupied_raw_file_name_moves_the_whole_session(bridge_process, bus_client, tmp_path):
+    # Nur die Rohdaten-Namen sind belegt: CSV und Rohdaten bekommen trotzdem denselben neuen Namen.
+    now = datetime.now()
+    occupied = []
+    for offset in range(-1, 20):
+        path = tmp_path / ((now + timedelta(seconds=offset)).strftime(NAME_FORMAT) + ".raw.jsonl")
+        path.write_text("fremd\n", encoding="utf-8")
+        occupied.append(path)
+
+    bridge = start_sim(bridge_process, tmp_path)
+    telemetry(connect(bus_client), 2)
+    assert bridge.stop() == 0
+
+    assert all(p.read_text(encoding="utf-8") == "fremd\n" for p in occupied)
+    [csv_path] = tmp_path.glob("*.csv")
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_2\.csv", csv_path.name)
+    assert csv_path.with_name(csv_path.stem + ".raw.jsonl").read_bytes() == b""
 
 
 def test_sessions_directory_is_git_ignored():

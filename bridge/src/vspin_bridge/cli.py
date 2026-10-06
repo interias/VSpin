@@ -1,4 +1,4 @@
-"""Kommandozeile: `vspin-bridge --source sim` (ADR-0003: --source ble|sim|replay)."""
+"""Kommandozeile: `vspin-bridge --source sim` bzw. `--source replay DATEI` (ADR-0003)."""
 
 import argparse
 import asyncio
@@ -13,6 +13,7 @@ from .bus import BusStartError
 from .console import Console
 from .sources.base import DeviceSource
 from .sources.profile import ProfileError, load_profile
+from .sources.replay import ReplayError, load_replay
 from .sources.sim import Noise, SimulatorSource
 
 
@@ -23,8 +24,13 @@ def _simulator(args: argparse.Namespace) -> SimulatorSource:
     return SimulatorSource(cadence=cadence, profile=profile, noise=noise)
 
 
-# Quellenwahl: ble und replay docken in Folgetickets hier an.
+def _replay(args: argparse.Namespace) -> DeviceSource:
+    return load_replay(args.file, 1.0 if args.speed is None else args.speed)
+
+
+# Quellenwahl: ble dockt in einem Folgeticket hier an.
 SOURCES: dict[str, Callable[[argparse.Namespace], DeviceSource]] = {
+    "replay": _replay,
     "sim": _simulator,
 }
 
@@ -35,6 +41,26 @@ def build_parser() -> argparse.ArgumentParser:
         description="Telemetrie-Bridge: DeviceSource → Bus (ws://127.0.0.1:8765)",
     )
     parser.add_argument("--source", required=True, choices=sorted(SOURCES), help="Datenquelle")
+    parser.add_argument(
+        "file",
+        nargs="?",
+        type=Path,
+        default=None,
+        metavar="DATEI",
+        help="nur --source replay: aufgezeichnete Roh-Notifications (.raw.jsonl)",
+    )
+    parser.add_argument(
+        "--speed",
+        type=float,
+        default=None,
+        metavar="FAKTOR",
+        help="Replay: Abspielgeschwindigkeit, 1 = Echtzeit (Standard), 10 = zehnmal so schnell",
+    )
+    parser.add_argument(
+        "--wait-client",
+        action="store_true",
+        help="Replay: erst abspielen, wenn sich der erste Client mit dem Bus verbunden hat",
+    )
     parser.add_argument(
         "--sim-cadence",
         type=float,
@@ -66,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=DEFAULT_SESSIONS_DIR,
         metavar="DIR",
-        help="Ablage der Session-CSV (Standard: ./sessions im Arbeitsverzeichnis)",
+        help="Ablage der Session-Dateien (Standard: ./sessions im Arbeitsverzeichnis)",
     )
     return parser
 
@@ -80,19 +106,23 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--profile und --sim-cadence schließen sich aus (das Profil gibt die Kadenz vor)")
     if args.seed is not None and not args.noise:
         parser.error("--seed wirkt nur zusammen mit --noise")
+    if args.source == "replay" and args.file is None:
+        parser.error("--source replay braucht eine Datei: vspin-bridge --source replay DATEI.raw.jsonl")
+    if args.source != "replay" and (args.file is not None or args.speed is not None or args.wait_client):
+        parser.error("DATEI, --speed und --wait-client gibt es nur mit --source replay")
     try:
         source = SOURCES[args.source](args)
-    except ProfileError as exc:
+    except (ProfileError, ReplayError) as exc:
         parser.error(str(exc))
     console = Console()
     try:
-        return asyncio.run(_run(source, console, args.sessions_dir))
+        return asyncio.run(_run(source, console, args.sessions_dir, args.wait_client))
     except KeyboardInterrupt:  # Windows: kein add_signal_handler, Strg+C kommt so an
         console.close()
         return 0
 
 
-async def _run(source: DeviceSource, console: Console, sessions_dir: Path) -> int:
+async def _run(source: DeviceSource, console: Console, sessions_dir: Path, wait_for_client: bool) -> int:
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -101,7 +131,7 @@ async def _run(source: DeviceSource, console: Console, sessions_dir: Path) -> in
         except (NotImplementedError, RuntimeError):
             pass  # Windows
     try:
-        await Bridge(source, console, sessions_dir).run(stop)
+        await Bridge(source, console, sessions_dir, wait_for_client).run(stop)
     except BusStartError as exc:
         console.info(f"vspin-bridge: Bus konnte nicht starten: {exc}")
         return 1
