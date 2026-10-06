@@ -2,7 +2,7 @@
 
 Python-Prozess, der als einziger BLE spricht und Telemetrie auf den Bus publiziert
 (ADR-0002, ADR-0003). Bisher implementiert: Quellen `sim` (Simulator: manuell, Profile,
-Rauschen) und `replay` (aufgezeichnete Roh-Notifications durch die Parser, bisher CSC),
+Rauschen) und `replay` (aufgezeichnete Roh-Notifications durch die Parser: CSC und FTMS),
 die Datenaufbereitung (Glättung, Kadenz 0, Ausreißer – ADR-0004), Verbindungsstatus
 `connected | stale | disconnected`, Session-Dateien und der Bus nach
 [`docs/bus-protocol.md`](../docs/bus-protocol.md) – nur `ws://127.0.0.1:8765`.
@@ -112,6 +112,7 @@ Ausgewertete Characteristics:
 | Characteristic | Werte |
 |---|---|
 | CSC Measurement `0x2A5B` | Kadenz aus den Kurbeldaten (Δ Umdrehungen / Δ Event-Zeit, Überlauf beider uint16-Zähler berücksichtigt). Raddaten werden gelesen, aber nicht ausgewertet: ohne Radumfang keine Geschwindigkeit (`speed_kmh` bleibt `null`). Nach > 64 s ohne neues Kurbel-Event ist die Event-Zeit nicht mehr eindeutig – das nächste Event ist dann nur neuer Bezugspunkt. |
+| FTMS Indoor Bike Data `0x2AD2` | Flag-basiert (uint16 Flags): alle Felder werden gelesen, damit die Offsets stimmen; genutzt werden Instantaneous Speed (0,01 km/h – vorhanden, wenn Bit 0 „More Data“ **nicht** gesetzt ist), Instantaneous Cadence (0,5 rpm), Instantaneous Power (W) und Heart Rate (bpm; 0 = kein Sensor → `null`). Was laut Flags fehlt, ist `null`. Die Leistung gilt als geschätzt: `power_estimated` ist `true` (ADR-0004 – das JC312 kennt die Stellung des Widerstandsknopfs nicht). Bytes hinter den angekündigten Feldern werden ignoriert. |
 
 Andere Characteristics und zu kurze Pakete werden übersprungen (eine Zeile im Terminal je Art),
 stehen aber trotzdem in den Session-Rohdaten. Jede ausgewertete Notification ergibt genau ein
@@ -128,7 +129,10 @@ Gilt für alle Quellen gleich, auch für den Simulator (ADR-0004):
   Rohwert (`cadence_raw`). Konstante Kadenz bleibt exakt; nach einer Änderung läuft der Wert in
   ~1 s zu 63 % nach.
 - **Kadenz 0:** kommt 2,5 s lang kein neuer Kadenzwert, obwohl Samples kommen (CSC: der
-  Sensor wiederholt nur das letzte Kurbel-Event), ist die Kadenz 0. Wiederholte Events liefern
+  Sensor wiederholt nur das letzte Kurbel-Event; FTMS: Notifications ohne Kadenzfeld), ist
+  die Kadenz 0. FTMS-Kadenz ist ein Momentanwert – jede Notification mit Kadenzfeld ist ein
+  neuer Wert, auch eine gemeldete 0. Liefert eine Quelle grundsätzlich keine Kadenz
+  (Capability `CADENCE` fehlt, z. B. FTMS nur mit Speed), bleibt sie `null`. Wiederholte Events liefern
   keinen neuen Wert, zählen aber für diese Regel. Kommen gar keine Daten, erfindet die Bridge
   nichts – dann wird der Status nach 3 s `stale`. Der nächste Wert nach ≥ 2,5 s ohne Wert
   startet die Glättung neu.
@@ -167,9 +171,10 @@ Arbeitsverzeichnis, anderer Ort mit `--sessions-dir DIR`. Die Pfade stehen beim 
 - `YYYY-MM-DD_HH-MM-SS.csv`: eine Zeile pro Sample am Bus, Spalten
   `t_ms,cadence_raw,cadence,speed_kmh,power_w,power_estimated,hr_bpm,grade,status`. `t_ms`,
   `cadence` usw. wie am Bus; `cadence_raw` ist der Rohwert der Quelle vor der Aufbereitung –
-  leer, wenn das Sample keinen neuen Wert hatte (CSC: wiederholtes Event), und auch verworfene
+  leer, wenn das Sample keinen neuen Wert hatte (CSC: wiederholtes Event; FTMS: kein
+  Kadenzfeld), und auch verworfene
   Ausreißer stehen hier. Fehlende Werte bleiben leer (`grade` bis zum ersten `set_grade`,
-  `hr_bpm` in v1 immer).
+  `hr_bpm`, solange die Quelle keinen Puls liefert – bisher nur FTMS mit Heart-Rate-Feld).
 - `YYYY-MM-DD_HH-MM-SS.raw.jsonl`: alle rohen Notifications im Replay-Format (oben), auch nicht
   ausgewertete. Beim Replay mit unverändertem `t_ms` der Aufnahme – für eine Eingabe im Format
   von `ble_discovery.py` (Standard-`json.dumps`, `hex` klein) ist die Datei Byte für Byte gleich
@@ -204,7 +209,7 @@ Struktur (teils noch geplant):
 profiles/        Beispielprofile für den Simulator (--profile)
 src/vspin_bridge/
   sources/      sim (+ profile), replay, später ble  – alle implementieren DeviceSource
-  parsers/      rohe Notification → TelemetrySample (CSC)
+  parsers/      rohe Notification → TelemetrySample (CSC, FTMS Indoor Bike Data)
   processing.py Datenaufbereitung (ADR-0004)
   bus/          WebSocket-Server (docs/bus-protocol.md)
   session/      Session-CSV und Rohdaten (ADR-0008)
