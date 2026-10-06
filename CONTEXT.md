@@ -25,7 +25,9 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **Simulator** | `DeviceSource`, die Telemetrie erzeugt (manuell, Profil, Rauschen) – Entwicklung ohne Rad. |
 | **Replay** | `DeviceSource`, die aufgezeichnete rohe BLE-Notifications erneut durch die Parser schickt. |
 | **Profil** | Geskripteter Simulator-Ablauf, z. B. Intervalle oder provozierter Verbindungsabbruch. |
-| **Prototyp-Game** | Das eine Spiel in v1, das die Kette Kurbel → Spiel end-to-end beweist. |
+| **Prototyp-Game** | Das eine Spiel in v1: ein 3D-Radsimulator (Kadenz → Geschwindigkeit), siehe ADR-0005. |
+| **Teststrecke** | Die Insel-Strecke des Radsimulators – abwechslungsreich, möglichst an ein reales Vorbild angelehnt. |
+| **virtuelle Steigung** | Steigung der Strecke, die nur die Spielgeschwindigkeit beeinflusst, nicht den echten Widerstand. |
 | **Bridge** (`vspin-bridge`) | Python-Prozess, der als einziger BLE spricht und Telemetrie auf den Bus publiziert. |
 | **Bus** | Lokaler WebSocket (`ws://127.0.0.1:8765`, JSON), über den Bridge und Clients kommunizieren. |
 | **Client** | Alles, was am Bus hängt: Games, Logger, Dashboard. |
@@ -44,3 +46,5 @@ Siehe [ADR-0002](docs/adr/0002-tech-stack-und-bus.md): Python-Bridge (bleak) →
 Geräte-Abstraktion: [ADR-0003](docs/adr/0003-geraete-abstraktion-und-simulator.md).
 
 Datenqualität: [ADR-0004](docs/adr/0004-datenqualitaet.md) – Kadenz ist einziger Game-Input, Watt nur geschätzt.
+
+Prototyp-Game: [ADR-0005](docs/adr/0005-prototyp-game-radsimulator.md) – 3D-Radsimulator auf einer Insel.
