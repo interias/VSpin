@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+from pathlib import Path
 
 from .bus import HOST, PORT, BusServer
 from .bus.messages import (
@@ -17,6 +18,7 @@ from .bus.messages import (
 from .clock import bridge_time_ms
 from .console import Console
 from .keyboard import HELP, Key, Keyboard, keyboard_available
+from .session import SessionCsv, open_session_csv
 from .sources.base import DeviceSource, NotSupportedError
 from .sources.sim import SimulatorSource
 
@@ -25,10 +27,16 @@ DISCONNECTED = "disconnected"
 
 CADENCE_STEP = 5.0
 
+DEFAULT_SESSIONS_DIR = Path("sessions")  # relativ zum Arbeitsverzeichnis der Bridge
+
 
 class Bridge:
-    def __init__(self, source: DeviceSource, console: Console) -> None:
+    def __init__(
+        self, source: DeviceSource, console: Console, sessions_dir: Path = DEFAULT_SESSIONS_DIR
+    ) -> None:
         self._source = source
+        self._sessions_dir = sessions_dir
+        self._session: SessionCsv | None = None
         self._console = console
         self._state = DISCONNECTED
         self._cadence: float | None = None
@@ -47,6 +55,9 @@ class Bridge:
         keyboard: Keyboard | None = None
         try:
             self._console.info(f"vspin-bridge: Bus auf ws://{HOST}:{PORT}")
+            # Session = ein Bridge-Lauf (ADR-0008); erst nach erfolgreichem Bus-Start.
+            self._session = open_session_csv(self._sessions_dir)
+            self._console.info(f"Session: {self._session.path}")
             if isinstance(self._source, SimulatorSource) and keyboard_available():
                 keyboard = Keyboard(self._on_key)
                 keyboard.start()
@@ -69,12 +80,16 @@ class Bridge:
             if keyboard is not None:
                 keyboard.stop()
             await self._bus.stop()
+            if self._session is not None:
+                self._session.close()  # alle Zeilen sind schon geflusht
             self._console.close()
 
     async def _pump(self) -> None:
         async for sample in self._source.samples():
             self._cadence = sample.cadence
             self._bus.publish(telemetry_message(sample))
+            # Eine CSV-Zeile pro Sample am Bus – ohne `await` dazwischen, also nie nur eins von beiden.
+            self._session.write(sample, self._grade, self._state)
             self._render()
         self._set_state(DISCONNECTED)
 

@@ -65,6 +65,9 @@ class BridgeProcess:
             stdout=self._log,
             stderr=subprocess.STDOUT,
             env=env,
+            # Arbeitsverzeichnis = Testverzeichnis: die Standard-Ablage `./sessions` landet dort,
+            # nie im Repo.
+            cwd=self.log_path.parent,
         )
 
         def ready() -> bool:
