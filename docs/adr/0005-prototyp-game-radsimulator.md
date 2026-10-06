@@ -29,4 +29,4 @@ schön anzusehenden Radsimulator.
 
 ## Offen
 
-- Wie die Insel-Welt entsteht (reale Geodaten vs. handgebaut vs. Video) – siehe ADR-0006.
+- Wie die Insel-Welt entsteht (reale Geodaten vs. handgebaut vs. Video) – entschieden in ADR-0006 (handgebaut, Mallorca-Stil).
