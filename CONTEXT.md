@@ -37,7 +37,8 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **set_grade** | Bus-Nachricht vom Game an die Bridge mit der aktuellen virtuellen Steigung; ab v1 gesendet, bis zum ESP32 mit `not_supported` beantwortet. |
 | **ESP32-Retrofit** | Spätere Ausbaustufe: Stepper am Widerstandsknopf + Hall-Sensor; meldet sich als FTMS-Smart-Bike mit Control Point. |
 | **Control Point** | FTMS-Characteristic `0x2AD9` zum Steuern des Geräts; wir nutzen Op `0x11` (Indoor Bike Simulation). |
-| **Session** | Ein zusammenhängender Trainings-/Spiel-Zeitraum, dessen Telemetrie aufgezeichnet wird. |
+| **Session** | Ein Bridge-Lauf; erzeugt `sessions/<zeit>.csv` und `sessions/<zeit>.raw.jsonl`. |
+| **HeartRateSource** | Spätere zweite Quelle: Puls per BLE Heart Rate Service `0x180D` (Brustgurt oder Garmin-Uhr mit „Herzfrequenz übertragen“). |
 
 ## Scope v1
 
@@ -56,3 +57,5 @@ Insel-Welt: [ADR-0006](docs/adr/0006-insel-welt.md) – handgebaut, Mallorca-Sti
 Prototyp-Game: [ADR-0005](docs/adr/0005-prototyp-game-radsimulator.md) – 3D-Radsimulator auf einer Insel.
 
 Widerstandssteuerung: [ADR-0007](docs/adr/0007-widerstandssteuerung-esp32.md) – Steigung über FTMS, ESP32 als Smart-Bike.
+
+Datenspeicherung: [ADR-0008](docs/adr/0008-datenspeicherung-und-export.md) – CSV + Roh-JSONL pro Bridge-Start, FIT/Strava später.
