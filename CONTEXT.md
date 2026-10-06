@@ -59,3 +59,7 @@ Prototyp-Game: [ADR-0005](docs/adr/0005-prototyp-game-radsimulator.md) – 3D-Ra
 Widerstandssteuerung: [ADR-0007](docs/adr/0007-widerstandssteuerung-esp32.md) – Steigung über FTMS, ESP32 als Smart-Bike.
 
 Datenspeicherung: [ADR-0008](docs/adr/0008-datenspeicherung-und-export.md) – CSV + Roh-JSONL pro Bridge-Start, FIT/Strava später.
+
+Repo & Lizenz: [ADR-0009](docs/adr/0009-repo-organisation-und-lizenz.md) – Monorepo, privat, MIT.
+
+Bus-Vertrag: [docs/bus-protocol.md](docs/bus-protocol.md).
