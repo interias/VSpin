@@ -2,8 +2,8 @@
 
 Prototyp-Game (ADR-0005): 3D-Radsimulator in Godot 4.4 (GDScript). Das Spiel ist ein Client am
 Bus (`docs/bus-protocol.md`); die Kadenz bewegt den Fahrer entlang eines `Path3D` – kein Lenken.
-Stand: Graybox-Strecke (ein Anstieg, eine Abfahrt) mit Minimal-HUD (Kadenz, Geschwindigkeit) und
-Spielzuständen (Pause bei Verbindungsverlust, manuelle Pause).
+Stand: Graybox-Strecke (ein Anstieg, eine Abfahrt) mit Minimal-HUD (Kadenz, Geschwindigkeit, Steigung),
+Spielzuständen (Pause bei Verbindungsverlust, manuelle Pause) und `set_grade` an die Bridge.
 
 ## Spielen
 
@@ -39,6 +39,22 @@ verbunden ist, die Quelle `connected` meldet und Telemetrie ankommt, fährt das 
 Die Verbindungspause hat Vorrang; eine manuelle Pause bleibt über einen Abbruch hinweg bestehen
 (kein automatisches Weiterfahren aus der manuellen Pause). Hängt ein Verbindungsaufbau länger als
 `connect_timeout_s`, bricht der Bus-Client ihn ab und versucht es neu.
+
+### Virtuelle Steigung (`set_grade`)
+
+Das Spiel meldet die Steigung an der Fahrerposition per `{"v": 0, "type": "set_grade", "grade": 0.06}`
+(Anteil, ADR-0007; Logik in `src/grade_reporter.gd`):
+
+- gleich nach dem Verbinden (sobald gefahren wird) den aktuellen Wert,
+- danach nur bei Änderung um mindestens 0,5 Prozentpunkte (0.005) und höchstens 2-mal pro Sekunde –
+  eine gedrosselte Änderung wird mit dem dann aktuellen Wert nachgeholt,
+- nicht in der Verbindungspause (sinnlos); nach der Rückkehr wird der aktuelle Wert erneut gemeldet,
+  auch wenn er sich nicht geändert hat.
+
+Die Antwort (`ack`) der Bridge erscheint dezent unter den Werten: „Widerstand: nicht unterstützt“ bei
+`ok: false, reason: "not_supported"` (Normalfall bis zum ESP32), „Widerstand: Fehler (…)“ bei anderem Grund,
+nichts bei `ok: true`. `error`-Antworten landen als Warnung im Log. Mit dem Simulator sinkt bergauf die
+Kadenz; die Steigung steht in der Session-CSV der Bridge (Spalte `grade`).
 
 ## Konfiguration
 
@@ -78,7 +94,9 @@ Ein guter Test prüft von außen: Drehbuch rein → beobachtbares Spielverhalten
 
 - `tests/support/fake_bus_server.gd` (`FakeBusServer`): WebSocket-Server (`TCPServer` +
   `WebSocketPeer.accept_stream`), spielt jedem Client ein **Drehbuch** vor und schreibt
-  Client-Nachrichten in `received` mit (für `set_grade`-Tests).
+  Client-Nachrichten in `received` mit (Empfangszeit in `received_ms`, gefiltert über
+  `received_of_type("set_grade")`). Antworten auf Client-Nachrichten:
+  `bus.replies["set_grade"] = FakeBusServer.ack("set_grade", false, "not_supported")`.
 - `tests/support/bus_test.gd`: Basisklasse für Tests (`extends "res://tests/support/bus_test.gd"`):
   `start_fake_bus(steps)`, `spawn_ride(bus, start_m, config)` (Hauptszene am Fake-Bus),
   `connect_client(bus)` (nackter `BusClient`), `run_for(s)`, `run_until(cond, timeout_s)`,
@@ -119,12 +137,19 @@ sein), fährt das Spiel headless (`tools/e2e_probe.gd`) und vergleicht die Gesch
 GODOT=godot PYTHON=python games/island-ride/tools/e2e.sh 60 90
 ```
 
+`set_grade` von Hand prüfen: Bridge starten (`vspin-bridge --source sim --sim-cadence 80`), dann
+`godot --headless --path games/island-ride -s res://tools/e2e_probe.gd -- --seconds=9 --start-m=120`
+(Start kurz vor dem Anstieg). Erwartet: im Bridge-Terminal `set_grade … -> not_supported`, Kadenz sinkt
+bergauf (80 → ~71 rpm), in der Session-CSV füllt sich die Spalte `grade`; die Probe-Zeile zeigt
+`hint=Widerstand: nicht unterstützt`.
+
 ## Aufbau
 
 ```
 config.cfg              Bus-Adresse + Fahrmodell-Parameter
 scenes/main.tscn/.gd    Hauptszene: Bus-Client → Fahrmodell → Fahrer auf dem Pfad, Spielzustände, Tasten, HUD
 src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeout), status/telemetry parsen, send_message
+src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik
 src/ride_model.gd       RideModel: reine Logik (Kadenz, Steigung, Δt, Konfig → Geschwindigkeit, Position)
 src/ride_config.gd      RideConfig: liest config.cfg
 src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz)
@@ -134,5 +159,4 @@ tools/                  E2E-Prüfhilfe gegen die echte Bridge
 addons/gut/             GUT 9.4.0 (MIT, Lizenz in addons/gut/LICENSE.md)
 ```
 
-Noch nicht enthalten (Folgetickets): `set_grade` senden (#12), vollständiges HUD (#13),
-Insel-Rundkurs statt Graybox (#14).
+Noch nicht enthalten (Folgetickets): vollständiges HUD (#13), Insel-Rundkurs statt Graybox (#14).

@@ -2,7 +2,7 @@
 ## reconnectet nach Abbruch, parst `status`/`telemetry` und stellt den Zustand bereit.
 ##
 ## Kein Node: der Besitzer ruft `poll(delta)` regelmäßig auf (z. B. in `_process`).
-## Senden an die Bridge (z. B. `set_grade`, #12) läuft über `send_message`.
+## Senden an die Bridge (z. B. `set_grade`) läuft über `send_message`; Antworten kommen als `ack_received`.
 class_name BusClient
 extends RefCounted
 
@@ -12,6 +12,8 @@ signal bus_connection_changed(connected: bool)
 signal status_changed(state: String)
 ## Telemetrie-Nachricht empfangen (geparstes JSON).
 signal telemetry_received(message: Dictionary)
+## Antwort der Bridge auf eine eigene Nachricht (`ack`, z. B. auf `set_grade`; geparstes JSON).
+signal ack_received(message: Dictionary)
 
 const PROTOCOL_VERSION := 0
 const STATE_CONNECTED := "connected"
@@ -148,5 +150,9 @@ func _handle(text: String) -> void:
 			if message.get("t_ms") is float:
 				last_telemetry_t_ms = int(message["t_ms"])
 			telemetry_received.emit(message)
+		"ack":
+			ack_received.emit(message)
+		"error":
+			push_warning("BusClient: Bridge meldet Fehler %s: %s" % [message.get("reason"), message.get("detail")])
 		_:
-			pass  # andere Typen (z. B. `ack`, #4) sind hier noch nicht relevant
+			pass  # unbekannte Typen ignorieren (Vorwärtskompatibilität)

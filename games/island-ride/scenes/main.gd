@@ -8,6 +8,9 @@
 ##                      oder noch keine Daten. Ein Abbruch ist keine Kadenz 0 (ADR-0004): das Fahrmodell
 ##                      steht still und fährt automatisch weiter, sobald wieder Daten kommen.
 ## Verbindungspause hat Vorrang vor der manuellen; eine manuelle Pause bleibt über einen Abbruch hinweg bestehen.
+##
+## Virtuelle Steigung (ADR-0007): das Spiel meldet die Steigung an der Fahrerposition per `set_grade`
+## (Drosselung siehe GradeReporter), nicht in der Verbindungspause; danach wird sie neu gemeldet.
 extends Node3D
 
 ## Neuer Spielzustand (siehe STATE_*).
@@ -25,6 +28,7 @@ const KEY_BINDINGS := {
 	"ride_quit": [KEY_ESCAPE],
 }
 const BRIDGE_START_HINT := "Bridge starten: vspin-bridge --source sim"
+const RESISTANCE_NOT_SUPPORTED := "Widerstand: nicht unterstützt"
 
 ## Konfiguration; wenn vor `_ready` nicht gesetzt, wird `res://config.cfg` geladen.
 var config: RideConfig = null
@@ -37,6 +41,9 @@ var bus: BusClient
 var model: RideModel
 ## Aktueller Spielzustand (STATE_*).
 var state := STATE_PAUSED_CONNECTION
+## Hinweis aus der letzten `ack` auf `set_grade` ("" = umgesetzt oder noch keine Antwort).
+var resistance_hint := ""
+var grade_reporter := GradeReporter.new()
 
 var _manual_pause := false
 ## Telemetrie seit dem letzten Verbindungsverlust empfangen? Erst dann wird weitergefahren.
@@ -47,6 +54,7 @@ var _ever_connected := false
 @onready var rider: PathFollow3D = $Track/Rider
 @onready var hud_label: Label = $Hud/Label
 @onready var message_label: Label = $Hud/Message
+@onready var hint_label: Label = $Hud/Hint
 
 
 func _ready() -> void:
@@ -57,6 +65,7 @@ func _ready() -> void:
 	bus.telemetry_received.connect(_on_telemetry)
 	bus.status_changed.connect(_on_status_changed)
 	bus.bus_connection_changed.connect(_on_bus_connection_changed)
+	bus.ack_received.connect(_on_ack)
 	model = RideModel.new(config, start_distance_m)
 	_update_view()
 
@@ -66,6 +75,7 @@ func _process(delta: float) -> void:
 	_update_state()
 	if state == STATE_RIDING:
 		model.step(bus.cadence, current_grade(), delta)
+	_report_grade(delta)
 	_update_view()
 
 
@@ -90,6 +100,14 @@ func _exit_tree() -> void:
 ## Aktuelle Steigung an der Position des Fahrers (Anteil).
 func current_grade() -> float:
 	return track.grade_at(model.distance_m)
+
+
+## Steigung (Anteil) für die Anzeige, z. B. 0.06 → "+6.0 %", flach → "0.0 %".
+static func format_grade(grade: float) -> String:
+	var percent := snappedf(grade * 100.0, 0.1)
+	if is_zero_approx(percent):
+		return "0.0 %"
+	return "%+.1f %%" % percent
 
 
 ## Hinweistext zum Zustand (leer beim Fahren), wie er groß im HUD steht.
@@ -123,7 +141,31 @@ func _update_state() -> void:
 		next = STATE_PAUSED_MANUAL
 	if next != state:
 		state = next
+		if state == STATE_PAUSED_CONNECTION:
+			grade_reporter.reset()  # nach der Rückkehr Steigung neu melden
 		state_changed.emit(state)
+
+
+## Meldet die Steigung per `set_grade`, wenn sie sich genug geändert hat (gedrosselt, siehe GradeReporter).
+## In der Verbindungspause nicht – Senden wäre sinnlos.
+func _report_grade(delta: float) -> void:
+	grade_reporter.tick(delta)
+	if state == STATE_PAUSED_CONNECTION:
+		return
+	var grade := GradeReporter.quantize(current_grade())
+	if grade_reporter.wants_to_send(grade) and bus.send_message({"type": "set_grade", "grade": grade}) == OK:
+		grade_reporter.sent(grade)
+
+
+func _on_ack(message: Dictionary) -> void:
+	if message.get("for") != "set_grade":
+		return
+	if message.get("ok") == true:
+		resistance_hint = ""
+	elif message.get("reason") == "not_supported":
+		resistance_hint = RESISTANCE_NOT_SUPPORTED
+	else:
+		resistance_hint = "Widerstand: Fehler (%s)" % message.get("reason")
 
 
 func _on_telemetry(_message: Dictionary) -> void:
@@ -153,7 +195,9 @@ func _register_key_bindings() -> void:
 
 func _update_view() -> void:
 	rider.progress = track.wrap_distance(model.distance_m)
-	hud_label.text = "Kadenz: %d rpm\nTempo: %.1f km/h" % [roundi(bus.cadence), model.speed_kmh()]
+	hud_label.text = "Kadenz: %d rpm\nTempo: %.1f km/h\nSteigung: %s" % [
+			roundi(bus.cadence), model.speed_kmh(), format_grade(current_grade())]
+	hint_label.text = resistance_hint
 	var message := status_message()
 	message_label.text = message
 	message_label.visible = not message.is_empty()

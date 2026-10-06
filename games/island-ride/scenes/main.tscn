@@ -71,10 +71,19 @@ current = true
 offset_left = 16.0
 offset_top = 16.0
 offset_right = 320.0
-offset_bottom = 80.0
+offset_bottom = 130.0
 theme_override_font_sizes/font_size = 28
 text = "Kadenz: 0 rpm
-Tempo: 0.0 km/h"
+Tempo: 0.0 km/h
+Steigung: 0.0 %"
+
+[node name="Hint" type="Label" parent="Hud"]
+offset_left = 16.0
+offset_top = 136.0
+offset_right = 420.0
+offset_bottom = 164.0
+theme_override_colors/font_color = Color(1, 1, 1, 0.7)
+theme_override_font_sizes/font_size = 18
 
 [node name="Message" type="Label" parent="Hud"]
 visible = false
