@@ -2,8 +2,8 @@
 
 Prototyp-Game (ADR-0005): 3D-Radsimulator in Godot 4.4 (GDScript). Das Spiel ist ein Client am
 Bus (`docs/bus-protocol.md`); die Kadenz bewegt den Fahrer entlang eines `Path3D` – kein Lenken.
-Stand: Graybox-Strecke (ein Anstieg, eine Abfahrt) mit Minimal-HUD (Kadenz, Geschwindigkeit, Steigung),
-Spielzuständen (Pause bei Verbindungsverlust, manuelle Pause) und `set_grade` an die Bridge.
+Stand: Graybox-Strecke (ein Anstieg, eine Abfahrt) mit HUD, Debug-Anzeige, Spielzuständen (Pause bei
+Verbindungsverlust, manuelle Pause, Ziel mit Zusammenfassung) und `set_grade` an die Bridge.
 
 ## Spielen
 
@@ -22,6 +22,7 @@ Reihenfolge egal: Startet das Spiel zuerst, zeigt es „Bridge nicht erreichbar 
 |---|---|
 | `P` oder Leertaste | Pause an/aus (jederzeit) |
 | `Esc` | Spiel beenden (jederzeit) |
+| `F3` | Debug-Anzeige an/aus |
 
 Physische Tastenposition (gleich auf QWERTZ/QWERTY); definiert in `scenes/main.gd` (`KEY_BINDINGS`).
 
@@ -32,6 +33,7 @@ Physische Tastenposition (gleich auf QWERTZ/QWERTY); definiert in `scenes/main.g
 | `riding` – fahren | Bus verbunden, Quelle `connected` und seit dem letzten Abbruch Telemetrie empfangen | – |
 | `paused_manual` – pausiert (manuell) | `P`/Leertaste | „Pause“ |
 | `paused_connection` – pausiert (Verbindung) | Bridge nicht erreichbar, Quelle `stale`/`disconnected` oder noch keine Daten | „Bridge nicht erreichbar … Bridge starten“ bzw. „Verbindung verloren (Rad: stale)“ |
+| `finished` – Ziel erreicht | Ziellinie überfahren (Endzustand, Pause-Taste wirkungslos) | „Ziel erreicht!“ mit Zeit, Ø Kadenz, Ø Tempo |
 
 In jeder Pause steht das Fahrmodell still: Position und Geschwindigkeit bleiben, wie sie waren. Ein
 Verbindungsabbruch ist **keine Kadenz 0** (ADR-0004) – der Fahrer rollt nicht aus. Sobald der Bus wieder
@@ -39,6 +41,29 @@ verbunden ist, die Quelle `connected` meldet und Telemetrie ankommt, fährt das 
 Die Verbindungspause hat Vorrang; eine manuelle Pause bleibt über einen Abbruch hinweg bestehen
 (kein automatisches Weiterfahren aus der manuellen Pause). Hängt ein Verbindungsaufbau länger als
 `connect_timeout_s`, bricht der Bus-Client ihn ab und versucht es neu.
+
+### HUD
+
+Oben links: Kadenz (rpm, gerundet), Tempo (km/h), Strecke (km seit Start), Zeit (Fahrzeit, ohne Pausen),
+Steigung (%) und – **nur wenn die Quelle Watt liefert** – Leistung. Geschätzte Watt (`power_estimated`
+nicht ausdrücklich `false`) immer mit „~“, z. B. „~142 W“ (ADR-0004); gemessene ohne. Darunter dezent der
+`set_grade`-Hinweis, in der Mitte groß Pause-/Verbindungs-/Ziel-Meldungen.
+
+### Debug-Anzeige (`F3`)
+
+Oben rechts, zum Prüfen der Latenz (< 200 ms, ADR-0005): **Kadenz roh** (Feld `cadence` der letzten
+Telemetrie, wie empfangen – ungerundet), **t_ms** (Bridge-Zeitstempel der letzten Telemetrie), **Alter**
+der letzten Telemetrie in ms (seit Empfang im Spiel; bei 4 Hz Bridge-Takt pendelt es zwischen 0 und ~250 ms
+– dauerhaft mehr heißt: Daten stocken), dazu Bus-Verbindung, Status und Quelle. Prüfen: Kadenz in der
+Bridge ändern und schauen, wann „Kadenz roh“ und `t_ms` nachziehen.
+
+### Runde und Ziel
+
+Eine Runde startet an der Startposition (Standard: Start/Ziel-Linie) und endet beim nächsten Überfahren der
+Start/Ziel-Linie (bei Start mitten auf der Strecke, z. B. in Tests, also früher). Im Ziel steht der Fahrer,
+das Spiel zeigt „Ziel erreicht!“ mit Rundenzeit, Ø Kadenz (zeitgewichtet) und Ø Tempo (Strecke/Fahrzeit).
+Fahrzeit und Durchschnitte zählen nur Zeit im Zustand `riding` – Pausen nicht; der letzte Zeitschritt
+wird nur bis zur Ziellinie gezählt (`src/ride_stats.gd`).
 
 ### Virtuelle Steigung (`set_grade`)
 
@@ -114,8 +139,9 @@ spielt von vorn (so lässt sich auch Reconnect prüfen):
 ]
 ```
 
-Bausteine in GDScript: `FakeBusServer.status(state, source, capabilities, at)`, `telemetry(cadence, at)`,
-`steady_cadence(cadence, from_s, to_s, interval_s = 0.25)`, `close_at(at)`; als Datei über
+Bausteine in GDScript: `FakeBusServer.status(state, source, capabilities, at)`, `telemetry(cadence, at, fields)`,
+`steady_cadence(cadence, from_s, to_s, interval_s = 0.25, fields)`, `close_at(at)`, `ack(for, ok, reason)`
+(`fields` ergänzt Telemetrie-Felder, z. B. `{"power_w": 142.0, "power_estimated": true}`); als Datei über
 `FakeBusServer.load_script("res://tests/fixtures/….json")`.
 
 ```gdscript
@@ -149,6 +175,7 @@ bergauf (80 → ~71 rpm), in der Session-CSV füllt sich die Spalte `grade`; die
 config.cfg              Bus-Adresse + Fahrmodell-Parameter
 scenes/main.tscn/.gd    Hauptszene: Bus-Client → Fahrmodell → Fahrer auf dem Pfad, Spielzustände, Tasten, HUD
 src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeout), status/telemetry parsen, send_message
+src/ride_stats.gd       RideStats: Fahrzeit, Strecke, Ø Kadenz, Ø Tempo (ohne Pausen) – reine Logik
 src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik
 src/ride_model.gd       RideModel: reine Logik (Kadenz, Steigung, Δt, Konfig → Geschwindigkeit, Position)
 src/ride_config.gd      RideConfig: liest config.cfg
@@ -159,4 +186,4 @@ tools/                  E2E-Prüfhilfe gegen die echte Bridge
 addons/gut/             GUT 9.4.0 (MIT, Lizenz in addons/gut/LICENSE.md)
 ```
 
-Noch nicht enthalten (Folgetickets): vollständiges HUD (#13), Insel-Rundkurs statt Graybox (#14).
+Noch nicht enthalten (Folgetickets): Insel-Rundkurs statt Graybox (#14).

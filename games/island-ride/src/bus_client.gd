@@ -36,6 +36,10 @@ var source := ""
 var capabilities := PackedStringArray()
 ## `t_ms` der letzten Telemetrie (-1 = noch keine).
 var last_telemetry_t_ms := -1
+## Letzte Telemetrie-Nachricht unverändert, wie empfangen (leer = noch keine) – z. B. für die Debug-Anzeige.
+var last_telemetry := {}
+## Empfangszeit der letzten Telemetrie (`Time.get_ticks_msec()`, -1 = noch keine).
+var last_telemetry_received_ms := -1
 ## Besteht die WebSocket-Verbindung zum Bus?
 var bus_connected := false
 
@@ -56,6 +60,24 @@ static func from_config(config: RideConfig) -> BusClient:
 
 func has_capability(capability: String) -> bool:
 	return capabilities.has(capability)
+
+
+## Leistung in Watt aus der letzten Telemetrie; NAN, wenn die Quelle keine liefert (`power_w: null`).
+func power_w() -> float:
+	var value = last_telemetry.get("power_w")
+	return float(value) if value is float else NAN
+
+
+## Ist die Leistung geschätzt? Nur ein ausdrückliches `power_estimated: false` gilt als gemessen (ADR-0004).
+func power_estimated() -> bool:
+	return last_telemetry.get("power_estimated") != false
+
+
+## Alter der letzten Telemetrie in Millisekunden (-1 = noch keine).
+func telemetry_age_ms() -> int:
+	if last_telemetry_received_ms < 0:
+		return -1
+	return Time.get_ticks_msec() - last_telemetry_received_ms
 
 
 ## Treibt Verbindung, Reconnect und Empfang voran. `delta_s` = vergangene Zeit seit dem letzten Aufruf.
@@ -149,6 +171,8 @@ func _handle(text: String) -> void:
 				cadence = value
 			if message.get("t_ms") is float:
 				last_telemetry_t_ms = int(message["t_ms"])
+			last_telemetry = message
+			last_telemetry_received_ms = Time.get_ticks_msec()
 			telemetry_received.emit(message)
 		"ack":
 			ack_received.emit(message)

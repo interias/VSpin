@@ -126,18 +126,22 @@ static func status(state: String = "connected", source: String = "sim",
 
 
 ## Baustein: eine `telemetry`-Nachricht mit Kadenz (übrige Werte null wie beim Simulator).
-static func telemetry(cadence: float, at: float = 0.0) -> Dictionary:
-	return {"at": at, "send": {"v": 0, "type": "telemetry", "t_ms": int(at * 1000.0),
+## `fields` überschreibt/ergänzt Felder, z. B. `{"power_w": 142.0, "power_estimated": true}`.
+static func telemetry(cadence: float, at: float = 0.0, fields: Dictionary = {}) -> Dictionary:
+	var message := {"v": 0, "type": "telemetry", "t_ms": int(at * 1000.0),
 			"cadence": cadence, "speed_kmh": null, "power_w": null,
-			"power_estimated": null, "heart_rate": null}}
+			"power_estimated": null, "heart_rate": null}
+	message.merge(fields, true)
+	return {"at": at, "send": message}
 
 
 ## Baustein: gleichbleibende Kadenz von `from_s` bis `to_s`, alle `interval_s` (Bridge-Takt 250 ms).
-static func steady_cadence(cadence: float, from_s: float, to_s: float, interval_s: float = 0.25) -> Array:
+static func steady_cadence(cadence: float, from_s: float, to_s: float, interval_s: float = 0.25,
+		fields: Dictionary = {}) -> Array:
 	var steps: Array = []
 	var t := from_s
 	while t <= to_s + 0.0001:
-		steps.append(telemetry(cadence, t))
+		steps.append(telemetry(cadence, t, fields))
 		t += interval_s
 	return steps
 
