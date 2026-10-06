@@ -31,6 +31,15 @@ Der Simulator senkt bergauf die Kadenz (um 2 × Steigung, höchstens auf die Hä
 bei Steigung 0 oder bergab gilt wieder die per Tastatur eingestellte Kadenz.
 Kaputte oder unbekannte Nachrichten werden mit `error` beantwortet (docs/bus-protocol.md).
 
+## Sessions
+
+Jeder Bridge-Lauf schreibt eine Session-CSV (ADR-0008) nach `sessions/YYYY-MM-DD_HH-MM-SS.csv`
+– relativ zum Arbeitsverzeichnis, anderer Ort mit `--sessions-dir DIR`. Der Pfad steht beim Start
+im Terminal. Eine Zeile pro Sample am Bus, Spalten
+`t_ms,cadence_raw,cadence,speed_kmh,power_w,power_estimated,hr_bpm,grade,status`; fehlende Werte
+bleiben leer (`grade` bis zum ersten `set_grade`, `hr_bpm` in v1 immer). Jede Zeile wird sofort
+geflusht, auch nach Strg+C oder Absturz bleibt eine lesbare Datei. `sessions/` ist in `.gitignore`.
+
 ## Testen
 
 ```
@@ -49,6 +58,6 @@ src/vspin_bridge/
   sources/   ble (FTMS/CSC), sim, replay  – alle implementieren DeviceSource
   parsers/   Byte → TelemetrySample
   bus/       WebSocket-Server (docs/bus-protocol.md)
-  logging/   Session-CSV + Roh-JSONL (ADR-0008)
+  session/   Session-CSV (ADR-0008); Roh-JSONL folgt
 tests/fixtures/  echte JC312-Dumps für Parser-Tests
 ```
