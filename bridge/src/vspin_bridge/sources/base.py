@@ -36,15 +36,26 @@ class NotSupportedError(Exception):
     """Die Quelle hat die nötige Capability nicht (z. B. `RESISTANCE_CONTROL`)."""
 
 
+class SourceDisconnectedError(Exception):
+    """Verbindung zur Quelle ist weg: `connect` erreicht das Gerät nicht oder `samples`
+    bricht ab. Die Bridge meldet `disconnected` und versucht alle 3 s neu zu verbinden
+    (ADR-0004)."""
+
+
 class DeviceSource(Protocol):
     """Schnittstelle für BLE, Replay und Simulator – Clients sehen keinen Unterschied."""
 
     name: str  # Bus-`source`: ble | sim | replay
     capabilities: set[Capability]
 
-    async def connect(self) -> None: ...
+    async def connect(self) -> None:
+        """Wirft `SourceDisconnectedError`, wenn das Gerät gerade nicht erreichbar ist."""
+        ...
 
-    def samples(self) -> AsyncIterator[TelemetrySample]: ...
+    def samples(self) -> AsyncIterator[TelemetrySample]:
+        """Samples bis zum Ende der Quelle; wirft `SourceDisconnectedError` bei Abbruch.
+        Nach erneutem `connect` liefert ein neuer Aufruf die weiteren Samples."""
+        ...
 
     async def set_resistance(self, level: float) -> None:
         """Wirft `NotSupportedError` ohne Capability `RESISTANCE_CONTROL`."""

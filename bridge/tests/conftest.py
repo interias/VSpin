@@ -4,8 +4,15 @@ from collections.abc import Iterator
 from contextlib import ExitStack
 
 import pytest
-from bridge_harness import BUS_URL, BridgeProcess
+from bridge_harness import BUS_URL, BridgeProcess, port_lock
 from websockets.sync.client import ClientConnection, connect
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _exclusive_bus_port() -> Iterator[None]:
+    """Ein Bridge-Testlauf zur Zeit pro Rechner (fester Port 8765, siehe `port_lock`)."""
+    with port_lock():
+        yield
 
 
 @pytest.hookimpl(wrapper=True)
