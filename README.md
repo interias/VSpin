@@ -3,8 +3,59 @@
 Eigene Game-Plattform für das **Wenoker JC312** Indoor-Bike: Telemetrie per
 Bluetooth LE unter Windows abgreifen und eigene Games darauf bauen.
 
-> Status: Grundgerüst. Noch keine Implementierung – als Nächstes kommt das
-> BLE-Discovery-Skript (siehe Issues).
+> Status: v1 in Arbeit. Bridge (Simulator, Replay, CSC/FTMS-Parser, Session-Logging) und
+> Spiel „Inselfahrt“ (Insel-Rundkurs, HUD, Pause, `set_grade`) laufen ohne Rad. Es fehlen
+> die BLE-Anbindung ans echte JC312 (#9, braucht den Dump aus #1) und die Abnahme am Rad (#17).
+
+## Schnellstart (Windows)
+
+Voraussetzungen: Python 3.12, [Godot 4.4](https://godotengine.org/download) (Standard-Version, nicht .NET).
+
+**1. Bridge installieren** (einmalig, PowerShell im Repo-Ordner):
+
+```powershell
+cd bridge
+py -3.12 -m venv .venv
+.venv\Scripts\pip install -e ".[test]"
+```
+
+**2. Bridge starten** – eine der Quellen:
+
+```powershell
+.venv\Scripts\vspin-bridge --source sim --sim-cadence 80        # Simulator, Kadenz per Pfeiltasten
+.venv\Scripts\vspin-bridge --source sim --profile profiles\sprint.toml   # geskriptetes Profil
+.venv\Scripts\vspin-bridge --source replay <datei>.raw.jsonl --speed 1   # Aufnahme abspielen
+```
+
+Im Bridge-Terminal: Pfeil hoch/runter = Kadenz ±5, `q` = beenden. Profile liegen in
+`bridge/profiles/` (Einrollen, Sprint, Stillstand, Abbruch). Jede Session landet als
+`sessions/<zeit>.csv` + `.raw.jsonl` im aktuellen Ordner (nicht im Git).
+Das echte Rad (`--source ble`) folgt mit #9.
+
+**3. Spiel starten:** Godot öffnen → `games/island-ride/project.godot` importieren → F5,
+oder `godot --path games/island-ride`. Tasten: `P`/Leertaste Pause, `F3` Debug-Anzeige, `Esc` Ende.
+Reihenfolge egal – das Spiel verbindet sich, sobald die Bridge läuft.
+
+**4. Protokoll des Rads herausfinden** (sobald das JC312 da ist): siehe [`tools/README.md`](tools/README.md).
+
+**Tests:**
+
+```powershell
+cd bridge; .venv\Scripts\python -m pytest -q          # Bridge (startet echte Bridge-Prozesse)
+godot --headless --path games/island-ride --import       # Spiel, einmalig
+godot --headless --path games/island-ride -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit
+```
+
+Details: [`bridge/README.md`](bridge/README.md), [`games/island-ride/README.md`](games/island-ride/README.md).
+
+### Latenz prüfen (Abnahme < 200 ms)
+
+Die Debug-Anzeige (`F3`) zeigt Roh-Kadenz, Bridge-Zeitstempel und das Alter der letzten Nachricht im Spiel –
+das ist nur der Anteil Bus → Spiel. Die Gesamtlatenz Kurbel → Bild misst man am einfachsten mit einer
+Zeitlupen-Aufnahme (Handy, 240 fps): Kurbel und Bildschirm gleichzeitig filmen, aus dem Stand kräftig antreten
+und die Frames zwischen erster Kurbelbewegung und erster Reaktion im HUD zählen (1 Frame ≈ 4 ms).
+Hinweis: Das Rad selbst sendet typischerweise nur ca. 1–4 Mal pro Sekunde, und die Glättung (1 s) verzögert
+zusätzlich – das Ergebnis zeigt, ob Glättung oder Senderate angepasst werden müssen.
 
 ## Architektur
 
