@@ -2,7 +2,8 @@
 
 Prototyp-Game (ADR-0005): 3D-Radsimulator in Godot 4.4 (GDScript). Das Spiel ist ein Client am
 Bus (`docs/bus-protocol.md`); die Kadenz bewegt den Fahrer entlang eines `Path3D` – kein Lenken.
-Stand: Graybox-Strecke (ein Anstieg, eine Abfahrt) mit Minimal-HUD (Kadenz, Geschwindigkeit).
+Stand: Graybox-Strecke (ein Anstieg, eine Abfahrt) mit Minimal-HUD (Kadenz, Geschwindigkeit) und
+Spielzuständen (Pause bei Verbindungsverlust, manuelle Pause).
 
 ## Spielen
 
@@ -12,7 +13,32 @@ Stand: Graybox-Strecke (ein Anstieg, eine Abfahrt) mit Minimal-HUD (Kadenz, Gesc
    ```
    godot --path games/island-ride                 # oder Projekt im Godot-Editor öffnen und F5
    ```
-Reihenfolge egal: Startet das Spiel zuerst, versucht es alle `reconnect_s` Sekunden zu verbinden.
+Reihenfolge egal: Startet das Spiel zuerst, zeigt es „Bridge nicht erreichbar … Bridge starten:
+`vspin-bridge --source sim`“ und versucht alle `reconnect_s` Sekunden zu verbinden.
+
+### Tasten
+
+| Taste | Wirkung |
+|---|---|
+| `P` oder Leertaste | Pause an/aus (jederzeit) |
+| `Esc` | Spiel beenden (jederzeit) |
+
+Physische Tastenposition (gleich auf QWERTZ/QWERTY); definiert in `scenes/main.gd` (`KEY_BINDINGS`).
+
+### Spielzustände
+
+| Zustand (`state`) | Wann | Anzeige |
+|---|---|---|
+| `riding` – fahren | Bus verbunden, Quelle `connected` und seit dem letzten Abbruch Telemetrie empfangen | – |
+| `paused_manual` – pausiert (manuell) | `P`/Leertaste | „Pause“ |
+| `paused_connection` – pausiert (Verbindung) | Bridge nicht erreichbar, Quelle `stale`/`disconnected` oder noch keine Daten | „Bridge nicht erreichbar … Bridge starten“ bzw. „Verbindung verloren (Rad: stale)“ |
+
+In jeder Pause steht das Fahrmodell still: Position und Geschwindigkeit bleiben, wie sie waren. Ein
+Verbindungsabbruch ist **keine Kadenz 0** (ADR-0004) – der Fahrer rollt nicht aus. Sobald der Bus wieder
+verbunden ist, die Quelle `connected` meldet und Telemetrie ankommt, fährt das Spiel von selbst weiter.
+Die Verbindungspause hat Vorrang; eine manuelle Pause bleibt über einen Abbruch hinweg bestehen
+(kein automatisches Weiterfahren aus der manuellen Pause). Hängt ein Verbindungsaufbau länger als
+`connect_timeout_s`, bricht der Bus-Client ihn ab und versucht es neu.
 
 ## Konfiguration
 
@@ -22,6 +48,7 @@ Reihenfolge egal: Startet das Spiel zuerst, versucht es alle `reconnect_s` Sekun
 |---|---|---|
 | `[bus] url` | `ws://127.0.0.1:8765` | Bus-Adresse |
 | `[bus] reconnect_s` | `2.0` | Sekunden zwischen Verbindungsversuchen |
+| `[bus] connect_timeout_s` | `5.0` | hängt ein Verbindungsaufbau länger, wird er abgebrochen und neu versucht |
 | `[ride] k_kmh_per_rpm` | `0.33` | Übersetzungsfaktor k: `v_ziel = k · Kadenz` (km/h) auf flacher Strecke |
 | `[ride] uphill_damping` | `8.0` | bergauf: `v_ziel / (1 + uphill_damping · Steigung)` |
 | `[ride] downhill_boost` | `2.0` | bergab: `v_ziel · (1 + downhill_boost · \|Gefälle\|)` |
@@ -47,14 +74,16 @@ benutzen Ports ab 18765 – nie den Bus-Port 8765.
 ### Testmuster: Fake-Bus und Drehbuch
 
 Ein guter Test prüft von außen: Drehbuch rein → beobachtbares Spielverhalten raus
-(`bus.cadence`/`bus.status`, `model.speed_kmh()`, `model.distance_m`, HUD), nicht Interna.
+(`bus.cadence`/`bus.status`, `state`, `model.speed_kmh()`, `model.distance_m`, HUD), nicht Interna.
 
 - `tests/support/fake_bus_server.gd` (`FakeBusServer`): WebSocket-Server (`TCPServer` +
   `WebSocketPeer.accept_stream`), spielt jedem Client ein **Drehbuch** vor und schreibt
   Client-Nachrichten in `received` mit (für `set_grade`-Tests).
 - `tests/support/bus_test.gd`: Basisklasse für Tests (`extends "res://tests/support/bus_test.gd"`):
   `start_fake_bus(steps)`, `spawn_ride(bus, start_m, config)` (Hauptszene am Fake-Bus),
-  `connect_client(bus)` (nackter `BusClient`), `run_for(s)`, `run_until(cond, timeout_s)`; räumt nach jedem Test auf.
+  `connect_client(bus)` (nackter `BusClient`), `run_for(s)`, `run_until(cond, timeout_s)`,
+  `press_key(KEY_P)` (Taste wie ein Spieler drücken); räumt nach jedem Test auf. `spawn_ride` setzt
+  `quit_on_request = false` – `Esc` meldet dann nur `quit_requested`, statt den Testlauf zu beenden.
 
 Drehbuch = Array von Schritten, `at` = Sekunden ab Verbindungsaufbau des Clients; jede Verbindung
 spielt von vorn (so lässt sich auch Reconnect prüfen):
@@ -94,8 +123,8 @@ GODOT=godot PYTHON=python games/island-ride/tools/e2e.sh 60 90
 
 ```
 config.cfg              Bus-Adresse + Fahrmodell-Parameter
-scenes/main.tscn/.gd    Hauptszene: Bus-Client → Fahrmodell → Fahrer auf dem Pfad, Minimal-HUD
-src/bus_client.gd       BusClient: verbinden/reconnecten, status/telemetry parsen, send_message
+scenes/main.tscn/.gd    Hauptszene: Bus-Client → Fahrmodell → Fahrer auf dem Pfad, Spielzustände, Tasten, HUD
+src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeout), status/telemetry parsen, send_message
 src/ride_model.gd       RideModel: reine Logik (Kadenz, Steigung, Δt, Konfig → Geschwindigkeit, Position)
 src/ride_config.gd      RideConfig: liest config.cfg
 src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz)
@@ -105,6 +134,5 @@ tools/                  E2E-Prüfhilfe gegen die echte Bridge
 addons/gut/             GUT 9.4.0 (MIT, Lizenz in addons/gut/LICENSE.md)
 ```
 
-Noch nicht enthalten (Folgetickets): Pause bei `stale`/`disconnected` (#11), `set_grade` senden (#12),
-vollständiges HUD (#13), Insel-Rundkurs statt Graybox (#14). Bis #11 fährt der Fahrer bei
-Verbindungsabbruch mit der letzten Kadenz weiter (ein Abbruch ist keine Kadenz 0, ADR-0004).
+Noch nicht enthalten (Folgetickets): `set_grade` senden (#12), vollständiges HUD (#13),
+Insel-Rundkurs statt Graybox (#14).

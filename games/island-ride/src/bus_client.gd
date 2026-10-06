@@ -20,6 +20,8 @@ const STATE_DISCONNECTED := "disconnected"
 
 var url: String
 var reconnect_s: float
+## Höchstdauer eines Verbindungsaufbaus (Sekunden); hängt er länger in CONNECTING, wird neu verbunden.
+var connect_timeout_s: float
 
 ## Letzte gemeldete Kadenz in rpm. Bleibt bei Abbruch stehen – ein Abbruch ist keine
 ## Kadenz 0 (ADR-0004); ob gefahren wird, entscheidet der Besitzer anhand von `status`.
@@ -37,15 +39,17 @@ var bus_connected := false
 
 var _peer: WebSocketPeer = null
 var _retry_in_s := 0.0
+var _connecting_s := 0.0
 
 
-func _init(bus_url: String, reconnect_interval_s: float = 2.0) -> void:
+func _init(bus_url: String, reconnect_interval_s: float = 2.0, connect_timeout: float = 5.0) -> void:
 	url = bus_url
 	reconnect_s = reconnect_interval_s
+	connect_timeout_s = connect_timeout
 
 
 static func from_config(config: RideConfig) -> BusClient:
-	return BusClient.new(config.bus_url, config.bus_reconnect_s)
+	return BusClient.new(config.bus_url, config.bus_reconnect_s, config.bus_connect_timeout_s)
 
 
 func has_capability(capability: String) -> bool:
@@ -61,6 +65,12 @@ func poll(delta_s: float) -> void:
 		return
 	_peer.poll()
 	match _peer.get_ready_state():
+		WebSocketPeer.STATE_CONNECTING:
+			_connecting_s += delta_s
+			if _connecting_s >= connect_timeout_s:
+				push_warning("BusClient: Verbindungsaufbau zu %s nach %.1f s abgebrochen, verbinde neu" % [url, _connecting_s])
+				_peer.close()
+				_lost()
 		WebSocketPeer.STATE_OPEN:
 			if not bus_connected:
 				bus_connected = true
@@ -91,6 +101,7 @@ func close() -> void:
 
 func _open() -> void:
 	_peer = WebSocketPeer.new()
+	_connecting_s = 0.0
 	var err := _peer.connect_to_url(url)
 	if err != OK:
 		push_warning("BusClient: Verbindung zu %s nicht möglich (Fehler %d)" % [url, err])

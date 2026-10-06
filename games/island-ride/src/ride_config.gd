@@ -9,6 +9,8 @@ const DEFAULT_PATH := "res://config.cfg"
 var bus_url := "ws://127.0.0.1:8765"
 ## Sekunden zwischen Verbindungsversuchen zum Bus.
 var bus_reconnect_s := 2.0
+## Sekunden, nach denen ein hängender Verbindungsaufbau abgebrochen und neu versucht wird.
+var bus_connect_timeout_s := 5.0
 ## Übersetzungsfaktor k: km/h je rpm auf flacher Strecke.
 var k_kmh_per_rpm := 0.33
 ## Bergauf: v_ziel / (1 + uphill_damping * Steigung).
@@ -29,6 +31,7 @@ static func load_file(path: String = DEFAULT_PATH) -> RideConfig:
 		return config
 	config.bus_url = str(file.get_value("bus", "url", config.bus_url))
 	config.bus_reconnect_s = float(file.get_value("bus", "reconnect_s", config.bus_reconnect_s))
+	config.bus_connect_timeout_s = float(file.get_value("bus", "connect_timeout_s", config.bus_connect_timeout_s))
 	config.k_kmh_per_rpm = float(file.get_value("ride", "k_kmh_per_rpm", config.k_kmh_per_rpm))
 	config.uphill_damping = float(file.get_value("ride", "uphill_damping", config.uphill_damping))
 	config.downhill_boost = float(file.get_value("ride", "downhill_boost", config.downhill_boost))

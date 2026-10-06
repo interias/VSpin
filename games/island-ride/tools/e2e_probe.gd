@@ -13,7 +13,7 @@ func _initialize() -> void:
 	var ride = load("res://scenes/main.tscn").instantiate()
 	root.add_child(ride)
 	await create_timer(seconds).timeout
-	print("E2E url=%s bus_connected=%s status=%s source=%s cadence=%.1f speed_kmh=%.2f distance_m=%.1f grade=%.3f" % [
-		ride.config.bus_url, ride.bus.bus_connected, ride.bus.status, ride.bus.source,
+	print("E2E url=%s bus_connected=%s status=%s state=%s source=%s cadence=%.1f speed_kmh=%.2f distance_m=%.1f grade=%.3f" % [
+		ride.config.bus_url, ride.bus.bus_connected, ride.bus.status, ride.state, ride.bus.source,
 		ride.bus.cadence, ride.model.speed_kmh(), ride.model.distance_m, ride.current_grade()])
 	quit(0 if ride.bus.bus_connected else 2)
