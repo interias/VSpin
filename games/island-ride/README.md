@@ -2,8 +2,51 @@
 
 Prototyp-Game (ADR-0005): 3D-Radsimulator in Godot 4.4 (GDScript). Das Spiel ist ein Client am
 Bus (`docs/bus-protocol.md`); die Kadenz bewegt den Fahrer entlang eines `Path3D` – kein Lenken.
-Stand: Graybox-Strecke (ein Anstieg, eine Abfahrt) mit HUD, Debug-Anzeige, Spielzuständen (Pause bei
-Verbindungsverlust, manuelle Pause, Ziel mit Zusammenfassung) und `set_grade` an die Bridge.
+Stand: Insel-Rundkurs (~9,2 km, Grundform aus Gelände + Straße, #14) mit HUD, Debug-Anzeige, Spielzuständen
+(Pause bei Verbindungsverlust, manuelle Pause, Ziel mit Zusammenfassung) und `set_grade` an die Bridge. Die kurze
+Graybox-Strecke bleibt per Konfiguration wählbar (und ist die Grundlage vieler Tests).
+
+## Insel und Rundkurs (#14, ADR-0006)
+
+Stilisierte Insel im Mallorca-Stil, ca. **2,1 × 3,1 km** (Superellipse mit Hafenbucht im Süden, Felsküste im
+Westen, Hochebene mit Gipfel im Nordwesten), Meer rundum. Darauf der **Rundkurs, 9,21 km**, Start/Ziel am Hafen,
+gefahren im Uhrzeigersinn über West → Nord → Ost:
+
+| Station | Strecke (km) | Höhe (m) | Steigung | Grundform |
+|---|---|---|---|---|
+| Hafen (Start/Ziel) | 0,00–0,42 | 3 → 4 | flach | Kai, Molen, Boote, Start/Ziel-Bogen |
+| Küstenstraße | 0,42–2,31 | 4 → 42 | Ø 2 %, wellig bis 4,4 % | entlang der Felsküste, Felsen seeseitig |
+| Serpentinen (Sa-Calobra-Stil) | 2,31–4,68 | 42 → 212 | Ø 7,1 %, bis 8,4 % (Einstieg ab 4,3 %) | 6 Rampen mit 5 Kehren, Randsteine; **Aussichtspunkt** (4,59 km) mit Plattform über der Westküste |
+| Pinien-/Olivenhain | 4,68–5,69 | 212 → 222 | Ø 1 %, wellig bis 4,4 % | Pinien und Oliven beidseits |
+| Bergdorf | 5,69–6,02 | 222 → 223 | flach | Häuser mit Terrakotta-Dächern, Kirche |
+| Abfahrt | 6,02–9,21 | 223 → 3 | Ø −6,9 %, max. −8,8 %, Auslauf −1,5 % | über den Osthang mit zwei weiten Kehren zurück zum Hafen |
+
+Steigung überall ≤ 10 %, ohne Sprünge (≤ 1 Prozentpunkt je 5 m). Exakte Werte prüfen die Tests
+(`tests/test_island_course.gd`); die Tabelle ist gerundet.
+
+**Aufbau ohne Plugin (Abweichung von ADR-0006, siehe dort „Nachtrag“):** Terrain3D war in der Build-Umgebung nicht
+verfügbar, daher nur Godot-Bordmittel:
+
+- `src/island_course.gd` – Grundriss (Wegpunkte, zentripetaler Catmull-Rom, alle 5 m abgetastet) und Höhenprofil
+  (Steigung je Station aus Zielhöhen, Wellen, gleitende Glättung über 80 m, geschlossen) → `Curve3D` + Stationen.
+  Strecke ändern = Wegpunkte/`SECTIONS` anpassen; die Tests sagen, ob Länge und Profil noch passen.
+- `src/island_terrain.gd` – Höhenfeld (5-m-Gitter, 2,6 × 3,6 km inkl. Meer) als `ArrayMesh` mit Vertex-Farben.
+  Erst großräumig an die Straßenhöhen angelehnt (kein Damm, keine Schlucht), dann **unter die Straße geformt**:
+  bis 12 m von der Straßenmitte auf Straßenhöhe, bis 70 m weicher Übergang. Eine **handgemalte Höhenkarte** kann
+  das prozedurale Gelände ersetzen: `IslandTerrain.from_image(image)` (R-Kanal 0..1 → −40..360 m) und danach
+  `fit_to_road(IslandCourse.samples())`.
+- `src/island_world.gd` – Gelände, Meer (y = 0), Fahrbahn (6 m, Randlinien), Stationsmarker
+  (`World/Stations/<id>` mit Schild, Metadaten `station_name`/`distance_m`) und Graybox-Deko je Station
+  (`World/Props/<id>`) aus Grundkörpern. Keine fremden Assets – siehe `ASSETS.md`.
+- Kamera (`scenes/main.gd`): sitzt 9 m hinter dem Fahrer **auf der Strecke** (schwenkt in Kehren nicht seitlich
+  aus), blickt 14 m voraus, beides exponentiell geglättet (0,45 s), mindestens 1,5 m über dem Gelände.
+- HUD zeigt zusätzlich den aktuellen Abschnitt („Abschnitt: Serpentinen“).
+
+Erzeugung beim Start ca. 2 s (Gelände wird einmal pro Prozess erzeugt und gecacht).
+
+**Offen – Sichtprüfung am Windows-PC** (headless nicht prüfbar): Optik von Gelände, Meer, Deko und Schildern,
+ruhige Kamera beim Fahren (v. a. in den Kehren), **60 fps** auf dem Ziel-PC (Gelände ~375 000 Vertices,
+Schatten bis 400 m).
 
 ## Spielen
 
@@ -45,6 +88,7 @@ Die Verbindungspause hat Vorrang; eine manuelle Pause bleibt über einen Abbruch
 ### HUD
 
 Oben links: Kadenz (rpm, gerundet), Tempo (km/h), Strecke (km seit Start), Zeit (Fahrzeit, ohne Pausen),
+Abschnitt (Station des Insel-Rundkurses; nicht bei der Graybox),
 Steigung (%) und – **nur wenn die Quelle Watt liefert** – Leistung. Geschätzte Watt (`power_estimated`
 nicht ausdrücklich `false`) immer mit „~“, z. B. „~142 W“ (ADR-0004); gemessene ohne. Darunter dezent der
 `set_grade`-Hinweis, in der Mitte groß Pause-/Verbindungs-/Ziel-Meldungen.
@@ -94,6 +138,7 @@ Kadenz; die Steigung steht in der Session-CSV der Bridge (Spalte `grade`).
 | `[ride] uphill_damping` | `8.0` | bergauf: `v_ziel / (1 + uphill_damping · Steigung)` |
 | `[ride] downhill_boost` | `2.0` | bergab: `v_ziel · (1 + downhill_boost · \|Gefälle\|)` |
 | `[ride] inertia_s` | `1.5` | Trägheit: Zeitkonstante (s) der Annäherung an `v_ziel`; 0 = sofort |
+| `[world] track` | `island` | Strecke: `island` = Insel-Rundkurs, `graybox` = kurze Graybox-Teststrecke (~900 m); Unbekanntes → `island` |
 
 Steigung als Anteil (0.06 = 6 %, wie `set_grade`). Fehlende Schlüssel → Standardwerte aus `src/ride_config.gd`.
 
@@ -124,6 +169,8 @@ Ein guter Test prüft von außen: Drehbuch rein → beobachtbares Spielverhalten
   `bus.replies["set_grade"] = FakeBusServer.ack("set_grade", false, "not_supported")`.
 - `tests/support/bus_test.gd`: Basisklasse für Tests (`extends "res://tests/support/bus_test.gd"`):
   `start_fake_bus(steps)`, `spawn_ride(bus, start_m, config)` (Hauptszene am Fake-Bus),
+  `config_for(bus, path, track)` (Spiel-Konfiguration am Fake-Bus; Strecke standardmäßig **Graybox** – kurz und mit
+  Steigungen an festen Positionen; Insel-Tests übergeben `RideConfig.TRACK_ISLAND`),
   `connect_client(bus)` (nackter `BusClient`), `run_for(s)`, `run_until(cond, timeout_s)`,
   `press_key(KEY_P)` (Taste wie ein Spieler drücken); räumt nach jedem Test auf. `spawn_ride` setzt
   `quit_on_request = false` – `Esc` meldet dann nur `quit_requested`, statt den Testlauf zu beenden.
@@ -164,26 +211,31 @@ GODOT=godot PYTHON=python games/island-ride/tools/e2e.sh 60 90
 ```
 
 `set_grade` von Hand prüfen: Bridge starten (`vspin-bridge --source sim --sim-cadence 80`), dann
-`godot --headless --path games/island-ride -s res://tools/e2e_probe.gd -- --seconds=9 --start-m=120`
-(Start kurz vor dem Anstieg). Erwartet: im Bridge-Terminal `set_grade … -> not_supported`, Kadenz sinkt
-bergauf (80 → ~71 rpm), in der Session-CSV füllt sich die Spalte `grade`; die Probe-Zeile zeigt
-`hint=Widerstand: nicht unterstützt`.
+`godot --headless --path games/island-ride -s res://tools/e2e_probe.gd -- --seconds=9 --start-m=2400`
+(Insel: Serpentinen; mit `--track=graybox --start-m=120` kurz vor dem Graybox-Anstieg). Erwartet: im
+Bridge-Terminal `set_grade … -> not_supported`, Kadenz sinkt bergauf, in der Session-CSV füllt sich die Spalte
+`grade`; die Probe-Zeile zeigt `station=Serpentinen` und `hint=Widerstand: nicht unterstützt`.
 
 ## Aufbau
 
 ```
-config.cfg              Bus-Adresse + Fahrmodell-Parameter
-scenes/main.tscn/.gd    Hauptszene: Bus-Client → Fahrmodell → Fahrer auf dem Pfad, Spielzustände, Tasten, HUD
+config.cfg              Bus-Adresse, Fahrmodell-Parameter, Strecke
+scenes/main.tscn/.gd    Hauptszene: Strecke laut Konfiguration, Bus-Client → Fahrmodell → Fahrer auf dem Pfad, Kamera, Spielzustände, Tasten, HUD
 src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeout), status/telemetry parsen, send_message
 src/ride_stats.gd       RideStats: Fahrzeit, Strecke, Ø Kadenz, Ø Tempo (ohne Pausen) – reine Logik
 src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik
 src/ride_model.gd       RideModel: reine Logik (Kadenz, Steigung, Δt, Konfig → Geschwindigkeit, Position)
 src/ride_config.gd      RideConfig: liest config.cfg
-src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz)
-src/graybox_track.gd    GrayboxTrack: Rundkurs ~900 m, flach → +6 % → Kuppe → −6 % → flach
+src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz), stations, station_at(), road_mesh()
+src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil, Stationen (reine Daten/Logik)
+src/island_terrain.gd   IslandTerrain: Höhenfeld (prozedural oder Höhenkarte), unter die Straße geformt, Mesh
+src/island_world.gd     IslandWorld: Gelände, Meer, Fahrbahn, Stationsmarker, Graybox-Deko
+src/graybox_track.gd    GrayboxTrack: Rundkurs ~900 m, flach → +6 % → Kuppe → −6 % → flach (`[world] track="graybox"`)
 tests/                  GUT-Tests, support/ (Fake-Bus, Basisklasse, Hook), fixtures/
 tools/                  E2E-Prüfhilfe gegen die echte Bridge
 addons/gut/             GUT 9.4.0 (MIT, Lizenz in addons/gut/LICENSE.md)
+ASSETS.md               Asset-Nachweis und Lizenzregel (bisher keine fremden Assets)
 ```
 
-Noch nicht enthalten (Folgetickets): Insel-Rundkurs statt Graybox (#14).
+Noch nicht enthalten: echte Modelle/Texturen (CC0, siehe `ASSETS.md`), Terrain3D (ADR-0006 Nachtrag),
+Feinschliff der Optik nach Sichtprüfung am Windows-PC.

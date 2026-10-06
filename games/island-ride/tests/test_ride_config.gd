@@ -16,6 +16,7 @@ func test_values_are_read_from_file() -> void:
 	assert_eq(config.uphill_damping, 20.0)
 	assert_eq(config.downhill_boost, 6.0)
 	assert_eq(config.inertia_s, 0.0)
+	assert_eq(config.track, RideConfig.TRACK_GRAYBOX)
 
 
 func test_missing_keys_fall_back_to_defaults() -> void:
@@ -24,6 +25,11 @@ func test_missing_keys_fall_back_to_defaults() -> void:
 	assert_eq(config.k_kmh_per_rpm, 0.4)
 	assert_eq(config.bus_url, defaults.bus_url)
 	assert_eq(config.inertia_s, defaults.inertia_s)
+	assert_eq(config.track, RideConfig.TRACK_ISLAND, "ohne [world] → Insel-Rundkurs")
+
+
+func test_unknown_track_falls_back_to_island() -> void:
+	assert_eq(RideConfig.load_file("res://tests/fixtures/unknown_track.cfg").track, RideConfig.TRACK_ISLAND)
 
 
 func test_missing_file_gives_defaults() -> void:
