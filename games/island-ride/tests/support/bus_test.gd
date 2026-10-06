@@ -40,8 +40,12 @@ func start_fake_bus(steps: Array) -> FakeBusServer:
 
 
 ## Konfiguration aus `path` (Standard: die Spiel-Konfiguration), Bus-Adresse auf `bus` umgebogen.
-func config_for(bus: FakeBusServer, path: String = RideConfig.DEFAULT_PATH) -> RideConfig:
+## Strecke: standardmäßig die Graybox (kurz, Steigungen an festen Positionen – Grundlage der Spielzustands-,
+## HUD- und set_grade-Tests); Insel-Tests übergeben `RideConfig.TRACK_ISLAND`.
+func config_for(bus: FakeBusServer, path: String = RideConfig.DEFAULT_PATH,
+		track: String = RideConfig.TRACK_GRAYBOX) -> RideConfig:
 	var config := RideConfig.load_file(path)
+	config.track = track
 	config.bus_url = bus.url()
 	config.bus_reconnect_s = 0.2
 	return config

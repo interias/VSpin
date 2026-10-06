@@ -37,3 +37,17 @@ Insel-Teststrecke. Optionen: (A) echte Geodaten (DEM + OSM),
 ## Später möglich
 
 - Option A (reale Strecken, GPX-Import) als weiterer Streckentyp.
+
+## Nachtrag (2026-10-06, #14): Terrain3D zurückgestellt
+
+- **Terrain3D ist vorerst nicht im Einsatz.** In der Build-/Testumgebung (headless Linux-Container ohne
+  Zugriff auf Plugin-Releases und Asset-Quellen) war das Plugin nicht verfügbar.
+- Stattdessen: **eingebautes Höhenfeld** aus Godot-Bordmitteln (`games/island-ride/src/island_terrain.gd`):
+  regelmäßiges Gitter (5 m) als `ArrayMesh`, prozedural erzeugt (Inselform, Küste, Gipfel) und **unter die
+  Straße geformt**. Eine handgemalte Höhenkarte kann das prozedurale Gelände ersetzen
+  (`IslandTerrain.from_image()` + `fit_to_road()`).
+- Grundriss und Höhenprofil des Rundkurses sind von der Geländequelle unabhängig
+  (`games/island-ride/src/island_course.gd`) – die Steigung kommt weiter aus dem `Path3D`.
+- **Terrain3D kann später auf dem Windows-PC übernommen werden** (z. B. Höhenkarte aus dem Höhenfeld
+  exportieren und in Terrain3D importieren); Strecke, Fahrmodell und Tests bleiben davon unberührt.
+- Assets: bisher nur selbst erstellte/prozedurale Grundformen (`games/island-ride/ASSETS.md`).

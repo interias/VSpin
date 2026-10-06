@@ -1,9 +1,11 @@
-## Konfiguration der Inselfahrt: Bus-Adresse und Fahrmodell-Parameter (ADR-0006).
+## Konfiguration der Inselfahrt: Bus-Adresse, Fahrmodell-Parameter und Strecke (ADR-0006).
 ## Wird aus einer ConfigFile-Datei (INI) gelesen, Standard `res://config.cfg`.
 class_name RideConfig
 extends RefCounted
 
 const DEFAULT_PATH := "res://config.cfg"
+const TRACK_ISLAND := "island"
+const TRACK_GRAYBOX := "graybox"
 
 ## Bus-Adresse (docs/bus-protocol.md).
 var bus_url := "ws://127.0.0.1:8765"
@@ -19,6 +21,8 @@ var uphill_damping := 8.0
 var downhill_boost := 2.0
 ## Trägheit als Zeitkonstante in Sekunden (0 = keine Trägheit).
 var inertia_s := 1.5
+## Strecke: TRACK_ISLAND (Insel-Rundkurs, Standard) oder TRACK_GRAYBOX (kurze Teststrecke).
+var track := TRACK_ISLAND
 
 
 ## Liest `path`; fehlende Datei oder fehlende Schlüssel ergeben die Standardwerte.
@@ -36,4 +40,8 @@ static func load_file(path: String = DEFAULT_PATH) -> RideConfig:
 	config.uphill_damping = float(file.get_value("ride", "uphill_damping", config.uphill_damping))
 	config.downhill_boost = float(file.get_value("ride", "downhill_boost", config.downhill_boost))
 	config.inertia_s = float(file.get_value("ride", "inertia_s", config.inertia_s))
+	config.track = str(file.get_value("world", "track", config.track))
+	if config.track not in [TRACK_ISLAND, TRACK_GRAYBOX]:
+		push_warning("RideConfig: unbekannte Strecke '%s', nutze '%s'" % [config.track, TRACK_ISLAND])
+		config.track = TRACK_ISLAND
 	return config

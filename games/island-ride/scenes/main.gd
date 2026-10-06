@@ -1,5 +1,7 @@
-## Hauptszene der Inselfahrt (Graybox): verbindet Bus-Client, Fahrmodell und Strecke.
+## Hauptszene der Inselfahrt: verbindet Bus-Client, Fahrmodell und Strecke.
 ## Kadenz vom Bus → Fahrmodell (mit Steigung der Strecke) → Fahrer folgt dem Path3D. Kein Lenken.
+## Strecke laut Konfiguration (`[world] track`): Insel-Rundkurs mit Insel-Welt (Standard, #14) oder Graybox.
+## Die Kamera folgt dem Fahrer ruhig: Position hinter ihm auf der Strecke, Blick voraus, beides geglättet.
 ##
 ## Spielzustände (`state`):
 ##   riding             fahren – Bus verbunden, Quelle `connected` und Daten seit dem letzten Abbruch
@@ -34,6 +36,15 @@ const KEY_BINDINGS := {
 	"ride_quit": [KEY_ESCAPE],
 	"ride_debug": [KEY_F3],
 }
+## Kamera: Abstand hinter dem Fahrer (entlang der Strecke), Höhe, Blickpunkt voraus, Glättung (Zeitkonstante).
+const CAMERA_BEHIND_M := 9.0
+const CAMERA_HEIGHT_M := 3.5
+const CAMERA_LOOK_AHEAD_M := 14.0
+const CAMERA_LOOK_HEIGHT_M := 1.2
+const CAMERA_SMOOTHING_S := 0.45
+## Mindesthöhe der Kamera über dem Gelände (Insel).
+const CAMERA_TERRAIN_CLEARANCE_M := 1.5
+
 const BRIDGE_START_HINT := "Bridge starten: vspin-bridge --source sim"
 const RESISTANCE_NOT_SUPPORTED := "Widerstand: nicht unterstützt"
 
@@ -56,7 +67,11 @@ var stats := RideStats.new()
 ## Streckenposition (wie `model.distance_m`) der Ziellinie.
 var finish_distance_m := 0.0
 
+## Insel-Welt (null bei der Graybox-Strecke).
+var world: IslandWorld = null
+
 var _manual_pause := false
+var _camera_look := Vector3.ZERO
 ## Telemetrie seit dem letzten Verbindungsverlust empfangen? Erst dann wird weitergefahren.
 var _data_since_loss := false
 var _ever_connected := false
@@ -67,12 +82,14 @@ var _ever_connected := false
 @onready var message_label: Label = $Hud/Message
 @onready var hint_label: Label = $Hud/Hint
 @onready var debug_label: Label = $Hud/Debug
+@onready var camera: Camera3D = $Camera
 
 
 func _ready() -> void:
 	if config == null:
 		config = RideConfig.load_file()
 	_register_key_bindings()
+	_setup_track()
 	bus = BusClient.from_config(config)
 	bus.telemetry_received.connect(_on_telemetry)
 	bus.status_changed.connect(_on_status_changed)
@@ -82,6 +99,7 @@ func _ready() -> void:
 	var lap := track.length_m()
 	finish_distance_m = (floorf(start_distance_m / lap) + 1.0) * lap if lap > 0.0 else INF
 	_update_view()
+	_update_camera(0.0, true)
 
 
 func _process(delta: float) -> void:
@@ -91,6 +109,57 @@ func _process(delta: float) -> void:
 		_ride(delta)
 	_report_grade(delta)
 	_update_view()
+	_update_camera(delta)
+
+
+## Strecke laut Konfiguration: Insel-Rundkurs mit Welt (Gelände, Meer, Stationen) oder Graybox mit Boden.
+func _setup_track() -> void:
+	if config.track == RideConfig.TRACK_GRAYBOX:
+		track.curve = GrayboxTrack.build_curve()
+		var ground := MeshInstance3D.new()
+		ground.name = "Ground"
+		var plane := PlaneMesh.new()
+		plane.size = Vector2(600.0, 600.0)
+		ground.mesh = plane
+		var ground_material := StandardMaterial3D.new()
+		ground_material.albedo_color = Color(0.45, 0.55, 0.4)
+		ground.material_override = ground_material
+		ground.position = Vector3(0.0, -0.05, 143.0)
+		add_child(ground)
+		var road := MeshInstance3D.new()
+		road.name = "Road"
+		road.mesh = track.road_mesh(0.02, 16.0)
+		var road_material := StandardMaterial3D.new()
+		road_material.vertex_color_use_as_albedo = true
+		road_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		road.material_override = road_material
+		track.add_child(road)
+		return
+	IslandCourse.apply_to(track)
+	world = IslandWorld.new()
+	world.name = "World"
+	add_child(world)
+	world.build(track)
+
+
+## Abschnitt (Station) an der Fahrerposition, "" ohne Stationen (Graybox).
+func current_station() -> String:
+	return track.station_at(model.distance_m).get("name", "")
+
+
+## Kamera ruhig hinter dem Fahrer: Zielposition hinter ihm auf der Strecke (folgt Kurven und Kehren, statt
+## seitlich auszuschwenken), Blick auf einen Punkt voraus; beides exponentiell geglättet. `snap` springt sofort.
+func _update_camera(delta: float, snap: bool = false) -> void:
+	var d := model.distance_m
+	var target := track.to_global(track.position_at(d - CAMERA_BEHIND_M)) + Vector3.UP * CAMERA_HEIGHT_M
+	var look := track.to_global(track.position_at(d + CAMERA_LOOK_AHEAD_M)) + Vector3.UP * CAMERA_LOOK_HEIGHT_M
+	if world != null:
+		target.y = maxf(target.y, world.terrain.height_at(target.x, target.z) + CAMERA_TERRAIN_CLEARANCE_M)
+	var follow := 1.0 if snap else 1.0 - exp(-delta / CAMERA_SMOOTHING_S)
+	camera.global_position = camera.global_position.lerp(target, follow)
+	_camera_look = _camera_look.lerp(look, follow)
+	if camera.global_position.distance_to(_camera_look) > 0.01:
+		camera.look_at(_camera_look, Vector3.UP)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -276,6 +345,9 @@ func _update_view() -> void:
 		"Zeit: %s" % format_time(lap_time_s()),
 		"Steigung: %s" % format_grade(current_grade()),
 	]
+	var station := current_station()
+	if not station.is_empty():
+		lines.append("Abschnitt: %s" % station)
 	var power := format_power(bus.power_w(), bus.power_estimated())
 	if not power.is_empty():
 		lines.append("Leistung: %s" % power)
