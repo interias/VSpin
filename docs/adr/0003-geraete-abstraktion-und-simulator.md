@@ -18,7 +18,7 @@ class DeviceSource(Protocol):
     capabilities: set[Capability]   # CADENCE, SPEED, POWER, RESISTANCE_CONTROL …
     async def connect(self) -> None
     def samples(self) -> AsyncIterator[TelemetrySample]
-    async def set_resistance(self, level: float) -> None  # NotSupported ohne Capability
+    async def set_grade(self, grade: float) -> None  # Steigung als Anteil; NotSupported ohne Capability
 ```
 
 `TelemetrySample` ist protokollneutral: Zeitstempel, Kadenz, Geschwindigkeit,
@@ -46,9 +46,16 @@ Die Bridge zeichnet rohe BLE-Notifications mit Zeitstempel auf (Replay-Format).
 
 - Games können nicht unterscheiden, ob Daten echt oder simuliert sind.
 - Parser sind ohne Hardware unit-testbar; der Discovery-Dump liefert erste Fixtures.
-- `set_resistance` ist von Anfang an Teil der Schnittstelle (Andockpunkt ESP32).
+- `set_grade` ist von Anfang an Teil der Schnittstelle (Andockpunkt ESP32).
 
 ## Verworfen
 
 - **Virtuelles BLE-Peripheral** zum Simulieren: hoher Aufwand, unter Windows
   umständlich; diese Rolle übernimmt später der ESP32.
+
+## Nachtrag (2026-10-07, #19): `set_resistance` heißt `set_grade`
+
+- Die Methode trug schon immer die virtuelle Steigung als Anteil (0.07 = 7 %), keine
+  Widerstandsstufe. Sie heißt daher wie die Bus-Nachricht `set_grade`; das Gerät setzt die
+  Steigung selbst in Widerstand um (ADR-0007). Der Simulator wertet sie aus und antwortet
+  trotzdem mit `NotSupported`.

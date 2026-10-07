@@ -223,12 +223,11 @@ class Bridge:
 
     async def _set_grade(self, message: SetGrade) -> str:
         self._grade = message.grade
-        if isinstance(self._source, SimulatorSource):
-            self._source.set_grade(message.grade)  # virtuelle Steigung im Simulator (ADR-0007)
         # Andockpunkt Widerstandssteuerung: eine Quelle mit RESISTANCE_CONTROL setzt die
-        # Steigung um, alle anderen werfen NotSupportedError (ADR-0003, ADR-0007).
+        # Steigung um, alle anderen werfen NotSupportedError (ADR-0003, ADR-0007) – der
+        # Simulator wertet sie vorher trotzdem aus.
         try:
-            await self._source.set_resistance(message.grade)
+            await self._source.set_grade(message.grade)
         except NotSupportedError:
             ok, reason = False, "not_supported"
         else:
