@@ -2,6 +2,7 @@
 ## Die Bewegung rechnet RiderMotion (headless testbar); dieses Modul baut die Geometrie und setzt die Posen.
 ##
 ##   update(cadence, speed_mps, grade, curvature, paused, delta)   einmal pro Frame aus der Hauptszene
+##   make_ghost()   halbtransparente Kopie als Ghost (#32)
 ##
 ## Koordinaten (Meter): Ursprung am Boden unter der Radmitte, Fahrtrichtung −Z (wie PathFollow3D), rechts +X.
 ## Knoten: `Lean` (Schräglage um die Aufstandslinie) → `Bike` (Rahmen, starr), `FrontWheel`/`RearWheel` (rollen),
@@ -43,6 +44,9 @@ const BIKE_ROCK_RAD := deg_to_rad(1.2)
 const FRAME_COLOR := Color(0.82, 0.12, 0.1)
 const JERSEY_COLOR := Color(0.05, 0.55, 0.78)
 const SKIN_COLOR := Color(0.93, 0.72, 0.58)
+## Ghost (#32): Deckkraft und Farbton, zu dem hin aufgehellt wird.
+const GHOST_ALPHA := 0.45
+const GHOST_TINT := Color(0.75, 0.9, 1.0)
 
 var motion := RiderMotion.new()
 
@@ -75,6 +79,22 @@ func _init() -> void:
 func update(cadence_rpm: float, speed_mps: float, grade: float, curvature: float, paused: bool, delta_s: float) -> void:
 	motion.step(cadence_rpm, speed_mps, grade, curvature, paused, delta_s)
 	_apply_pose()
+
+
+## Als Ghost (#32): alle Materialien halbtransparent (Deckkraft `alpha`) und zu einem hellen Blau hin aufgehellt,
+## kein Schattenwurf. Tiefe wird mitgeschrieben, damit innere Teile nicht durchscheinen; läuft auch im
+## Compatibility-Renderer.
+func make_ghost(alpha: float = GHOST_ALPHA) -> void:
+	for key in _materials:
+		var material: StandardMaterial3D = _materials[key]
+		var color := material.albedo_color.lerp(GHOST_TINT, 0.45)
+		color.a = alpha
+		material.albedo_color = color
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_ALWAYS
+		material.metallic = 0.0
+	for mesh in find_children("*", "MeshInstance3D", true, false):
+		(mesh as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
 ## Pedalposition (Modellkoordinaten im Schräglage-Knoten) für Seite 0 = rechts, 1 = links beim aktuellen Kurbelwinkel.

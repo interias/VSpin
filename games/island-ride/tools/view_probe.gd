@@ -5,7 +5,7 @@
 ##         [--fps-from=0 --fps-to=2310 --speed-kmh=50] [--size=1920x1080] [--cadence=85] [--close] [--pair]
 ##         [--advance=1.5] [--time=21:30] [--date=2026-06-21] [--weather=rain] [--profile=forward|compat]
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
-##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments]
+##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -34,6 +34,10 @@
 ## Segmente (#33): `--segments` (mit `--hud`) stellt den Fahrer in jedes Segment der Strecke – HUD mit Live-Zeit,
 ## `segment_<id>.png` – und kurz hinter sein Ende mit dem Ergebnis beim Verlassen (`segment_<id>_result.png`);
 ## Beispielzeit knapp unter der Silber-Schwelle. Die Torbögen zeigen `--shots` kurz vor dem Segmentstart.
+## Ghost (#32): `--ghost=S` lässt einen Beispiel-Ghost mitfahren, gegen den der Fahrer S Sekunden zurückliegt (negativ:
+## vorn) – gleiches Tempo wie der Fahrer (Beispielfahrt 22 km/h, bei `--fps-*` dessen Tempo), halbtransparent
+## neben/vor dem Fahrer, mit `--hud` der Abstand im HUD. Mit `--title --laps=N` steht er (nur im Speicher) als
+## Bestzeit und letzte Fahrt in der Ghost-Auswahl der Seite „Rundfahrt“.
 extends SceneTree
 
 ## Beispiel-Rundenzeiten (s) für `--laps`: gespeicherte Bestzeit vorher, dann die Runden der Fahrt.
@@ -53,6 +57,8 @@ var _debug := false
 var _laps := -1
 ## Live-Zeit und Ergebnis je Segment zeigen (`--segments`).
 var _segments := false
+## Rückstand auf den Beispiel-Ghost in Sekunden (`--ghost`; NAN = ohne Ghost).
+var _ghost_s := NAN
 
 
 func _initialize() -> void:
@@ -118,6 +124,8 @@ func _initialize() -> void:
 			_laps = int(value)
 		elif arg == "--segments":
 			_segments = true
+		elif arg.begins_with("--ghost="):
+			_ghost_s = float(value)
 		elif arg.begins_with("--crop="):
 			var p := value.split(",")
 			_crop = Rect2i(int(p[0]), int(p[1]), int(p[2]), int(p[3]))
@@ -167,6 +175,10 @@ func _initialize() -> void:
 		_ride.laps = _laps
 		_ride._update_round_trip_menu()
 		(_ride.start_menu.options["laps"] as OptionButton).select(_ride.start_menu.LAP_CHOICES.find(_laps))
+		if not is_nan(_ghost_s):
+			for kind in [Ghost.BEST, Ghost.LAST]:
+				_ride.save_game.record_ghost(config.track, LapTiming.DIRECTION_CW, kind, _sample_ghost(22.0 / 3.6))
+			_ride._update_round_trip_menu()
 	if title:
 		await _title_shots(out_dir)
 		quit(0)
@@ -291,8 +303,26 @@ func _place(d: float) -> void:
 		_ride.stats.ride_time_s += LAP_SAMPLES_S[2]
 		_ride.stats.distance_m += lap
 		_ride.hud.celebrate("Neue Bestzeit!  %s" % _ride.format_time(LAP_SAMPLES_S[2], true))
+	if not is_nan(_ghost_s):
+		if not (_hud and _laps >= 0):  # sonst steht die Rundenwertung schon in Runde 2 bei `d`
+			_ride.lap_timing = LapTiming.new(_ride.track.length_m(), 0.0, 1)
+			_ride.lap_timing.advance(d, d / (22.0 / 3.6))
+		_ride.ghost = _sample_ghost(22.0 / 3.6)
+		_ride.ghost_rider.visible = true
 	_ride._update_view()
 	_ride._update_camera(0.0, true)
+
+
+## Beispiel-Ghost mit festem Tempo `mps`, gegen den ein Fahrer mit demselben Tempo `_ghost_s` Sekunden zurückliegt.
+func _sample_ghost(mps: float) -> Ghost:
+	var lap: float = _ride.track.length_m()
+	var ghost := Ghost.new(lap)
+	if _ghost_s >= 0.0:
+		ghost.record(mps * (1.0 + _ghost_s), 1.0)  # vorweg: in der ersten Sekunde den Vorsprung herausgefahren
+	else:
+		ghost.record(0.0, -_ghost_s)  # zurück: steht so lange an der Linie
+	ghost.finish(lap / mps - _ghost_s)
+	return ghost
 
 
 ## Ergebnis einer Rundfahrt über `--laps` Runden (endlos: drei Runden, dann „Fahrt beenden“) mit Beispielzeiten.
@@ -355,6 +385,10 @@ func _frames(count: int) -> void:
 ## Frame-Zeiten. Die erste Sekunde (Aufwärmen) zählt nicht.
 func _measure(from: float, to: float, speed: float) -> void:
 	_place(from)
+	if not is_nan(_ghost_s):  # Ghost im Tempo der Messfahrt; die Rundenwertung läuft mit, damit er mitfährt
+		_ride.ghost = _sample_ghost(speed)
+		_ride.lap_timing = LapTiming.new(_ride.track.length_m(), 0.0, 1)
+		_ride.lap_timing.advance(from, from / speed)
 	await _frames(30)
 	var times := PackedFloat32Array()
 	var last := Time.get_ticks_usec()
@@ -367,6 +401,8 @@ func _measure(from: float, to: float, speed: float) -> void:
 		last = now
 		d += speed * dt
 		_ride.model.distance_m = d
+		if not is_nan(_ghost_s):
+			_ride.lap_timing.advance(d, dt)
 		var grade: float = _ride.current_grade()
 		_model.update(_cadence, speed, grade, _ride.current_curvature(), false, dt)
 		if warmup > 0.0:
