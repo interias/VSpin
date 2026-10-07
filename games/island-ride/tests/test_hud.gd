@@ -135,6 +135,19 @@ func test_segment_live_time_only_inside_a_segment() -> void:
 	assert_eq(hud.celebration(), "Bergwertung  7:35.2 · Silber – neue Bestzeit!", "Ergebnis beim Verlassen")
 
 
+func test_ghost_gap_with_sign_and_color() -> void:
+	var hud := _hud()
+	assert_false(hud.readout().contains("Ghost"), "ohne Ghost kein Abstand")
+	hud.show_ghost("+1.4", true)
+	assert_string_contains(hud.readout(), "Ghost: +1.4 s", "hinter dem Ghost")
+	assert_eq(hud.get_node("%GhostValue").get_theme_color("font_color"), RideHud.COLOR_BEHIND)
+	hud.show_ghost("-0.8", false)
+	assert_string_contains(hud.readout(), "Ghost: -0.8 s", "vor dem Ghost")
+	assert_eq(hud.get_node("%GhostValue").get_theme_color("font_color"), RideHud.COLOR_AHEAD)
+	hud.show_ghost("", false)
+	assert_false(hud.readout().contains("Ghost"), "Ghost aus: ausgeblendet")
+
+
 ## Alle sichtbaren HUD-Anzeigen in `viewport_size` (Pixel); `canvas_size` ≠ Null wie `stretch/mode="canvas_items"`
 ## (die Oberfläche wird in dieser Größe angelegt und skaliert). Liefert das HUD nach dem Layout.
 func _layout_in(viewport_size: Vector2i, canvas_size: Vector2i = Vector2i.ZERO) -> RideHud:
@@ -154,6 +167,7 @@ func _layout_in(viewport_size: Vector2i, canvas_size: Vector2i = Vector2i.ZERO) 
 	hud.show_lap(4000.0, 0.0, 9210.0, 4000.0)
 	hud.show_lap_count(12, 20, "1:02:33")
 	hud.show_segment("Küstenwelle", "12:34.5")
+	hud.show_ghost("+123.4", true)
 	hud.celebrate("Neue Bestzeit!  1:02:33.4")
 	(hud.get_node("Hint") as Label).text = "Widerstand: nicht unterstützt"
 	(hud.get_node("Debug") as Label).text = \

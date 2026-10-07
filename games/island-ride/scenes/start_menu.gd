@@ -1,6 +1,7 @@
 ## Startmenü der Inselfahrt (#30): Titel über dem Kameraflug, Menüpunkte und unten dauerhaft der Status des Rads.
 ##   Fahren        → Modus-Auswahl: Rundfahrt, Training und Arcade noch ausgegraut („bald“)
-##   Rundfahrt     → Rundenzahl (1–n oder endlos), Tageszeit (wie im Einstellungsmenü), Bestzeit; „Losfahren“ (#31)
+##   Rundfahrt     → Rundenzahl (1–n oder endlos), Tageszeit (wie im Einstellungsmenü), Ghost (aus, Bestzeit,
+##                   letzte Fahrt; ohne Aufzeichnung ausgegraut, #32), Bestzeit; „Losfahren“ (#31)
 ##   Fahrtenbuch, Garderobe  ausgegraut („bald“)
 ##   Einstellungen öffnet das Menü „Grafik und Fenster“ (wie F2)
 ##   Beenden       beendet das Spiel (nicht im Browser; nur Enter oder Klick, nie die Leertaste – #19)
@@ -10,7 +11,7 @@
 extends CanvasLayer
 
 ## „Fahren → Rundfahrt → Losfahren“ gewählt (Modus wie SaveGame.MODE_*); Rundenzahl und Tageszeit siehe
-## `round_trip_laps()` und `time_index()`.
+## `round_trip_laps()`, `time_index()` und `ghost_choice()`.
 signal ride_requested(mode: String)
 ## „Einstellungen“ gewählt.
 signal settings_requested
@@ -25,6 +26,8 @@ const COLOR_WARN := Color(1.0, 0.78, 0.35)
 const COLOR_ERROR := Color(1.0, 0.45, 0.4)
 ## Rundenzahlen zur Auswahl; 0 = endlos.
 const LAP_CHOICES := [1, 2, 3, 4, 5, 6, 8, 10, 15, 20, 0]
+## Ghost-Auswahl (#32): aus, Bestzeit-Runde, letzte Fahrt.
+const GHOST_CHOICES := ["", Ghost.BEST, Ghost.LAST]
 
 ## Läuft im Browser? (Vor `_ready` überschreibbar, für Tests.)
 var web := OS.has_feature("web")
@@ -32,8 +35,10 @@ var web := OS.has_feature("web")
 ## Knöpfe je Menüpunkt (Schlüssel: drive, round_trip, training, arcade, back, logbook, wardrobe, settings, quit;
 ## auf der Seite „Rundfahrt“: start, trip_back).
 var buttons := {}
-## Auswahlfelder der Seite „Rundfahrt“ (Schlüssel: laps, time).
+## Auswahlfelder der Seite „Rundfahrt“ (Schlüssel: laps, time, ghost).
 var options := {}
+## Ghost selbst gewählt? Dann bleibt die Wahl, solange sie verfügbar ist; sonst gilt der Standard.
+var _ghost_picked := false
 var _main_page: VBoxContainer
 var _mode_page: VBoxContainer
 var _trip_page: VBoxContainer
@@ -108,6 +113,22 @@ func set_time_choices(labels: Array, selected: int) -> void:
 ## Index der gewählten Tageszeit (wie im Einstellungsmenü).
 func time_index() -> int:
 	return (options["time"] as OptionButton).selected
+
+
+## Ghost-Auswahl: Einträge ohne Aufzeichnung ausgegraut. Standard ist die Bestzeit-Runde, sobald es sie gibt,
+## sonst aus; eine eigene, noch verfügbare Wahl bleibt.
+func set_ghost_choices(best_available: bool, last_available: bool) -> void:
+	var option: OptionButton = options["ghost"]
+	option.set_item_disabled(GHOST_CHOICES.find(Ghost.BEST), not best_available)
+	option.set_item_disabled(GHOST_CHOICES.find(Ghost.LAST), not last_available)
+	if not _ghost_picked or option.is_item_disabled(option.selected):
+		option.select(GHOST_CHOICES.find(Ghost.BEST) if best_available else 0)
+
+
+## Gewählter Ghost (Ghost.BEST/LAST, "" = aus).
+func ghost_choice() -> String:
+	var option: OptionButton = options["ghost"]
+	return "" if option.selected < 0 or option.is_item_disabled(option.selected) else GHOST_CHOICES[option.selected]
 
 
 ## Bestzeit der Strecke anzeigen, als fertiger Zeittext ("" = noch keine).
@@ -221,13 +242,19 @@ func _build() -> void:
 	_trip_page.add_child(grid)
 	_add_option(grid, "laps", "Runden", LAP_CHOICES.map(func(n): return "Endlos" if n == 0 else str(n)))
 	_add_option(grid, "time", "Tageszeit", ["Echtzeit (Mallorca)"])
+	_add_option(grid, "ghost", "Ghost", ["Aus", "Bestzeit", "Letzte Fahrt"])
+	options["ghost"].item_selected.connect(func(_index): _ghost_picked = true)
+	set_ghost_choices(false, false)
 	_best_label = Label.new()
 	_best_label.name = "BestTime"
 	_best_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_trip_page.add_child(_best_label)
 	show_best_time("")
-	_add_button(_trip_page, "start", "Losfahren", ride_requested.emit.bind(SaveGame.MODE_ROUND_TRIP))
-	_add_button(_trip_page, "trip_back", "Zurück", show_page.bind(true))
+	var actions := HBoxContainer.new()  # nebeneinander: mit der Ghost-Zeile passt die Seite sonst nicht in 1152×648
+	actions.add_theme_constant_override("separation", 10)
+	_trip_page.add_child(actions)
+	_add_button(actions, "start", "Losfahren", ride_requested.emit.bind(SaveGame.MODE_ROUND_TRIP))
+	_add_button(actions, "trip_back", "Zurück", show_page.bind(true))
 	var status := PanelContainer.new()
 	status.name = "Status"
 	status.add_theme_stylebox_override("panel", _panel_style(0.6, 12))

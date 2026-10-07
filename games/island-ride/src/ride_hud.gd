@@ -5,7 +5,8 @@
 ##                Leistung – nur wenn die Quelle Watt liefert, geschätzt immer mit „~“ (ADR-0004)
 ##   oben rechts  Minikarte (HudMinimap): Insel, Strecke, Landmarken, Fahrer-Pfeil
 ##   unten        Runde („Runde 2 / 3“, endlos „Runde 2“, bei einer Runde nur „Runde“), Rundenfortschritt (Balken,
-##                Prozent, Restdistanz) und Höhenprofil mit Marker (HudProfile)
+##                Prozent, Restdistanz; mit Ghost (#32) der Abstand zu ihm in Sekunden: „+1.4 s“ = dahinter, rot;
+##                „-0.8 s“ = davor, grün) und Höhenprofil mit Marker (HudProfile)
 ##   Celebration  dezente Einblendung „Neue Bestzeit!“ über dem unteren Panel, blendet nach CELEBRATION_S aus (#31);
 ##                ebenso das Ergebnis beim Verlassen eines Segments (#33)
 ##   Segment      im Segment an derselben Stelle dessen Name und Live-Zeit („Bergwertung  3:12.4“, #33); eine
@@ -31,6 +32,9 @@ const COLOR_DOWN := Color(0.5, 0.82, 1.0)
 const OVERLAY_GAP_PX := 8.0
 ## Dauer der Einblendung „Neue Bestzeit!“ (s), davon die letzte Sekunde Ausblenden.
 const CELEBRATION_S := 4.0
+## Farbe des Ghost-Abstands: hinter dem Ghost bzw. vor ihm (#32).
+const COLOR_BEHIND := Color(1.0, 0.55, 0.45)
+const COLOR_AHEAD := Color(0.5, 0.92, 0.55)
 
 @onready var _top: Control = %Top
 @onready var _stats: Control = %Stats
@@ -47,6 +51,8 @@ const CELEBRATION_S := 4.0
 @onready var _lap_time_value: Label = %LapTimeValue
 @onready var _segment: Label = %Segment
 @onready var _power: Control = %Power
+@onready var _ghost: Control = %Ghost
+@onready var _ghost_value: Label = %GhostValue
 @onready var _power_value: Label = %PowerValue
 @onready var _lap_caption: Label = %LapCaption
 @onready var _celebration: Label = %Celebration
@@ -126,6 +132,15 @@ func show_segment(segment_name: String, time_text: String) -> void:
 	_segment.visible = not segment_name.is_empty() and not _celebration.visible
 
 
+## Abstand zum Ghost als fertiger Anzeigetext ("" = kein Ghost, ausblenden); `behind`: hinter dem Ghost (Farbe).
+func show_ghost(gap_text: String, behind: bool) -> void:
+	_ghost.visible = not gap_text.is_empty()
+	_ghost_value.text = gap_text
+	var color := COLOR_BEHIND if behind else COLOR_AHEAD
+	if _ghost_value.get_theme_color("font_color") != color:
+		_ghost_value.add_theme_color_override("font_color", color)
+
+
 ## Beschriftung des Rundenfortschritts: „Runde“ bei einer Runde, „Runde 2 / 3“, endlos „Runde 2“.
 static func lap_caption(number: int, total: int) -> String:
 	if total == 1:
@@ -187,11 +202,11 @@ static func grade_direction(grade: float) -> int:
 
 
 ## Die sichtbaren Werte als Textzeilen „Name: Wert Einheit“, genau wie angezeigt (Tests, Logs), z. B.
-## "Kadenz: 90 rpm", "Steigung: +6.0 %", "Leistung: ~142 W", "Rundenzeit: 3:05", "Bergwertung: 1:12.4",
+## "Kadenz: 90 rpm", "Steigung: +6.0 %", "Leistung: ~142 W", "Rundenzeit: 3:05", "Ghost: +1.4 s", "Bergwertung: 1:12.4",
 ## "Runde 2 / 3: 34 % (noch 6.08 km)".
 func readout() -> String:
 	var lines := []
-	for field in [%Cadence, %Speed, %Distance, %Time, %LapTime, %Grade, _section, _power]:
+	for field in [%Cadence, %Speed, %Distance, %Time, %LapTime, %Grade, _section, _power, _ghost]:
 		if not field.is_visible_in_tree():
 			continue
 		var caption: Label = field.get_node("Caption")

@@ -7,13 +7,16 @@
 ##    "profiles": {"<schlüssel>": {"created": "…Z", "rides": [{"date": "…Z", "mode": "rundfahrt", …}],
 ##                                 "best_times": {"<strecke>": {"<richtung>": <sekunden>}},
 ##                                 "segment_best_times": {"<strecke>": {"<richtung>": {"<segment>": <sekunden>}}},
-##                                 "medals": {"<strecke>": {"<richtung>": {"lap"|"<segment>": "gold"|…}}}}}}
+##                                 "medals": {"<strecke>": {"<richtung>": {"lap"|"<segment>": "gold"|…}}},
+##                                 "ghosts": {"<strecke>": {"<richtung>": {"best"|"last": {Ghost.to_dict()}}}}}}}
 ##
 ## Bestzeiten (#31): schnellste Runde je Strecke und Richtung (LapTiming.DIRECTION_*), in Sekunden.
 ## Segment-Bestzeiten (#33): schnellste Zeit je Strecke, Richtung und Segment-ID, in Sekunden.
 ## Medaillen (#33): beste Medaille (Medals.GOLD/SILVER/BRONZE) je Strecke, Richtung und Runde (Medals.LAP) bzw. Segment.
+## Ghosts (#32): je Strecke und Richtung die Bestzeit-Runde (Ghost.BEST) und die letzte volle Runde der zuletzt
+## gespeicherten Fahrt mit mindestens einer vollen Runde (Ghost.LAST) – nur Strecke über Zeit, keine Rohtelemetrie.
 ##
-## Erweitern (Ghosts, Erfolge, Fahrerlevel, Garderobe – spätere Pakete) geht additiv:
+## Erweitern (Erfolge, Fahrerlevel, Garderobe – spätere Pakete) geht additiv:
 ## neue Bereiche in PROFILE_DEFAULTS bekommen beim Laden ihren Standardwert. Ändert sich das Format, steigt
 ## VERSION und `_upgrade_steps()` bekommt einen Schritt von der alten Version aus – alte Stände werden beim Laden
 ## hochgestuft, nie verworfen. Ein Stand aus einer neueren Version bleibt unverändert erhalten (unbekannte
@@ -27,7 +30,7 @@ const VERSION := 1
 ## Spielmodus einer Fahrt (CONTEXT.md: Rundfahrt; Training und Arcade folgen).
 const MODE_ROUND_TRIP := "rundfahrt"
 ## Bereiche je Fahrerprofil mit Standardwert (fehlende werden beim Laden ergänzt).
-const PROFILE_DEFAULTS := {"rides": [], "best_times": {}, "segment_best_times": {}, "medals": {}}
+const PROFILE_DEFAULTS := {"rides": [], "best_times": {}, "segment_best_times": {}, "medals": {}, "ghosts": {}}
 ## Endung, unter der eine unlesbare Datei beiseitegelegt wird.
 const BROKEN_SUFFIX := ".defekt"
 
@@ -144,6 +147,16 @@ func record_medal(track: String, direction: String, key: String, medal: String) 
 		return false
 	_area("medals", track, direction, true)[key] = medal
 	return true
+
+
+## Gespeicherter Ghost `kind` (Ghost.BEST/LAST) auf `track` in Richtung `direction` (null = keiner oder ungültig).
+func ghost(track: String, direction: String, kind: String) -> Ghost:
+	return Ghost.from_dict(_area("ghosts", track, direction).get(kind))
+
+
+## Speichert `recording` als Ghost `kind`; ersetzt den bisherigen. Schreibt nicht auf die Platte.
+func record_ghost(track: String, direction: String, kind: String, recording: Ghost) -> void:
+	_area("ghosts", track, direction, true)[kind] = recording.to_dict()
 
 
 ## Bereich `area` des Profils für Strecke und Richtung ({} wenn er fehlt oder ungültig ist); mit `create` angelegt.

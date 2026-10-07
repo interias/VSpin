@@ -422,6 +422,30 @@ theme_type_variation = &"HudCaption"
 text = "noch 0.00 km"
 horizontal_alignment = 2
 
+[node name="Ghost" type="HBoxContainer" parent="Layout/Rows/Bottom/Box/Lap"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Caption" type="Label" parent="Layout/Rows/Bottom/Box/Lap/Ghost"]
+layout_mode = 2
+theme_type_variation = &"HudCaption"
+text = "Ghost"
+
+[node name="GhostValue" type="Label" parent="Layout/Rows/Bottom/Box/Lap/Ghost"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(64, 0)
+layout_mode = 2
+theme_type_variation = &"HudTitle"
+text = "+0.0"
+horizontal_alignment = 2
+
+[node name="Unit" type="Label" parent="Layout/Rows/Bottom/Box/Lap/Ghost"]
+layout_mode = 2
+theme_type_variation = &"HudUnit"
+text = "s"
+
 [node name="Profile" type="Control" parent="Layout/Rows/Bottom/Box"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 112)
