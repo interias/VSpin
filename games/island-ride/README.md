@@ -70,6 +70,19 @@ verfügbar, daher nur Godot-Bordmittel:
     Ziegenherden, Boote und Bojen in den Buchten der Westküste, Bushaltestelle vor dem Bergdorf. Nur Godot-Grundkörper
     (je Landmarke ein Mesh) und vorhandene Kenney-Modelle, eigene Seeds 1507/1508. Animierbar (für bewegte Szenen):
     `windmuehlen/Muehle<n>/Fluegel` (Drehachse lokal z), `leuchtturm/Lampe` (Drehachse lokal y), `Details/Boote/*`.
+  - **Vegetation und Bodentexturen (#38, `src/island_vegetation.gd`, Knoten `World/Vegetation/<Station>`):** auf jeder
+    Station Grasbüschel (~210–450 je 100 m), Unterholz (~35–80) und Sträucher (~12–24) beidseits der Straße, am
+    Bankett am dichtesten; Low-Poly aus Grundformen (Halme als Prismen, Polster und Sträucher aus Ikosaedern), keine
+    Modelldateien, alle im Wind. Ausgespart: Fahrbahn und Mauer, Strand, Steilhänge, Kai, Häuser, Kirchplatz,
+    Fincas, Aussichtspunkt, Landmarken. Je Art und 50 m Strecke ein MultiMesh mit Sichtweite (Gras 150 m,
+    Unterholz 220 m, Sträucher 400 m), ohne Schatten. Gelände und Fahrbahn tragen eine dezente Detailtextur
+    (prozedural, weltfest projiziert): Boden mit Flecken aus Erde und Gras und Körnung, Straße mit Asphaltkorn und
+    ausgebesserten Stellen. **Browser:** halb so viel Gras und Unterholz, 70 % der Sichtweite. Alle Farben in
+    `IslandVegetation.PALETTE`; `IslandVegetation.set_palette()` färbt Vegetation und Bodentextur zentral um
+    (Einhängepunkt für die Jahreszeiten, #39). Eigene Seeds 1511–1516.
+    Kosten: fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070): Mittel 60,0 fps, 1-%-Tief 53,1 fps,
+    24 von 39 724 Frames < 50 fps – vorher auf derselben Fahrt 60,0 / 53,2 / 18; im Compatibility-Renderer 59,9 /
+    59,3 / 66.
   - Modelle: Kenney Watercraft Kit, City Kit (Suburban), Nature Kit, Fantasy Town Kit (CC0) unter `assets/kenney/`,
     nur die benutzten `.glb` (~1,4 MB) – Nachweis in `ASSETS.md`. Wiederholte Modelle (Bäume, Büsche, Felsen,
     Mauern, Hausmodule) als `MultiMeshInstance3D`. Sichtprüfung/fps: `tools/view_probe.gd` (Screenshots an Streckenpositionen, fps-Fahrt).
@@ -78,7 +91,8 @@ verfügbar, daher nur Godot-Bordmittel:
   Abstand, Höhe und Vorausblick in `config.cfg` (`[camera]`, siehe Konfiguration); vor G5 9 m / 3,5 m / 14 m.
 - HUD zeigt zusätzlich den aktuellen Abschnitt, Höhenprofil und Minikarte der Insel (siehe HUD).
 
-Weltaufbau beim Start ca. 0,6 s, beim allerersten Start (oder nach Änderung an Gelände/Rundkurs) ca. 1,8 s
+Weltaufbau beim Start ca. 0,6 s (mit der Vegetation aus #38 ca. 1,1 s), beim allerersten Start (oder nach Änderung
+an Gelände/Rundkurs) ca. 1,8 s
 (headless gemessen, #19). Das Gelände (Höhen, Straßenabstand) liegt als Cache in `user://terrain_cache.bin`
 (~1 MB; unter Windows `%APPDATA%\Godot\app_userdata\Inselfahrt\`); Schlüssel ist ein SHA-256 über den Quelltext von
 `src/island_terrain.gd` und `src/island_course.gd` und die Engine-Version – jede Änderung daran erzeugt neu. Datei
@@ -663,6 +677,7 @@ src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil
 src/island_terrain.gd   IslandTerrain: Höhenfeld (prozedural oder Höhenkarte), unter die Straße geformt, Mesh
 src/island_world.gd     IslandWorld: Gelände, Meer, Fahrbahn, Stationsmarker, Deko aller Stationen mit Modellen (#15, #16)
 src/island_landmarks.gd IslandLandmarks: Sehenswürdigkeiten und Kleindetails (G2), Platzierungsdaten für Tests
+src/island_vegetation.gd IslandVegetation: Gras, Unterholz, Sträucher, Bodentexturen, Farbpalette (#38)
 src/world_motion.gd     WorldMotion: bewegte Szenen und Effekte (G3) – Mühlen, Leuchtturm, Boote, Vögel, Wolken, Brunnen
 src/day_night.gd        DayNight: Uhr (Mallorca-Ortszeit, Modi), Sonnenstand, Auf-/Untergang – reine Logik
 src/weather.gd          Weather: simuliertes Wetter, Zustände und Übergänge – reine Logik
