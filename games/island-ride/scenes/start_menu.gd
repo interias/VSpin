@@ -1,5 +1,6 @@
 ## Startmenü der Inselfahrt (#30): Titel über dem Kameraflug, Menüpunkte und unten dauerhaft der Status des Rads.
-##   Fahren        → Modus-Auswahl: Rundfahrt (startet die heutige Fahrt), Training und Arcade noch ausgegraut („bald“)
+##   Fahren        → Modus-Auswahl: Rundfahrt, Training und Arcade noch ausgegraut („bald“)
+##   Rundfahrt     → Rundenzahl (1–n oder endlos), Tageszeit (wie im Einstellungsmenü), Bestzeit; „Losfahren“ (#31)
 ##   Fahrtenbuch, Garderobe  ausgegraut („bald“)
 ##   Einstellungen öffnet das Menü „Grafik und Fenster“ (wie F2)
 ##   Beenden       beendet das Spiel (nicht im Browser; nur Enter oder Klick, nie die Leertaste – #19)
@@ -8,7 +9,8 @@
 ## Layout nur über Anker und Container: passt im Halbbild-Fenster (960×1040) wie im Vollbild.
 extends CanvasLayer
 
-## „Fahren → Rundfahrt“ gewählt (Modus wie SaveGame.MODE_*).
+## „Fahren → Rundfahrt → Losfahren“ gewählt (Modus wie SaveGame.MODE_*); Rundenzahl und Tageszeit siehe
+## `round_trip_laps()` und `time_index()`.
 signal ride_requested(mode: String)
 ## „Einstellungen“ gewählt.
 signal settings_requested
@@ -21,14 +23,21 @@ const SUBTITLE := "Radfahren auf einer Mittelmeerinsel"
 const COLOR_OK := Color(0.45, 0.85, 0.5)
 const COLOR_WARN := Color(1.0, 0.78, 0.35)
 const COLOR_ERROR := Color(1.0, 0.45, 0.4)
+## Rundenzahlen zur Auswahl; 0 = endlos.
+const LAP_CHOICES := [1, 2, 3, 4, 5, 6, 8, 10, 15, 20, 0]
 
 ## Läuft im Browser? (Vor `_ready` überschreibbar, für Tests.)
 var web := OS.has_feature("web")
 
-## Knöpfe je Menüpunkt (Schlüssel: drive, round_trip, training, arcade, back, logbook, wardrobe, settings, quit).
+## Knöpfe je Menüpunkt (Schlüssel: drive, round_trip, training, arcade, back, logbook, wardrobe, settings, quit;
+## auf der Seite „Rundfahrt“: start, trip_back).
 var buttons := {}
+## Auswahlfelder der Seite „Rundfahrt“ (Schlüssel: laps, time).
+var options := {}
 var _main_page: VBoxContainer
 var _mode_page: VBoxContainer
+var _trip_page: VBoxContainer
+var _best_label: Label
 var _center: CenterContainer
 var _panel: PanelContainer
 var _status_dot: Label
@@ -58,14 +67,52 @@ func close() -> void:
 func show_page(modes: bool) -> void:
 	_main_page.visible = not modes
 	_mode_page.visible = modes
+	_trip_page.visible = false
+	if visible:
+		focus_default()
+
+
+## Seite „Rundfahrt“: Rundenzahl, Tageszeit, Bestzeit; Fokus auf „Losfahren“.
+func show_round_trip() -> void:
+	_main_page.visible = false
+	_mode_page.visible = false
+	_trip_page.visible = true
 	if visible:
 		focus_default()
 
 
 ## Fokus auf den ersten wählbaren Punkt der sichtbaren Seite (z. B. nach dem Schließen der Einstellungen).
 func focus_default() -> void:
-	var first: Button = buttons["round_trip"] if _mode_page.visible else buttons["drive"]
+	var first: Button = buttons["drive"]
+	if _trip_page.visible:
+		first = buttons["start"]
+	elif _mode_page.visible:
+		first = buttons["round_trip"]
 	first.grab_focus()
+
+
+## Gewählte Rundenzahl (0 = endlos).
+func round_trip_laps() -> int:
+	return LAP_CHOICES[maxi((options["laps"] as OptionButton).selected, 0)]
+
+
+## Tageszeit-Auswahl der Seite „Rundfahrt“: Beschriftungen wie im Einstellungsmenü und der gewählte Eintrag.
+func set_time_choices(labels: Array, selected: int) -> void:
+	var option: OptionButton = options["time"]
+	option.clear()
+	for label in labels:
+		option.add_item(label)
+	option.select(selected)
+
+
+## Index der gewählten Tageszeit (wie im Einstellungsmenü).
+func time_index() -> int:
+	return (options["time"] as OptionButton).selected
+
+
+## Bestzeit der Strecke anzeigen, als fertiger Zeittext ("" = noch keine).
+func show_best_time(time_text: String) -> void:
+	_best_label.text = "Bestzeit: %s" % (time_text if not time_text.is_empty() else "noch keine")
 
 
 ## Menüpunkte ausblenden, solange darüber die Einstellungen offen sind (Titel und Radstatus bleiben).
@@ -157,10 +204,30 @@ func _build() -> void:
 	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	heading.add_theme_font_size_override("font_size", 26)
 	_mode_page.add_child(heading)
-	_add_button(_mode_page, "round_trip", "Rundfahrt", ride_requested.emit.bind(SaveGame.MODE_ROUND_TRIP))
+	_add_button(_mode_page, "round_trip", "Rundfahrt", show_round_trip)
 	_add_button(_mode_page, "training", "Training – bald", Callable(), true)
 	_add_button(_mode_page, "arcade", "Arcade – bald", Callable(), true)
 	_add_button(_mode_page, "back", "Zurück", show_page.bind(false))
+	_trip_page = _page(pages, "RoundTrip")
+	var trip_heading := Label.new()
+	trip_heading.text = "Rundfahrt"
+	trip_heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	trip_heading.add_theme_font_size_override("font_size", 26)
+	_trip_page.add_child(trip_heading)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 16)
+	grid.add_theme_constant_override("v_separation", 10)
+	_trip_page.add_child(grid)
+	_add_option(grid, "laps", "Runden", LAP_CHOICES.map(func(n): return "Endlos" if n == 0 else str(n)))
+	_add_option(grid, "time", "Tageszeit", ["Echtzeit (Mallorca)"])
+	_best_label = Label.new()
+	_best_label.name = "BestTime"
+	_best_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_trip_page.add_child(_best_label)
+	show_best_time("")
+	_add_button(_trip_page, "start", "Losfahren", ride_requested.emit.bind(SaveGame.MODE_ROUND_TRIP))
+	_add_button(_trip_page, "trip_back", "Zurück", show_page.bind(true))
 	var status := PanelContainer.new()
 	status.name = "Status"
 	status.add_theme_stylebox_override("panel", _panel_style(0.6, 12))
@@ -189,6 +256,20 @@ func _page(parent: Container, page_name: String) -> VBoxContainer:
 	page.add_theme_constant_override("separation", 10)
 	parent.add_child(page)
 	return page
+
+
+func _add_option(grid: GridContainer, key: String, text: String, labels: Array) -> void:
+	var label := Label.new()
+	label.text = text
+	grid.add_child(label)
+	var option := OptionButton.new()
+	option.name = key
+	option.custom_minimum_size = Vector2(260, 44)
+	for item in labels:
+		option.add_item(item)
+	option.select(0)
+	grid.add_child(option)
+	options[key] = option
 
 
 func _add_button(parent: Container, key: String, text: String, action: Callable, disabled: bool = false) -> Button:

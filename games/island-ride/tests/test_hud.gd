@@ -141,6 +141,8 @@ func _layout_in(viewport_size: Vector2i, canvas_size: Vector2i = Vector2i.ZERO) 
 	hud.setup(track)
 	hud.show_ride(118.0, 58.4, 9210.0, "1:02:33", -0.088, "-8.8 %", "Pinien-/Olivenhain", "~1042 W")
 	hud.show_lap(4000.0, 0.0, 9210.0, 4000.0)
+	hud.show_lap_count(12, 20, "1:02:33")
+	hud.celebrate("Neue Bestzeit!  1:02:33.4")
 	(hud.get_node("Hint") as Label).text = "Widerstand: nicht unterstützt"
 	(hud.get_node("Debug") as Label).text = \
 			"DEBUG\nKadenz roh: 72.5\nt_ms: 123456\nLetzte Telemetrie vor: 120 ms\nBus: verbunden · Quelle: connected (sim)"
@@ -167,6 +169,10 @@ func _assert_inside(hud: RideHud, label: String) -> void:
 	assert_false(stats.intersects(map), "%s: Werte und Karte überlappen nicht" % label)
 	assert_false(stats.intersects(bottom) or map.intersects(bottom), "%s: oben und unten überlappen nicht" % label)
 	assert_false((hud.get_node("Hint") as Control).get_global_rect().intersects(bottom), "%s: Hinweis über dem Panel" % label)
+	var celebration: Control = hud.get_node("%Celebration")
+	assert_true(celebration.is_visible_in_tree(), "%s: Einblendung „Neue Bestzeit!“ sichtbar" % label)
+	for other in [stats, map, bottom, (hud.get_node("Hint") as Control).get_global_rect()]:
+		assert_false(celebration.get_global_rect().intersects(other), "%s: Einblendung frei von %s" % [label, other])
 
 
 func test_layout_fits_half_screen_window() -> void:

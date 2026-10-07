@@ -223,7 +223,7 @@ Kurbel mit Kettenblatt, Kette und Pedalen, Trinkflasche; Fahrer mit Helm und Bri
    ```
 Reihenfolge egal: Startet das Spiel zuerst, zeigt es „Bridge nicht erreichbar … Bridge starten:
 `vspin-bridge --source sim`“ und versucht alle `reconnect_s` Sekunden zu verbinden.
-3. Im Startmenü **Fahren → Rundfahrt** wählen.
+3. Im Startmenü **Fahren → Rundfahrt** wählen, Rundenzahl und Tageszeit einstellen, **Losfahren**.
 
 ### Startmenü und Spielstand (#30)
 
@@ -234,7 +234,8 @@ Enter/Leertaste):
 
 | Punkt | Wirkung |
 |---|---|
-| **Fahren** | Modus-Auswahl: **Rundfahrt** startet die Fahrt (Insel-Rundkurs wie bisher), *Training – bald* und *Arcade – bald* ausgegraut, „Zurück“ |
+| **Fahren** | Modus-Auswahl: **Rundfahrt**, *Training – bald* und *Arcade – bald* ausgegraut, „Zurück“ |
+| **Fahren → Rundfahrt** | **Runden** 1–20 oder *Endlos* (Standard 1), **Tageszeit** (dieselbe Auswahl wie im Einstellungsmenü, Standard *Echtzeit*; wirkt und bleibt wie dort gewählt), die **Bestzeit** der Strecke; **Losfahren** startet die Fahrt (#31) |
 | *Fahrtenbuch – bald*, *Garderobe – bald* | ausgegraut |
 | **Einstellungen** | öffnet das Menü „Grafik und Fenster“ (wie `Esc`/`F2`) |
 | **Beenden** | beendet das Spiel (im Browser ausgeblendet) |
@@ -249,13 +250,15 @@ kein `set_grade` an die Bridge. **Zurück ins Menü**, ohne das Spiel zu schlie�
 `version` (Formatversion, derzeit 1) und `active_profile` (Profilschlüssel, 16 Hex-Zeichen, ab dem ersten Speichern);
 darunter je Fahrerprofil die Fahrten. Jede beendete Fahrt wird als Zusammenfassung angehängt – im Ziel sofort, bei
 Abbruch („Fahrt beenden“, Beenden, Fenster schließen), sofern gefahren wurde: Datum (UTC), Modus, Strecke,
-`finished`, Runden, Dauer, Strecke in km, Ø Kadenz, Ø Tempo. Keine Rohtelemetrie (die steht in der Session-CSV der
-Bridge). Spätere Bereiche (Bestzeiten, Ghosts, Medaillen …) kommen additiv dazu; ältere Stände werden beim Laden
-hochgestuft, ein Stand einer neueren Version bleibt unverändert erhalten, eine unlesbare Datei wird als
-`savegame.json.defekt` beiseitegelegt statt überschrieben.
+`finished`, Runden (volle), Dauer, Strecke in km, Ø Kadenz, Ø Tempo, Rundenzeiten (`lap_times_s`). Keine Rohtelemetrie
+(die steht in der Session-CSV der Bridge). Bestzeiten stehen je Profil unter `best_times` (Strecke → Richtung →
+Sekunden, z. B. `{"island": {"cw": 873.4}}`). Spätere Bereiche (Ghosts, Medaillen …) kommen additiv dazu; ältere
+Stände werden beim Laden hochgestuft, ein Stand einer neueren Version bleibt unverändert erhalten, eine unlesbare
+Datei wird als `savegame.json.defekt` beiseitegelegt statt überschrieben.
 
 Sichtprüfung: `view_probe.gd -- --title [--window=left|right|fullscreen]` speichert `title.png`, `title_modes.png`
-und `title_b.png` (3 s später).
+und `title_b.png` (3 s später); mit `--laps=3` zusätzlich `title_round_trip.png`. `--hud --laps=3 --shots=1500`
+zeigt das HUD in Runde 2 und speichert danach `result.png` (Ergebnis mit allen Rundenzeiten).
 
 ### Tasten
 
@@ -276,7 +279,7 @@ Physische Tastenposition (gleich auf QWERTZ/QWERTY); definiert in `scenes/main.g
 | `riding` – fahren | Bus verbunden, Quelle `connected` und seit dem letzten Abbruch Telemetrie empfangen | – |
 | `paused_manual` – pausiert (manuell) | `P`/Leertaste | „Pause“ |
 | `paused_connection` – pausiert (Verbindung) | Bridge nicht erreichbar, Quelle `stale`/`disconnected`, noch keine Daten oder Bridge schweigt bei offenem Bus | „Bridge nicht erreichbar … Bridge starten“ bzw. „Verbindung verloren (Rad: stale)“ / „(Bridge sendet seit 4 s nichts)“ |
-| `finished` – Ziel erreicht | Ziellinie überfahren (Endzustand der Fahrt, Pause-Taste wirkungslos) | „Ziel erreicht!“ mit Zeit, Ø Kadenz, Ø Tempo; `Enter` zurück ins Menü |
+| `finished` – Ziel erreicht | Ziellinie nach der letzten Runde überfahren oder „Fahrt beenden“ nach mindestens einer vollen Runde (Endzustand der Fahrt, Pause-Taste wirkungslos) | „Ziel erreicht!“ bzw. „Fahrt beendet“ mit Zeit, allen Rundenzeiten, Bestzeit, Ø Kadenz, Ø Tempo; `Enter` zurück ins Menü |
 | `menu` – Startmenü | nach dem Start und nach jeder Fahrt | Titelbild mit Menü und Radstatus (HUD aus) |
 
 In jeder Pause steht das Fahrmodell still: Position und Geschwindigkeit bleiben, wie sie waren. Ein
@@ -361,13 +364,23 @@ nicht in der Liste steht (z. B. 13:00), zeigt das Menü als zusätzlichen Eintra
 Im Browser (Web-Export) gibt es keine Fensteroptionen und kein VSync (steuert der Browser); der Compatibility-
 Renderer kann nur MSAA und bilineare Skalierung, das Menü bietet dort nur diese an.
 
-### Runde und Ziel
+### Runden, Ziel und Bestzeit (#31)
 
 Eine Runde startet an der Startposition (Standard: Start/Ziel-Linie) und endet beim nächsten Überfahren der
-Start/Ziel-Linie (bei Start mitten auf der Strecke, z. B. in Tests, also früher). Im Ziel steht der Fahrer,
-das Spiel zeigt „Ziel erreicht!“ mit Rundenzeit, Ø Kadenz (zeitgewichtet) und Ø Tempo (Strecke/Fahrzeit).
-Fahrzeit und Durchschnitte zählen nur Zeit im Zustand `riding` – Pausen nicht; der letzte Zeitschritt
-wird nur bis zur Ziellinie gezählt (`src/ride_stats.gd`).
+Start/Ziel-Linie (bei Start mitten auf der Strecke, z. B. in Tests, also früher). Die Fahrt hat die im Menü gewählte
+Rundenzahl; das Ziel liegt nach der letzten Runde, *Endlos* hat keins und endet nur über „Fahrt beenden“ oder Beenden.
+Das HUD zeigt unten die Runde („Runde 2 / 3“, endlos „Runde 2“, bei einer Runde nur „Runde“) und oben die
+**Rundenzeit** neben der Fahrzeit („Zeit“). Im Ziel steht der Fahrer, das Ergebnis zeigt Fahrzeit, alle Rundenzeiten,
+die Bestzeit, Ø Kadenz (zeitgewichtet) und Ø Tempo (Strecke/Fahrzeit). „Fahrt beenden“ nach mindestens einer vollen
+Runde zeigt erst dieses Ergebnis („Fahrt beendet“), `Enter` führt ins Menü.
+
+**Bestzeit:** schnellste volle Runde je Strecke und Richtung (vorerst nur im Uhrzeigersinn, `cw`); jede Runde zählt,
+eine angefangene nicht. Sie steht im Spielstand und im Menü „Rundfahrt“; eine neue Bestzeit blendet das HUD kurz ein
+(„Neue Bestzeit! 14:44.7“). Rundenzeiten und Bestzeit rechnet die Rundenwertung (`src/lap_timing.gd`) nur aus
+Streckenposition und Fahrzeit – also nur aus Kadenz und Steigung (ADR-0010).
+
+Fahrzeit, Rundenzeiten und Durchschnitte zählen nur Zeit im Zustand `riding` – Pausen nicht; ein Zeitschritt über die
+Start/Ziel-Linie wird anteilig aufgeteilt (`src/ride_stats.gd`, `src/lap_timing.gd`).
 
 ### Virtuelle Steigung (`set_grade`)
 
@@ -500,6 +513,7 @@ src/hud_profile.gd      HudProfile: Höhenprofil mit Marker (profile_point() als
 src/hud_minimap.gd      HudMinimap: Inselkarte mit Strecke, Landmarken, Fahrer-Pfeil (map_point() als reine Rechnung)
 src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeout), status/telemetry parsen, send_message
 src/ride_stats.gd       RideStats: Fahrzeit, Strecke, Ø Kadenz, Ø Tempo (ohne Pausen) – reine Logik
+src/lap_timing.gd       LapTiming: Rundenwertung – Rundenzeiten, Ziel nach n Runden oder endlos, Bestzeit – reine Logik
 src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik
 src/ride_model.gd       RideModel: reine Logik (Kadenz, Steigung, Δt, Konfig → Geschwindigkeit, Position)
 src/rider_motion.gd     RiderMotion: Kurbel-/Radwinkel, Schräglage, Vorbeuge, Glieder-IK – reine Logik
@@ -507,8 +521,8 @@ src/rider_model.gd      RiderModel: Fahrer und Rennrad aus Grundkörpern, Pose a
 src/ride_config.gd      RideConfig: liest config.cfg
 src/graphics_settings.gd GraphicsSettings: Grafik-/Fenstereinstellungen, Tageszeit/Wetter (user://settings.cfg), Anwenden, Fensterhälften
 scenes/settings_menu.*  Menü „Grafik und Fenster“ (F2, F11), von der Hauptszene eingehängt
-scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Radstatus (#30)
-src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Hochstufung
+scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt-Auswahl, Radstatus (#30, #31)
+src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Bestzeiten, Hochstufung
 src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz), stations, station_at(), road_mesh()
 src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil, Stationen (reine Daten/Logik)
 src/island_terrain.gd   IslandTerrain: Höhenfeld (prozedural oder Höhenkarte), unter die Straße geformt, Mesh

@@ -4,9 +4,12 @@
 ## Session-CSV der Bridge.
 ##
 ##   {"version": 1, "active_profile": "<16 Hex-Zeichen>",
-##    "profiles": {"<schlüssel>": {"created": "…Z", "rides": [{"date": "…Z", "mode": "rundfahrt", …}]}}}
+##    "profiles": {"<schlüssel>": {"created": "…Z", "rides": [{"date": "…Z", "mode": "rundfahrt", …}],
+##                                 "best_times": {"<strecke>": {"<richtung>": <sekunden>}}}}}
 ##
-## Erweitern (Bestzeiten, Ghosts, Medaillen, Erfolge, Fahrerlevel, Garderobe – spätere Pakete) geht additiv:
+## Bestzeiten (#31): schnellste Runde je Strecke und Richtung (LapTiming.DIRECTION_*), in Sekunden.
+##
+## Erweitern (Ghosts, Medaillen, Erfolge, Fahrerlevel, Garderobe – spätere Pakete) geht additiv:
 ## neue Bereiche in PROFILE_DEFAULTS bekommen beim Laden ihren Standardwert. Ändert sich das Format, steigt
 ## VERSION und `_upgrade_steps()` bekommt einen Schritt von der alten Version aus – alte Stände werden beim Laden
 ## hochgestuft, nie verworfen. Ein Stand aus einer neueren Version bleibt unverändert erhalten (unbekannte
@@ -20,7 +23,7 @@ const VERSION := 1
 ## Spielmodus einer Fahrt (CONTEXT.md: Rundfahrt; Training und Arcade folgen).
 const MODE_ROUND_TRIP := "rundfahrt"
 ## Bereiche je Fahrerprofil mit Standardwert (fehlende werden beim Laden ergänzt).
-const PROFILE_DEFAULTS := {"rides": []}
+const PROFILE_DEFAULTS := {"rides": [], "best_times": {}}
 ## Endung, unter der eine unlesbare Datei beiseitegelegt wird.
 const BROKEN_SUFFIX := ".defekt"
 
@@ -83,9 +86,28 @@ func add_ride(entry: Dictionary) -> void:
 	rides().append(entry)
 
 
-## Zusammenfassung einer beendeten Fahrt – keine Rohtelemetrie. `finished`: Ziel erreicht (sonst abgebrochen).
+## Bestzeit auf `track` in Richtung `direction` in Sekunden (INF = noch keine).
+func best_time_s(track: String, direction: String) -> float:
+	var tracks: Dictionary = profile()["best_times"]
+	var value = tracks.get(track, {}).get(direction) if tracks.get(track) is Dictionary else null
+	return float(value) if (value is float or value is int) and value > 0.0 else INF
+
+
+## Trägt `seconds` als Bestzeit ein, wenn sie schneller ist als die bisherige. Gibt zurück, ob sie eingetragen wurde.
+func record_best_time(track: String, direction: String, seconds: float) -> bool:
+	if not is_finite(seconds) or seconds <= 0.0 or seconds >= best_time_s(track, direction):
+		return false
+	var tracks: Dictionary = profile()["best_times"]
+	if not (tracks.get(track) is Dictionary):
+		tracks[track] = {}
+	tracks[track][direction] = snappedf(seconds, 0.001)
+	return true
+
+
+## Zusammenfassung einer beendeten Fahrt – keine Rohtelemetrie. `finished`: Ziel erreicht (sonst abgebrochen oder
+## endlos). `laps`: abgeschlossene Runden, `lap_times_s` ihre Zeiten.
 static func ride_entry(mode: String, track: String, finished: bool, laps: int, stats: RideStats,
-		date: String = utc_now()) -> Dictionary:
+		date: String = utc_now(), lap_times_s: Array = []) -> Dictionary:
 	return {
 		"date": date,
 		"mode": mode,
@@ -96,6 +118,7 @@ static func ride_entry(mode: String, track: String, finished: bool, laps: int, s
 		"distance_km": snappedf(stats.distance_m / 1000.0, 0.001),
 		"avg_cadence_rpm": snappedf(stats.avg_cadence(), 0.1),
 		"avg_speed_kmh": snappedf(stats.avg_speed_kmh(), 0.01),
+		"lap_times_s": lap_times_s.map(func(t): return snappedf(t, 0.01)),
 	}
 
 

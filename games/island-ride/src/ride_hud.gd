@@ -1,10 +1,12 @@
 ## HUD der Inselfahrt (G5, Szene `scenes/hud.tscn`): gestaltete Anzeigen statt Textzeilen.
 ##
 ##   oben links   Werte-Panel: Abschnitt, Kadenz groß mit Bogen (Wohlfühlbereich 80–100 rpm), Tempo, Steigung
-##                (Keil und Farbe: bergauf warm, steil rot, bergab kühl), Strecke, Zeit, Leistung – nur wenn die
-##                Quelle Watt liefert, geschätzt immer mit „~“ (ADR-0004)
+##                (Keil und Farbe: bergauf warm, steil rot, bergab kühl), Strecke, Zeit (der Fahrt), Rundenzeit,
+##                Leistung – nur wenn die Quelle Watt liefert, geschätzt immer mit „~“ (ADR-0004)
 ##   oben rechts  Minikarte (HudMinimap): Insel, Strecke, Landmarken, Fahrer-Pfeil
-##   unten        Rundenfortschritt (Balken, Prozent, Restdistanz) und Höhenprofil mit Marker (HudProfile)
+##   unten        Runde („Runde 2 / 3“, endlos „Runde 2“, bei einer Runde nur „Runde“), Rundenfortschritt (Balken,
+##                Prozent, Restdistanz) und Höhenprofil mit Marker (HudProfile)
+##   Celebration  dezente Einblendung „Neue Bestzeit!“ über dem unteren Panel, blendet nach CELEBRATION_S aus (#31)
 ##   Message/Hint/Debug  Zustandsmeldung (Mitte), `set_grade`-Hinweis (über dem unteren Panel), Debug-Anzeige F3
 ##                (unter dem Werte-Panel) – Inhalte setzt die Hauptszene.
 ## Layout nur über Anker und Container (kein fester Bildschirmort): passt in 960×1040 wie in 1920×1080, mit und
@@ -24,6 +26,8 @@ const COLOR_STEEP := Color(1.0, 0.45, 0.36)
 const COLOR_DOWN := Color(0.5, 0.82, 1.0)
 ## Abstand von Hinweis und Debug-Anzeige zu den Panels (px).
 const OVERLAY_GAP_PX := 8.0
+## Dauer der Einblendung „Neue Bestzeit!“ (s), davon die letzte Sekunde Ausblenden.
+const CELEBRATION_S := 4.0
 
 @onready var _top: Control = %Top
 @onready var _stats: Control = %Stats
@@ -37,8 +41,11 @@ const OVERLAY_GAP_PX := 8.0
 @onready var _grade_icon: HudGradeIcon = %GradeIcon
 @onready var _distance_value: Label = %DistanceValue
 @onready var _time_value: Label = %TimeValue
+@onready var _lap_time_value: Label = %LapTimeValue
 @onready var _power: Control = %Power
 @onready var _power_value: Label = %PowerValue
+@onready var _lap_caption: Label = %LapCaption
+@onready var _celebration: Label = %Celebration
 @onready var _lap_bar: ProgressBar = %LapBar
 @onready var _lap_percent: Label = %LapPercent
 @onready var _lap_remaining: Label = %LapRemaining
@@ -48,6 +55,7 @@ const OVERLAY_GAP_PX := 8.0
 @onready var _debug: Label = $Debug
 
 var _grade_color := COLOR_FLAT
+var _celebration_tween: Tween
 
 
 func _ready() -> void:
@@ -96,6 +104,37 @@ func show_lap(distance_m: float, lap_start_m: float, finish_m: float, lap_distan
 	_minimap.show_rider(lap_distance_m)
 
 
+## Runde `number` (ab 1) von `total` (0 = endlos) und Zeit der laufenden Runde als fertiger Anzeigetext.
+func show_lap_count(number: int, total: int, lap_time_text: String) -> void:
+	_lap_caption.text = lap_caption(number, total)
+	_lap_time_value.text = lap_time_text
+
+
+## Beschriftung des Rundenfortschritts: „Runde“ bei einer Runde, „Runde 2 / 3“, endlos „Runde 2“.
+static func lap_caption(number: int, total: int) -> String:
+	if total == 1:
+		return "Runde"
+	return "Runde %d / %d" % [number, total] if total > 1 else "Runde %d" % number
+
+
+## Dezente Einblendung (z. B. „Neue Bestzeit! 1:23.4“), die nach CELEBRATION_S wieder verschwindet.
+func celebrate(text: String) -> void:
+	_celebration.text = text
+	_celebration.visible = true
+	_celebration.modulate.a = 1.0
+	if _celebration_tween != null:
+		_celebration_tween.kill()
+	_celebration_tween = create_tween()
+	_celebration_tween.tween_interval(CELEBRATION_S - 1.0)
+	_celebration_tween.tween_property(_celebration, "modulate:a", 0.0, 1.0)
+	_celebration_tween.tween_callback(_celebration.hide)
+
+
+## Text der Einblendung, solange sie sichtbar ist ("" sonst).
+func celebration() -> String:
+	return _celebration.text if _celebration.visible else ""
+
+
 ## Anteil 0..1 der Runde von `start_m` bis `finish_m` an Position `distance_m`.
 static func lap_progress(distance_m: float, start_m: float, finish_m: float) -> float:
 	if not is_finite(finish_m) or finish_m <= start_m:
@@ -125,10 +164,10 @@ static func grade_direction(grade: float) -> int:
 
 
 ## Die sichtbaren Werte als Textzeilen „Name: Wert Einheit“, genau wie angezeigt (Tests, Logs), z. B.
-## "Kadenz: 90 rpm", "Steigung: +6.0 %", "Leistung: ~142 W", "Runde: 34 % (noch 6.08 km)".
+## "Kadenz: 90 rpm", "Steigung: +6.0 %", "Leistung: ~142 W", "Rundenzeit: 3:05", "Runde 2 / 3: 34 % (noch 6.08 km)".
 func readout() -> String:
 	var lines := []
-	for field in [%Cadence, %Speed, %Distance, %Time, %Grade, _section, _power]:
+	for field in [%Cadence, %Speed, %Distance, %Time, %LapTime, %Grade, _section, _power]:
 		if not field.is_visible_in_tree():
 			continue
 		var caption: Label = field.get_node("Caption")
@@ -138,7 +177,7 @@ func readout() -> String:
 		if unit != null and not unit.text.is_empty():
 			text += " " + unit.text
 		lines.append(text)
-	lines.append("Runde: %s (%s)" % [_lap_percent.text, _lap_remaining.text])
+	lines.append("%s: %s (%s)" % [_lap_caption.text, _lap_percent.text, _lap_remaining.text])
 	return "\n".join(lines)
 
 
