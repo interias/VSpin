@@ -48,6 +48,45 @@ godot --headless --path games/island-ride -s addons/gut/gut_cmdln.gd -gdir=res:/
 
 Details: [`bridge/README.md`](bridge/README.md), [`games/island-ride/README.md`](games/island-ride/README.md).
 
+## Mit Docker Desktop starten
+
+Ohne lokale Python- oder Godot-Installation, nur mit [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+(im Repo-Ordner):
+
+```powershell
+docker compose up --build -d      # erster Build lädt Godot 4.4.1 + Export-Templates, dauert einige Minuten
+```
+
+Dann **http://localhost:8080** im Browser öffnen und fahren. Es laufen zwei Container
+([`docker-compose.yml`](docker-compose.yml)):
+
+- **`bridge`** – `vspin-bridge --source sim` mit Start-Kadenz 80 rpm. Der Bus ist nur auf `127.0.0.1:8765` des
+  Rechners erreichbar (im Container lauscht die Bridge mit `--host 0.0.0.0`); das Spiel im Browser verbindet sich wie
+  gewohnt mit `ws://127.0.0.1:8765`.
+- **`game`** – Web-Export der Inselfahrt (Godot 4.4.1, Compatibility-Renderer, ohne Threads) hinter nginx.
+
+**Kadenz ändern:** `docker attach vspin-bridge-1` – dann Pfeil hoch/runter = ±5 rpm wie im Bridge-Terminal.
+Abkoppeln mit **Strg+P Strg+Q** (Strg+C oder `q` beenden dagegen die Bridge).
+
+**Profil oder Start-Kadenz** per Umgebungsvariable (Pfad relativ zu `bridge/`):
+
+```powershell
+$env:VSPIN_PROFILE="profiles/sprint.toml"; docker compose up -d   # Profil statt manueller Kadenz
+$env:VSPIN_CADENCE="60"; docker compose up -d                     # andere Start-Kadenz
+```
+
+Gesetzte Variablen gelten bis zum Schließen der PowerShell (`Remove-Item Env:VSPIN_PROFILE` setzt zurück).
+
+**Sessions** landen im Ordner `sessions/` im Repo-Root (nicht im Git). Die Dateinamen tragen UTC-Zeit –
+der Container kennt die Zeitzone des Rechners nicht.
+
+**Stoppen:** `docker compose down` – die Bridge schließt die Session dabei sauber ab.
+
+**BLE nur nativ:** Docker Desktop reicht unter Windows kein Bluetooth in Container durch. Für das echte Rad
+(`--source ble`, #9) läuft die Bridge weiterhin direkt unter Windows (Schnellstart oben); das Spiel kann dabei
+trotzdem aus dem Container kommen – dann nur `docker compose up -d --no-deps game` starten (ohne `--no-deps`
+startet die Container-Bridge mit und belegt Port 8765).
+
 ### Latenz prüfen (Abnahme < 200 ms)
 
 Die Debug-Anzeige (`F3`) zeigt Roh-Kadenz, Bridge-Zeitstempel und das Alter der letzten Nachricht im Spiel –

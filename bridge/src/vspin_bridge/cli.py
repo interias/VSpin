@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .app import DEFAULT_SESSIONS_DIR, Bridge, SessionStartError
-from .bus import BusStartError
+from .bus import HOST, BusStartError
 from .console import Console
 from .sources.base import DeviceSource
 from .sources.profile import ProfileError, load_profile
@@ -94,6 +94,13 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="DIR",
         help="Ablage der Session-Dateien (Standard: ./sessions im Arbeitsverzeichnis)",
     )
+    parser.add_argument(
+        "--host",
+        default=HOST,
+        metavar="ADRESSE",
+        help="Adresse, auf der der Bus lauscht (Standard: 127.0.0.1); 0.0.0.0 nur im Container, "
+        "dessen Port nur auf 127.0.0.1 des Hosts veröffentlicht ist (docker-compose.yml)",
+    )
     return parser
 
 
@@ -116,13 +123,15 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(exc))
     console = Console()
     try:
-        return asyncio.run(_run(source, console, args.sessions_dir, args.wait_client))
+        return asyncio.run(_run(source, console, args.sessions_dir, args.wait_client, args.host))
     except KeyboardInterrupt:  # Windows: kein add_signal_handler, Strg+C kommt so an
         console.close()
         return 0
 
 
-async def _run(source: DeviceSource, console: Console, sessions_dir: Path, wait_for_client: bool) -> int:
+async def _run(
+    source: DeviceSource, console: Console, sessions_dir: Path, wait_for_client: bool, host: str
+) -> int:
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -131,7 +140,7 @@ async def _run(source: DeviceSource, console: Console, sessions_dir: Path, wait_
         except (NotImplementedError, RuntimeError):
             pass  # Windows
     try:
-        await Bridge(source, console, sessions_dir, wait_for_client).run(stop)
+        await Bridge(source, console, sessions_dir, wait_for_client, host).run(stop)
     except BusStartError as exc:
         console.info(f"vspin-bridge: Bus konnte nicht starten: {exc}")
         return 1

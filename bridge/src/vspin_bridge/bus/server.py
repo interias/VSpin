@@ -1,16 +1,16 @@
-"""Bus: WebSocket-Server, ausschließlich auf 127.0.0.1:8765, beliebig viele Clients."""
+"""Bus: WebSocket-Server auf 127.0.0.1:8765 (Standard), beliebig viele Clients."""
 
 from collections.abc import Awaitable, Callable
 
 from websockets.asyncio.server import Server, ServerConnection, broadcast, serve
 from websockets.exceptions import ConnectionClosed
 
-HOST = "127.0.0.1"  # nur localhost – niemand im Netz liest mit oder steuert
+HOST = "127.0.0.1"  # Standard: nur localhost – niemand im Netz liest mit oder steuert
 PORT = 8765
 
 
 class BusStartError(Exception):
-    """Der Bus konnte nicht auf 127.0.0.1:8765 lauschen (z. B. Port belegt)."""
+    """Der Bus konnte nicht auf Host:8765 lauschen (z. B. Port belegt)."""
 
 
 class BusServer:
@@ -25,7 +25,9 @@ class BusServer:
         status: Callable[[], str],
         on_clients_changed: Callable[[int], None] = lambda n: None,
         on_message: Callable[[str | bytes], Awaitable[str | None]] | None = None,
+        host: str = HOST,
     ) -> None:
+        self.host = host  # 0.0.0.0 nur im Container (Port dort nur auf 127.0.0.1 veröffentlicht)
         self._status = status
         self._on_clients_changed = on_clients_changed
         self._on_message = on_message
@@ -38,9 +40,9 @@ class BusServer:
 
     async def start(self) -> None:
         try:
-            self._server = await serve(self._handle, HOST, PORT)
+            self._server = await serve(self._handle, self.host, PORT)
         except OSError as exc:
-            raise BusStartError(f"ws://{HOST}:{PORT} nicht verfügbar: {exc}") from exc
+            raise BusStartError(f"ws://{self.host}:{PORT} nicht verfügbar: {exc}") from exc
 
     async def stop(self) -> None:
         if self._server is not None:

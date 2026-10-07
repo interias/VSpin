@@ -76,6 +76,14 @@ def test_bus_listens_only_on_127_0_0_1(bridge_process):
     assert not port_open("::1", PORT)
 
 
+def test_host_option_listens_on_all_interfaces(bridge_process, bus_client):
+    # Für den Container (docker-compose.yml): --host 0.0.0.0 ist auch über andere Adressen erreichbar.
+    bridge = bridge_process("--source", "sim", "--sim-cadence", "80", "--host", "0.0.0.0")
+    assert port_open("127.0.0.2", PORT)
+    assert receive_json(bus_client())["type"] == "status"
+    assert "Bus auf ws://0.0.0.0:8765" in bridge.log()
+
+
 def test_bridge_stops_cleanly_and_frees_the_port(bridge_process, bus_client):
     bridge = start_sim(bridge_process)
     client = bus_client()
