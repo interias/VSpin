@@ -360,12 +360,13 @@ func _on_bus_connection_changed(connected: bool) -> void:
 		_data_since_loss = false
 
 
-## Inhalt der Debug-Anzeige (F3): Kadenz-Rohwert wie empfangen, Bridge-Zeitstempel und Alter der
-## letzten Telemetrie – zur Prüfung der Latenz (< 200 ms, ADR-0005).
+## Inhalt der Debug-Anzeige (F3): Kadenz-Rohwert wie empfangen, Bridge-Zeitstempel und Zeit seit Empfang der
+## letzten Telemetrie im Spiel – zur Prüfung der Latenz (< 200 ms, ADR-0005). Die Zeit seit Empfang zeigt nur, ob
+## Daten stocken; die Gesamtlatenz Kurbel → Bild misst sie nicht (siehe docs/anleitung.md).
 func debug_text() -> String:
 	var raw = bus.last_telemetry.get("cadence")
 	var age := bus.telemetry_age_ms()
-	return "DEBUG\nKadenz roh: %s\nt_ms: %s\nAlter: %s\nBus: %s · Quelle: %s (%s)" % [
+	return "DEBUG\nKadenz roh: %s\nt_ms: %s\nLetzte Telemetrie vor: %s\nBus: %s · Quelle: %s (%s)" % [
 			"–" if raw == null else str(raw),
 			"–" if bus.last_telemetry_t_ms < 0 else str(bus.last_telemetry_t_ms),
 			"–" if age < 0 else "%d ms" % age,

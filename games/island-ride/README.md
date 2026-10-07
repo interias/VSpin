@@ -277,9 +277,10 @@ Sichtprüfung mit HUD: `view_probe.gd -- --hud` (Beispielwerte: Kadenz 85, Tempo
 ### Debug-Anzeige (`F3`)
 
 Links unter den Werten, zum Prüfen der Latenz (< 200 ms, ADR-0005): **Kadenz roh** (Feld `cadence` der letzten
-Telemetrie, wie empfangen – ungerundet), **t_ms** (Bridge-Zeitstempel der letzten Telemetrie), **Alter**
-der letzten Telemetrie in ms (seit Empfang im Spiel; bei 4 Hz Bridge-Takt pendelt es zwischen 0 und ~250 ms
-– dauerhaft mehr heißt: Daten stocken), dazu Bus-Verbindung, Status und Quelle. Prüfen: Kadenz in der
+Telemetrie, wie empfangen – ungerundet), **t_ms** (Bridge-Zeitstempel der letzten Telemetrie), **Letzte
+Telemetrie vor** … ms (Zeit seit Empfang der letzten Telemetrie im Spiel; bei 4 Hz Bridge-Takt pendelt sie zwischen 0
+und ~250 ms – dauerhaft mehr heißt: Daten stocken; das ist **nicht** die Latenz Kurbel → Bild, die misst man per
+Zeitlupe, siehe `docs/anleitung.md`), dazu Bus-Verbindung, Status und Quelle. Prüfen: Kadenz in der
 Bridge ändern und schauen, wann „Kadenz roh“ und `t_ms` nachziehen.
 
 ### Grafik und Fenster (`F2`)
