@@ -4,12 +4,13 @@
 ##   godot --path games/island-ride -s res://tools/view_probe.gd -- --out=C:/tmp/shots [--shots=0,200,450]
 ##         [--fps-from=0 --fps-to=2310 --speed-kmh=50] [--size=1920x1080] [--cadence=85] [--close] [--pair]
 ##         [--advance=1.5] [--time=21:30] [--date=2026-06-21] [--weather=rain] [--profile=forward|compat]
-##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--menu] [--crop=x,y,w,h]
+##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
 ## `--cadence`, Tempo des Fahrmodells, Steigung und Abschnitt der Strecke, Strecke/Zeit bis zur Position, „~142 W“),
-## die Verbindungsmeldung ist unsichtbar, dazu die Debug-Anzeige (F3). `--menu` öffnet das Grafikmenü. Grafik wie bei einem frischen Start (GraphicsSettings-Standard,
+## die Verbindungsmeldung ist unsichtbar. `--debug` blendet zusätzlich die Debug-Anzeige (F3) ein. `--menu` öffnet
+## das Grafikmenü. Grafik wie bei einem frischen Start (GraphicsSettings-Standard,
 ## `user://settings.cfg` bleibt unberührt); `--aa`/`--scale`/`--upscaler`/`--vsync=off` überschreiben. `--crop`:
 ## zusätzlich Bildausschnitt `crop_<m>.png` (z. B. für den AA-Vergleich). VSync wie im Projekt (Standard: an).
 ## Fahrer und Rad treten mit `--cadence` (rpm, 0 = Stillstand): die Hauptszene füttert ohne Bus nur eine Attrappe
@@ -32,6 +33,8 @@ var _cadence := 85.0
 var _crop := Rect2i()
 ## HUD mit Beispielwerten zeigen (`--hud`).
 var _hud := false
+## Debug-Anzeige (F3) zeigen (`--debug`).
+var _debug := false
 
 
 func _initialize() -> void:
@@ -83,6 +86,8 @@ func _initialize() -> void:
 			graphics.vsync = false
 		elif arg == "--hud":
 			_hud = true
+		elif arg == "--debug":
+			_debug = true
 		elif arg == "--menu":
 			menu = true
 		elif arg.begins_with("--crop="):
@@ -108,7 +113,7 @@ func _initialize() -> void:
 	await _frames(10)
 	_ride.settings_menu.settings = graphics  # erst nach `_ready` der Hauptszene vorhanden
 	_ride.settings_menu.apply()
-	_ride.debug_label.visible = _hud
+	_ride.debug_label.visible = _debug
 	if menu:
 		_ride.settings_menu.open()
 	if _hud:

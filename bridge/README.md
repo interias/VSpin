@@ -29,7 +29,7 @@ Strg+C = beenden. Die Statuszeile zeigt Quelle, Verbindungsstatus, Kadenz und An
 Ohne Terminal (stdin kein TTY) ist die Tastatur aus, die Bridge läuft normal weiter.
 
 Der Bus lauscht standardmäßig nur auf `127.0.0.1`. `--host ADRESSE` (z. B. `--host 0.0.0.0`) ist für den
-Container gedacht (`docker-compose.yml`, siehe Root-README „Mit Docker Desktop starten“), dessen Port nur auf
+Container gedacht (`docker-compose.yml`, siehe [Anleitung](../docs/anleitung.md) „Mit Docker Desktop starten“), dessen Port nur auf
 `127.0.0.1` des Rechners veröffentlicht wird – nativ nicht verwenden, sonst ist der Bus im Netz erreichbar.
 
 Clients können `set_grade` senden (virtuelle Steigung, ADR-0007). Die Bridge antwortet dem

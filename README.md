@@ -1,140 +1,83 @@
-# VSPIN
+<p align="center">
+  <img src="docs/brand/vspin-icon.svg" width="96" alt="VSpin-Symbol">
+</p>
 
-Eigene Game-Plattform für das **Wenoker JC312** Indoor-Bike: Telemetrie per
-Bluetooth LE unter Windows abgreifen und eigene Games darauf bauen.
+<h1 align="center">VSpin</h1>
 
-> Status: v1 in Arbeit. Bridge (Simulator, Replay, CSC/FTMS-Parser, Session-Logging) und
-> Spiel „Inselfahrt“ (Insel-Rundkurs, HUD, Pause, `set_grade`) laufen ohne Rad. Es fehlen
-> die BLE-Anbindung ans echte JC312 (#9, braucht den Dump aus #1) und die Abnahme am Rad (#17).
+<p align="center">
+  Eigene Spiele für das Indoor-Bike.<br>
+  VSpin liest die Kadenz eines Spinning-Rads per Bluetooth und macht daraus die Steuerung für Spiele.
+</p>
 
-## Schnellstart (Windows)
+![Inselfahrt: Radtour über eine Mittelmeer-Insel, mit HUD für Kadenz, Tempo, Steigung, Minikarte und Höhenprofil](docs/images/inselfahrt.jpg)
 
-Voraussetzungen: Python 3.12, [Godot 4.4](https://godotengine.org/download) (Standard-Version, nicht .NET).
+## Was VSpin macht
 
-**1. Bridge installieren** (einmalig, PowerShell im Repo-Ordner):
+Spinning-Räder wie das **Wenoker JC312** senden ihre Messwerte per Bluetooth Low Energy, gedacht für Apps wie
+Zwift oder Kinomap. VSpin nimmt diese Werte selbst ab und stellt sie eigenen Spielen zur Verfügung:
+
+- **Rad verbinden:** Die Bridge spricht die Bluetooth-Standards für Fitnessgeräte (FTMS) und für Trittfrequenz
+  (CSC). Sie glättet die Kadenz, verwirft Ausreißer und meldet, ob das Rad verbunden ist.
+- **Ohne Rad entwickeln:** Ein Simulator (Tastatur oder Trainingsprofil) und das Abspielen aufgezeichneter Fahrten
+  liefern dieselben Daten wie das echte Rad.
+- **Spiele anschließen:** Alle Werte laufen über einen lokalen WebSocket. Beliebig viele Spiele und Werkzeuge können
+  gleichzeitig mitlesen; nur die Bridge spricht Bluetooth.
+- **Fahrten aufzeichnen:** Jede Fahrt wird als CSV gespeichert, dazu die Rohdaten des Rads.
+- **Steigung zurückmelden:** Spiele melden die virtuelle Steigung an die Bridge. Das ist der Andockpunkt für eine
+  spätere elektronische Widerstandssteuerung.
+
+## So hängt es zusammen
+
+```mermaid
+flowchart LR
+  Rad["Indoor-Bike<br>(JC312)"] -- "Bluetooth LE<br>FTMS / CSC" --> Bridge
+  Sim["Simulator /<br>Aufzeichnung"] --> Bridge
+  Bridge["vspin-bridge<br>(Python)"] -- "Kadenz, Tempo, Status<br>WebSocket 127.0.0.1:8765" --> Spiel["Spiele<br>(Godot 4)"]
+  Spiel -- "Steigung" --> Bridge
+  Bridge --> Sessions[("Fahrten<br>CSV")]
+```
+
+## Inselfahrt
+
+Das erste Spiel ist ein 3D-Radsimulator im Low-Poly-Stil. Man tritt, das Rad fährt; gelenkt wird nicht.
+
+- Ein Rundkurs von 9,2 km über eine Insel im Mallorca-Stil: Hafen, Küstenstraße, Serpentinen mit Aussichtspunkt,
+  Pinien- und Olivenhain, Bergdorf und Abfahrt.
+- Bergauf wird man bei gleicher Kadenz langsamer, bergab schneller.
+- Sehenswürdigkeiten am Weg: Leuchtturm, Wachturm, Einsiedelei, Burgruine, Aquädukt und Windmühlen.
+- Tag und Nacht folgen der echten Uhrzeit auf Mallorca; dazu simuliertes Wetter bis hin zu Regen.
+- HUD mit Kadenz, Tempo, Steigung, Minikarte und Höhenprofil; Grafikmenü, Fenstermodus und eine Bildschirmhälfte
+  für das Spiel, damit daneben Platz für Musik bleibt.
+- Läuft auch im Browser, per Docker ohne lokale Installation.
+
+## Ausprobieren
+
+Ohne Rad, nur mit [Docker Desktop](https://www.docker.com/products/docker-desktop/):
 
 ```powershell
-cd bridge
-py -3.12 -m venv .venv
-.venv\Scripts\pip install -e ".[test]"
+docker compose up --build -d
 ```
 
-**2. Bridge starten** – eine der Quellen:
+Dann http://localhost:8080 öffnen. Der Simulator tritt mit 80 rpm. Installation, Start mit dem echten Rad, Tests und
+alle Optionen stehen in der **[Anleitung](docs/anleitung.md)**.
 
-```powershell
-.venv\Scripts\vspin-bridge --source sim --sim-cadence 80        # Simulator, Kadenz per Pfeiltasten
-.venv\Scripts\vspin-bridge --source sim --profile profiles\sprint.toml   # geskriptetes Profil
-.venv\Scripts\vspin-bridge --source replay <datei>.raw.jsonl --speed 1   # Aufnahme abspielen
-```
+## Stand
 
-Im Bridge-Terminal: Pfeil hoch/runter = Kadenz ±5, `q` = beenden. Profile liegen in
-`bridge/profiles/` (Einrollen, Sprint, Stillstand, Abbruch). Jede Session landet als
-`sessions/<zeit>.csv` + `.raw.jsonl` im aktuellen Ordner (nicht im Git).
-Das echte Rad (`--source ble`) folgt mit #9.
+VSpin ist in Arbeit (v1). Bridge, Simulator, Aufzeichnung und die Inselfahrt laufen ohne Rad. Es fehlt noch die
+Verbindung zum echten JC312 unter Windows; dafür braucht es zuerst einen Mitschnitt seines Bluetooth-Protokolls.
 
-**3. Spiel starten:** Godot öffnen → `games/island-ride/project.godot` importieren → F5,
-oder `godot --path games/island-ride`. Tasten: `P`/Leertaste Pause, `F3` Debug-Anzeige, `F2` Grafik und Fenster
-(Kantenglättung, Auflösung, Fenster auf linke/rechte Bildschirmhälfte), `F11` Vollbild, `Esc` Ende.
-Reihenfolge egal – das Spiel verbindet sich, sobald die Bridge läuft.
-
-**4. Protokoll des Rads herausfinden** (sobald das JC312 da ist): siehe [`tools/README.md`](tools/README.md).
-
-**Tests:**
-
-```powershell
-cd bridge; .venv\Scripts\python -m pytest -q          # Bridge (startet echte Bridge-Prozesse)
-godot --headless --path games/island-ride --import       # Spiel, einmalig
-godot --headless --path games/island-ride -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit
-```
-
-Details: [`bridge/README.md`](bridge/README.md), [`games/island-ride/README.md`](games/island-ride/README.md).
-
-## Mit Docker Desktop starten
-
-Ohne lokale Python- oder Godot-Installation, nur mit [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-(im Repo-Ordner):
-
-```powershell
-docker compose up --build -d      # erster Build lädt Godot 4.4.1 + Export-Templates, dauert einige Minuten
-```
-
-Dann **http://localhost:8080** im Browser öffnen und fahren. Es laufen zwei Container
-([`docker-compose.yml`](docker-compose.yml)):
-
-- **`bridge`** – `vspin-bridge --source sim` mit Start-Kadenz 80 rpm. Der Bus ist nur auf `127.0.0.1:8765` des
-  Rechners erreichbar (im Container lauscht die Bridge mit `--host 0.0.0.0`); das Spiel im Browser verbindet sich wie
-  gewohnt mit `ws://127.0.0.1:8765`.
-- **`game`** – Web-Export der Inselfahrt (Godot 4.4.1, Compatibility-Renderer, ohne Threads) hinter nginx.
-
-**Kadenz ändern:** `docker attach vspin-bridge-1` – dann Pfeil hoch/runter = ±5 rpm wie im Bridge-Terminal.
-Abkoppeln mit **Strg+P Strg+Q** (Strg+C oder `q` beenden dagegen die Bridge).
-
-**Profil oder Start-Kadenz** per Umgebungsvariable (Pfad relativ zu `bridge/`):
-
-```powershell
-$env:VSPIN_PROFILE="profiles/sprint.toml"; docker compose up -d   # Profil statt manueller Kadenz
-$env:VSPIN_CADENCE="60"; docker compose up -d                     # andere Start-Kadenz
-```
-
-Gesetzte Variablen gelten bis zum Schließen der PowerShell (`Remove-Item Env:VSPIN_PROFILE` setzt zurück).
-
-**Sessions** landen im Ordner `sessions/` im Repo-Root (nicht im Git). Die Dateinamen tragen UTC-Zeit –
-der Container kennt die Zeitzone des Rechners nicht.
-
-**Stoppen:** `docker compose down` – die Bridge schließt die Session dabei sauber ab.
-
-**BLE nur nativ:** Docker Desktop reicht unter Windows kein Bluetooth in Container durch. Für das echte Rad
-(`--source ble`, #9) läuft die Bridge weiterhin direkt unter Windows (Schnellstart oben); das Spiel kann dabei
-trotzdem aus dem Container kommen – dann nur `docker compose up -d --no-deps game` starten (ohne `--no-deps`
-startet die Container-Bridge mit und belegt Port 8765).
-
-### Latenz prüfen (Abnahme < 200 ms)
-
-Die Debug-Anzeige (`F3`) zeigt Roh-Kadenz, Bridge-Zeitstempel und das Alter der letzten Nachricht im Spiel –
-das ist nur der Anteil Bus → Spiel. Die Gesamtlatenz Kurbel → Bild misst man am einfachsten mit einer
-Zeitlupen-Aufnahme (Handy, 240 fps): Kurbel und Bildschirm gleichzeitig filmen, aus dem Stand kräftig antreten
-und die Frames zwischen erster Kurbelbewegung und erster Reaktion im HUD zählen (1 Frame ≈ 4 ms).
-Hinweis: Das Rad selbst sendet typischerweise nur ca. 1–4 Mal pro Sekunde, und die Glättung (1 s) verzögert
-zusätzlich – das Ergebnis zeigt, ob Glättung oder Senderate angepasst werden müssen.
-
-## Architektur
-
-```
-[JC312] ──BLE──▶ vspin-bridge (Python/bleak) ──WebSocket ws://127.0.0.1:8765──▶ Games (Godot 4)
-[Simulator / Replay] ──▶ (gleiche Schnittstelle)                                Logger, Dashboard …
-```
-
-- **Nur die Bridge spricht BLE** – Games, Logger usw. sind Clients am Bus.
-- **Kadenz** ist der einzige Game-Input in v1; Watt sind höchstens geschätzt.
-- **Prototyp-Game:** 3D-Radsimulator auf einer Mallorca-Stil-Insel.
-- **Später:** ESP32-Retrofit als FTMS-Smart-Bike mit Widerstandssteuerung.
-
-## Repo
+## Im Repository
 
 | Ordner | Inhalt |
 |---|---|
-| [`bridge/`](bridge/) | Python-Paket `vspin_bridge`: BLE-/Sim-/Replay-Quellen, Parser, Bus, Logging |
-| [`tools/`](tools/) | Hilfsskripte, z. B. BLE-Discovery |
-| [`games/`](games/) | Godot-Projekte |
-| [`firmware/`](firmware/) | ESP32-Firmware (später) |
-| [`docs/adr/`](docs/adr/) | Architekturentscheidungen |
-| [`docs/bus-protocol.md`](docs/bus-protocol.md) | Vertrag zwischen Bridge und Clients |
-| [`CONTEXT.md`](CONTEXT.md) | Glossar und Kontext |
-
-## Entscheidungen
-
-| ADR | Thema |
-|---|---|
-| [0001](docs/adr/0001-scope-v1.md) | Scope v1 |
-| [0002](docs/adr/0002-tech-stack-und-bus.md) | Tech-Stack & Bus |
-| [0003](docs/adr/0003-geraete-abstraktion-und-simulator.md) | Geräte-Abstraktion, Simulator, Replay |
-| [0004](docs/adr/0004-datenqualitaet.md) | Datenqualität |
-| [0005](docs/adr/0005-prototyp-game-radsimulator.md) | Prototyp-Game: Radsimulator |
-| [0006](docs/adr/0006-insel-welt.md) | Insel-Welt im Mallorca-Stil |
-| [0007](docs/adr/0007-widerstandssteuerung-esp32.md) | Widerstandssteuerung / ESP32 |
-| [0008](docs/adr/0008-datenspeicherung-und-export.md) | Datenspeicherung & Export |
-| [0009](docs/adr/0009-repo-organisation-und-lizenz.md) | Repo-Organisation & Lizenz |
+| [`bridge/`](bridge/) | Bridge in Python: Bluetooth-, Simulator- und Replay-Quellen, Parser, Bus, Aufzeichnung |
+| [`games/island-ride/`](games/island-ride/) | Spiel „Inselfahrt“ (Godot 4) |
+| [`tools/`](tools/) | Hilfsskripte, z. B. Bluetooth-Mitschnitt des Rads |
+| [`docs/`](docs/) | [Anleitung](docs/anleitung.md), [Bus-Protokoll](docs/bus-protocol.md), [Architekturentscheidungen](docs/adr/), [Marke](docs/brand/) |
+| [`CONTEXT.md`](CONTEXT.md) | Glossar |
 
 ## Lizenz
 
-MIT – siehe [LICENSE](LICENSE). qdomyos-zwift (GPL-3.0) dient nur als Lesereferenz.
+MIT, siehe [LICENSE](LICENSE). Modelle in der Inselfahrt von [Kenney](https://kenney.nl) (CC0), Nachweis in
+[`ASSETS.md`](games/island-ride/ASSETS.md). [qdomyos-zwift](https://github.com/cagnulein/qdomyos-zwift) (GPL-3.0)
+dient nur als Lesereferenz.
