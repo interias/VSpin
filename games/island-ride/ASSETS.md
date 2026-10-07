@@ -15,6 +15,9 @@ daneben. Kein Git LFS.
 | `kenney/city-suburban/*.glb`: `building-type-a`, `building-type-c`, `building-type-g`, `building-type-h`, `building-type-k`, `building-type-r` | Häuser an der Hafenstraße (#15) | [City Kit (Suburban) 2.0](https://kenney.nl/assets/city-kit-suburban) | Kenney (kenney.nl) | CC0 1.0 (`kenney/city-suburban/License.txt`) |
 | `kenney/city-suburban/Textures/colormap.png` | Farbpalette der Häuser, **abgewandelt**: Dachgrün → Terrakotta, Wandweiß → Cremeweiß (Mallorca-Stil) | wie oben (`colormap.png` des Kits) | Kenney; Abwandlung für VSpin | CC0 1.0 |
 | `kenney/nature/*.glb`: `rock_largeA`, `rock_largeB`, `rock_largeD`, `rock_tallA`, `rock_tallB`, `rock_tallG`, `tree_palmTall`, `tree_palmBend`, `tree_simple`, `tree_plateau`, `tree_detailed`, `plant_bushLarge`, `plant_bushDetailed`, `plant_bush` | Felsen/Klippen, Palmen, Pinien, Büsche an Hafen und Küstenstraße (#15); Materialfarben werden im Spiel mediterran umgefärbt (`NATURE_COLORS` in `src/island_world.gd`), die Dateien sind unverändert | [Nature Kit 2.1](https://kenney.nl/assets/nature-kit) | Kenney (kenney.nl) | CC0 1.0 (`kenney/nature/License.txt`) |
+| `kenney/nature/*.glb`: `stone_tallA`, `stone_tallB`, `stone_tallC`, `stone_largeA`, `stone_largeB`, `stone_largeC`, `tree_fat`, `tree_oak`, `tree_tall`, `grass_large`, `plant_flatShort`, `flower_redA`, `flower_purpleA`, `flower_yellowA`, `pot_large` | Kalkfelsen und Felsnadeln (Serpentinen), Olivenbäume (`tree_fat`/`tree_oak` mit silbrigem Laub, `OLIVE_COLORS`), Zypressen (`tree_tall`), Gras, Blumen, Blumentöpfe in Hain, Dorf und Abfahrt (#16); Dateien unverändert, zur Laufzeit umgefärbt | [Nature Kit 2.1](https://kenney.nl/assets/nature-kit) | Kenney (kenney.nl) | CC0 1.0 (`kenney/nature/License.txt`) |
+| `kenney/fantasy-town/*.glb`: `wall`, `wall-window-shutters`, `wall-window-small`, `wall-window-round`, `wall-doorway-round`, `roof-high`, `roof-high-point`, `fountain-round`, `lantern`, `stall-red`, `cart` | Module der Dorfhäuser und der Kirche, Brunnen, Laternen, Marktstände, Karren im Bergdorf (#16) | [Fantasy Town Kit 2.0](https://kenney.nl/assets/fantasy-town-kit) | Kenney (kenney.nl) | CC0 1.0 (`kenney/fantasy-town/License.txt`) |
+| `kenney/fantasy-town/Textures/colormap.png` | Farbpalette des Kits, **abgewandelt**: Wandstein (lavendelgrau) → Sandstein, Holzrahmen → dunkler Kalkstein, Dachrot und Giebelgrün → Terrakotta, Schiefer → warmes Grau | wie oben (`colormap.png` des Kits) | Kenney; Abwandlung für VSpin | CC0 1.0 |
 
 ## Selbst erstellt
 
@@ -22,12 +25,11 @@ daneben. Kein Git LFS.
 |---|---|---|
 | Insel-Gelände (Höhenfeld, Vertex-Farben) | prozedural, `src/island_terrain.gd` | MIT (Projektlizenz) |
 | Rundkurs (Grundriss, Höhenprofil), Fahrbahn | selbst erstellt, `src/island_course.gd`, `src/track.gd` | MIT (Projektlizenz) |
-| Meer, Kai, Molen, Leuchtturm, Poller, Küstenmauer, Start/Ziel-Bogen, Deko der übrigen Stationen (Felsen, Bäume, Häuser, Kirche, Marker) | Godot-Grundkörper (Box, Kugel, Zylinder, Prisma), `src/island_world.gd` | MIT (Projektlizenz) |
+| Meer, Kai, Molen, Leuchtturm, Poller, Straßen- und Trockenmauern, Randsteine, Plattform am Aussichtspunkt (Brüstung, Bänke, Fernrohr), Start/Ziel-Bogen, Stationsmarker | Godot-Grundkörper (Box, Zylinder), `src/island_world.gd` | MIT (Projektlizenz) |
 | Schrift (HUD, Stationsschilder) | in die Engine eingebaute Standardschrift (Open Sans), keine Datei im Repo | SIL OFL 1.1 (Godot-Lizenzhinweise) |
 
 Testwerkzeug, nicht Teil des Spiels: GUT 9.4 (`addons/gut`, MIT, Lizenz in `addons/gut/LICENSE.md`).
 
 ## Vorgesehen (noch nicht übernommen)
 
-Weitere Low-Poly-Modelle für Serpentinen, Hain und Bergdorf (#16) und ggf. Terrain3D (MIT) – siehe ADR-0006 und
-dessen Nachtrag. Bei Übernahme hier eintragen.
+Ggf. Terrain3D (MIT) – siehe ADR-0006 und dessen Nachtrag. Bei Übernahme hier eintragen.
