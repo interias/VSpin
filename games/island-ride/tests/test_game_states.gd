@@ -42,6 +42,27 @@ func test_stale_pauses_and_connected_resumes() -> void:
 	assert_eq(_message(ride), "")
 
 
+func test_silent_bridge_pauses_and_next_message_resumes() -> void:
+	# Bridge hängt bei offenem WebSocket: keine Telemetrie, kein `stale` – das Spiel pausiert selbst.
+	var steps := [FakeBusServer.status()] + FakeBusServer.steady_cadence(90.0, 0.0, 1.5) \
+			+ FakeBusServer.steady_cadence(90.0, 4.0, 7.0)
+	var ride := spawn_ride(start_fake_bus(steps), FLAT_M)
+	ride.bus.silence_timeout_s = 0.8
+	assert_true(await run_until(func(): return ride.state == RIDING, 3.0))
+	assert_true(await run_until(func(): return ride.state == PAUSED_CONNECTION, 3.0), "Schweigen → Pause")
+	assert_true(ride.bus.bus_connected, "WebSocket bleibt offen")
+	assert_string_contains(_message(ride), "Verbindung verloren")
+	var speed: float = ride.model.speed_kmh()
+	var distance: float = ride.model.distance_m
+	assert_gt(speed, 5.0)
+	await run_for(0.5)
+	assert_eq(ride.model.distance_m, distance, "steht während der Pause")
+	assert_eq(ride.model.speed_kmh(), speed, "Schweigen ist keine Kadenz 0 (ADR-0004): kein Ausrollen")
+	assert_true(await run_until(func(): return ride.state == RIDING, 4.0), "neue Telemetrie → fährt weiter")
+	await run_for(0.3)
+	assert_gt(ride.model.distance_m, distance)
+
+
 func test_waits_for_data_after_connected_again() -> void:
 	var steps := [FakeBusServer.status()] + FakeBusServer.steady_cadence(80.0, 0.0, 1.0) \
 			+ [FakeBusServer.status("disconnected", "sim", ["CADENCE"], 1.2)] \

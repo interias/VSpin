@@ -11,7 +11,8 @@
 ##   riding             fahren – Bus verbunden, Quelle `connected` und Daten seit dem letzten Abbruch
 ##   paused_manual      pausiert per Taste (P/Leertaste), bis erneut gedrückt
 ##   paused_connection  pausiert wegen Verbindung: Bridge nicht erreichbar, Quelle `stale`/`disconnected`
-##                      oder noch keine Daten. Ein Abbruch ist keine Kadenz 0 (ADR-0004): das Fahrmodell
+##                      oder noch keine Daten; auch wenn die Bridge bei offenem Bus schweigt (BusClient.silent).
+##                      Ein Abbruch ist keine Kadenz 0 (ADR-0004): das Fahrmodell
 ##                      steht still und fährt automatisch weiter, sobald wieder Daten kommen.
 ##   finished           Ziel erreicht – Zusammenfassung (Zeit, Ø Kadenz, Ø Tempo); Endzustand
 ## Verbindungspause hat Vorrang vor der manuellen; eine manuelle Pause bleibt über einen Abbruch hinweg bestehen.
@@ -276,6 +277,9 @@ func status_message() -> String:
 			if not bus.bus_connected:
 				text = "%sBridge nicht erreichbar (%s)\n%s\nNeuer Versuch läuft …" % [
 						"Verbindung verloren: " if _ever_connected else "", bus.url, BRIDGE_START_HINT]
+			elif bus.silent:
+				text = "Verbindung verloren (Bridge sendet seit %d s nichts)\nWarte auf Daten …" % roundi(
+						bus.silence_timeout_s)
 			elif bus.status != BusClient.STATE_CONNECTED:
 				text = "Verbindung verloren (Rad: %s)\nWarte auf Daten …" % bus.status
 			else:

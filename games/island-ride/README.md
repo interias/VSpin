@@ -236,7 +236,7 @@ Physische Tastenposition (gleich auf QWERTZ/QWERTY); definiert in `scenes/main.g
 |---|---|---|
 | `riding` – fahren | Bus verbunden, Quelle `connected` und seit dem letzten Abbruch Telemetrie empfangen | – |
 | `paused_manual` – pausiert (manuell) | `P`/Leertaste | „Pause“ |
-| `paused_connection` – pausiert (Verbindung) | Bridge nicht erreichbar, Quelle `stale`/`disconnected` oder noch keine Daten | „Bridge nicht erreichbar … Bridge starten“ bzw. „Verbindung verloren (Rad: stale)“ |
+| `paused_connection` – pausiert (Verbindung) | Bridge nicht erreichbar, Quelle `stale`/`disconnected`, noch keine Daten oder Bridge schweigt bei offenem Bus | „Bridge nicht erreichbar … Bridge starten“ bzw. „Verbindung verloren (Rad: stale)“ / „(Bridge sendet seit 4 s nichts)“ |
 | `finished` – Ziel erreicht | Ziellinie überfahren (Endzustand, Pause-Taste wirkungslos) | „Ziel erreicht!“ mit Zeit, Ø Kadenz, Ø Tempo |
 
 In jeder Pause steht das Fahrmodell still: Position und Geschwindigkeit bleiben, wie sie waren. Ein
@@ -244,7 +244,10 @@ Verbindungsabbruch ist **keine Kadenz 0** (ADR-0004) – der Fahrer rollt nicht 
 verbunden ist, die Quelle `connected` meldet und Telemetrie ankommt, fährt das Spiel von selbst weiter.
 Die Verbindungspause hat Vorrang; eine manuelle Pause bleibt über einen Abbruch hinweg bestehen
 (kein automatisches Weiterfahren aus der manuellen Pause). Hängt ein Verbindungsaufbau länger als
-`connect_timeout_s`, bricht der Bus-Client ihn ab und versucht es neu.
+`connect_timeout_s`, bricht der Bus-Client ihn ab und versucht es neu. Hängt die Bridge bei offenem
+WebSocket (kein `stale` mehr von ihr), sichert das Spiel selbst ab: kommt bei `connected` länger als 4 s weder
+`status` noch `telemetry` (`BusClient.SILENCE_TIMEOUT_S`; die Bridge meldet `stale` nach 3 s, 1 s Reserve), gilt
+die Quelle als `stale` – Pause, keine Kadenz 0; die nächste Telemetrie setzt die Fahrt fort.
 
 ### HUD
 
