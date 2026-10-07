@@ -115,9 +115,10 @@ func test_menu_items_and_disabled_entries() -> void:
 	assert_eq(texts["quit"], "Beenden")
 	assert_string_contains(texts["arcade"], "Arcade")
 	assert_string_contains(texts["arcade"], "bald")
-	for key in ["training", "arcade", "logbook", "wardrobe"]:
+	assert_eq(texts["logbook"], "Fahrtenbuch")
+	for key in ["training", "arcade", "wardrobe"]:
 		assert_true(buttons[key].disabled, "%s ausgegraut" % key)
-	for key in ["drive", "round_trip", "settings", "quit", "back"]:
+	for key in ["drive", "round_trip", "logbook", "settings", "quit", "back"]:
 		assert_false(buttons[key].disabled, "%s wählbar" % key)
 	assert_true(buttons["quit"].is_visible_in_tree(), "Beenden auf dem Desktop")
 	var web_menu := START_MENU_SCENE.instantiate()
@@ -132,7 +133,10 @@ func test_keyboard_drives_menu_into_ride() -> void:
 	await run_for(0.2)
 	assert_eq(_focused(game), game.start_menu.buttons["drive"], "Fokus auf „Fahren“")
 	await _press(KEY_DOWN)
+	assert_eq(_focused(game), game.start_menu.buttons["logbook"], "Fahrtenbuch wählbar (#35)")
+	await _press(KEY_DOWN)
 	assert_eq(_focused(game), game.start_menu.buttons["settings"], "ausgegraute Punkte werden übersprungen")
+	await _press(KEY_UP)
 	await _press(KEY_UP)
 	await _press(KEY_ENTER)
 	assert_eq(_focused(game), game.start_menu.buttons["round_trip"], "Fahren → Modus-Auswahl")
@@ -151,9 +155,11 @@ func test_keyboard_drives_menu_into_ride() -> void:
 func test_mouse_selects_menu_items() -> void:
 	var menu := await _menu_in(Vector2i(1600, 900))
 	watch_signals(menu)
-	await _click(menu.buttons["logbook"])
 	await _click(menu.buttons["wardrobe"])
-	assert_signal_emit_count(menu, "ride_requested", 0, "Fahrtenbuch/Garderobe ausgegraut")
+	assert_signal_emit_count(menu, "ride_requested", 0, "Garderobe ausgegraut")
+	assert_signal_emit_count(menu, "logbook_requested", 0)
+	await _click(menu.buttons["logbook"])
+	assert_signal_emitted(menu, "logbook_requested", "Fahrtenbuch per Maus (#35)")
 	assert_signal_emit_count(menu, "settings_requested", 0)
 	assert_true(menu.buttons["drive"].is_visible_in_tree(), "noch auf der Hauptseite")
 	await _click(menu.buttons["settings"])

@@ -8,7 +8,8 @@
 ##                Prozent, Restdistanz; mit Ghost (#32) der Abstand zu ihm in Sekunden: „+1.4 s“ = dahinter, rot;
 ##                „-0.8 s“ = davor, grün) und Höhenprofil mit Marker (HudProfile)
 ##   Celebration  dezente Einblendung „Neue Bestzeit!“ über dem unteren Panel, blendet nach CELEBRATION_S aus (#31);
-##                ebenso das Ergebnis beim Verlassen eines Segments (#33)
+##                ebenso das Ergebnis beim Verlassen eines Segments (#33), ein neuer Erfolg und ein Levelaufstieg (#35);
+##                mehrere zugleich laufen nacheinander
 ##   Segment      im Segment an derselben Stelle dessen Name und Live-Zeit („Bergwertung  3:12.4“, #33); eine
 ##                Einblendung hat Vorrang
 ##   Message/Hint/Debug  Zustandsmeldung (mittig zwischen oben und unten), `set_grade`-Hinweis (über dem unteren
@@ -69,6 +70,8 @@ var _grade_color := COLOR_FLAT
 ## Laufendes Segment für `readout()` („Bergwertung: 3:12.4“, "" = keins).
 var _segment_line := ""
 var _celebration_tween: Tween
+## Eingereihte Einblendungen, die nach der laufenden folgen (#35).
+var _celebration_queue: Array = []
 
 
 func _ready() -> void:
@@ -148,8 +151,22 @@ static func lap_caption(number: int, total: int) -> String:
 	return "Runde %d / %d" % [number, total] if total > 1 else "Runde %d" % number
 
 
-## Dezente Einblendung (z. B. „Neue Bestzeit! 1:23.4“), die nach CELEBRATION_S wieder verschwindet.
+## Dezente Einblendung (z. B. „Neue Bestzeit! 1:23.4“), die nach CELEBRATION_S wieder verschwindet. Läuft schon
+## eine, wird die neue hinten eingereiht und folgt danach – Bestzeit, Segment, Erfolg und Levelaufstieg überschreiben
+## sich nicht (#35).
 func celebrate(text: String) -> void:
+	if _celebration.visible:
+		_celebration_queue.append(text)
+		return
+	_show_celebration(text)
+
+
+## Eingereihte Einblendungen, die nach der laufenden folgen (älteste zuerst).
+func queued_celebrations() -> Array:
+	return _celebration_queue.duplicate()
+
+
+func _show_celebration(text: String) -> void:
 	_celebration.text = text
 	_celebration.visible = true
 	_celebration.modulate.a = 1.0
@@ -158,11 +175,18 @@ func celebrate(text: String) -> void:
 	_celebration_tween = create_tween()
 	_celebration_tween.tween_interval(CELEBRATION_S - 1.0)
 	_celebration_tween.tween_property(_celebration, "modulate:a", 0.0, 1.0)
-	_celebration_tween.tween_callback(_celebration.hide)
+	_celebration_tween.tween_callback(_next_celebration)
 
 
-## Laufende Einblendung sofort ausblenden (im Ziel steht sonst das Ergebnis davor).
+func _next_celebration() -> void:
+	_celebration.hide()
+	if not _celebration_queue.is_empty():
+		_show_celebration(_celebration_queue.pop_front())
+
+
+## Laufende und eingereihte Einblendungen sofort ausblenden (im Ziel steht sonst das Ergebnis davor).
 func end_celebration() -> void:
+	_celebration_queue.clear()
 	if _celebration_tween != null:
 		_celebration_tween.kill()
 	_celebration.hide()

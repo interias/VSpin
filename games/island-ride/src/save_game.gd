@@ -8,15 +8,20 @@
 ##                                 "best_times": {"<strecke>": {"<richtung>": <sekunden>}},
 ##                                 "segment_best_times": {"<strecke>": {"<richtung>": {"<segment>": <sekunden>}}},
 ##                                 "medals": {"<strecke>": {"<richtung>": {"lap"|"<segment>": "gold"|…}}},
-##                                 "ghosts": {"<strecke>": {"<richtung>": {"best"|"last": {Ghost.to_dict()}}}}}}}
+##                                 "ghosts": {"<strecke>": {"<richtung>": {"best"|"last": {Ghost.to_dict()}}}},
+##                                 "achievements": {"<erfolg>": "…Z"}}}}
 ##
 ## Bestzeiten (#31): schnellste Runde je Strecke und Richtung (LapTiming.DIRECTION_*), in Sekunden.
 ## Segment-Bestzeiten (#33): schnellste Zeit je Strecke, Richtung und Segment-ID, in Sekunden.
 ## Medaillen (#33): beste Medaille (Medals.GOLD/SILVER/BRONZE) je Strecke, Richtung und Runde (Medals.LAP) bzw. Segment.
 ## Ghosts (#32): je Strecke und Richtung die Bestzeit-Runde (Ghost.BEST) und die letzte volle Runde der zuletzt
 ## gespeicherten Fahrt mit mindestens einer vollen Runde (Ghost.LAST) – nur Strecke über Zeit, keine Rohtelemetrie.
+## Erfolge (#35): freigeschaltete Erfolge (Achievements.LIST) mit Datum (UTC). Das Fahrerlevel wird nicht gespeichert:
+## es folgt aus den Gesamt-Kilometern, und die ergeben sich wie Fahrzeit und Runden gesamt aus den Fahrten
+## (`total_km`, `total_time_s`, `total_laps`). Ein älterer Stand ohne `achievements` bekommt den leeren Bereich; was er
+## schon erfüllt, fällt beim nächsten Fahrtende.
 ##
-## Erweitern (Erfolge, Fahrerlevel, Garderobe – spätere Pakete) geht additiv:
+## Erweitern (Garderobe – spätere Pakete) geht additiv:
 ## neue Bereiche in PROFILE_DEFAULTS bekommen beim Laden ihren Standardwert. Ändert sich das Format, steigt
 ## VERSION und `_upgrade_steps()` bekommt einen Schritt von der alten Version aus – alte Stände werden beim Laden
 ## hochgestuft, nie verworfen. Ein Stand aus einer neueren Version bleibt unverändert erhalten (unbekannte
@@ -30,7 +35,8 @@ const VERSION := 1
 ## Spielmodus einer Fahrt (CONTEXT.md: Rundfahrt; Training und Arcade folgen).
 const MODE_ROUND_TRIP := "rundfahrt"
 ## Bereiche je Fahrerprofil mit Standardwert (fehlende werden beim Laden ergänzt).
-const PROFILE_DEFAULTS := {"rides": [], "best_times": {}, "segment_best_times": {}, "medals": {}, "ghosts": {}}
+const PROFILE_DEFAULTS := {"rides": [], "best_times": {}, "segment_best_times": {}, "medals": {}, "ghosts": {},
+		"achievements": {}}
 ## Endung, unter der eine unlesbare Datei beiseitegelegt wird.
 const BROKEN_SUFFIX := ".defekt"
 
@@ -157,6 +163,49 @@ func ghost(track: String, direction: String, kind: String) -> Ghost:
 ## Speichert `recording` als Ghost `kind`; ersetzt den bisherigen. Schreibt nicht auf die Platte.
 func record_ghost(track: String, direction: String, kind: String, recording: Ghost) -> void:
 	_area("ghosts", track, direction, true)[kind] = recording.to_dict()
+
+
+## Freigeschaltete Erfolge: ID → Datum (UTC); ungültige Einträge fehlen.
+func achievements() -> Dictionary:
+	var result := {}
+	var unlocked: Dictionary = profile()["achievements"]
+	for id in unlocked:
+		if unlocked[id] is String:
+			result[id] = unlocked[id]
+	return result
+
+
+## Schaltet den Erfolg `id` mit `date` frei, wenn er es noch nicht ist. Gibt zurück, ob er neu ist. Schreibt nicht auf
+## die Platte.
+func unlock_achievement(id: String, date: String = utc_now()) -> bool:
+	if achievements().has(id):
+		return false
+	profile()["achievements"][id] = date
+	return true
+
+
+## Gefahrene Kilometer aller Fahrten (jeder Modus).
+func total_km() -> float:
+	return _ride_sum("distance_km")
+
+
+## Fahrzeit aller Fahrten in Sekunden.
+func total_time_s() -> float:
+	return _ride_sum("duration_s")
+
+
+## Volle Runden aller Fahrten.
+func total_laps() -> int:
+	return int(_ride_sum("laps"))
+
+
+func _ride_sum(key: String) -> float:
+	var sum := 0.0
+	for ride in rides():
+		var value = ride.get(key) if ride is Dictionary else null
+		if (value is float or value is int) and value > 0.0:
+			sum += value
+	return sum
 
 
 ## Bereich `area` des Profils für Strecke und Richtung ({} wenn er fehlt oder ungültig ist); mit `create` angelegt.

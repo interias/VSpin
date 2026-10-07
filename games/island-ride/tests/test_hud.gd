@@ -135,6 +135,25 @@ func test_segment_live_time_only_inside_a_segment() -> void:
 	assert_eq(hud.celebration(), "Bergwertung  7:35.2 · Silber – neue Bestzeit!", "Ergebnis beim Verlassen")
 
 
+func test_simultaneous_celebrations_queue_instead_of_overwriting() -> void:
+	var hud := _hud()
+	hud.celebrate("Neue Bestzeit!  14:44.7")
+	hud.celebrate("Dorfsprint  0:41.2 · Gold")
+	hud.celebrate("Erfolg: Erste Runde – Eine Runde zu Ende gefahren")
+	hud.celebrate("Fahrerlevel 2 erreicht!")
+	assert_eq(hud.celebration(), "Neue Bestzeit!  14:44.7", "die erste läuft")
+	assert_eq(hud.queued_celebrations(), ["Dorfsprint  0:41.2 · Gold",
+			"Erfolg: Erste Runde – Eine Runde zu Ende gefahren", "Fahrerlevel 2 erreicht!"], "die übrigen eingereiht")
+	await wait_seconds(RideHud.CELEBRATION_S + 0.2)
+	assert_eq(hud.celebration(), "Dorfsprint  0:41.2 · Gold", "nach CELEBRATION_S die nächste")
+	assert_eq(hud.queued_celebrations().size(), 2)
+	hud.end_celebration()
+	assert_eq(hud.celebration(), "", "im Ziel: alle aus")
+	assert_eq(hud.queued_celebrations(), [], "auch die eingereihten")
+	hud.celebrate("Fahrerlevel 3 erreicht!")
+	assert_eq(hud.celebration(), "Fahrerlevel 3 erreicht!", "danach sofort wieder sichtbar")
+
+
 func test_ghost_gap_with_sign_and_color() -> void:
 	var hud := _hud()
 	assert_false(hud.readout().contains("Ghost"), "ohne Ghost kein Abstand")

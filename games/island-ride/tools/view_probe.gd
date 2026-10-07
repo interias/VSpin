@@ -5,7 +5,7 @@
 ##         [--fps-from=0 --fps-to=2310 --speed-kmh=50] [--size=1920x1080] [--cadence=85] [--close] [--pair]
 ##         [--advance=1.5] [--time=21:30] [--date=2026-06-21] [--weather=rain] [--profile=forward|compat]
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
-##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4]
+##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4] [--logbook] [--rewards]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -38,6 +38,11 @@
 ## vorn) – gleiches Tempo wie der Fahrer (Beispielfahrt 22 km/h, bei `--fps-*` dessen Tempo), halbtransparent
 ## neben/vor dem Fahrer, mit `--hud` der Abstand im HUD. Mit `--title --laps=N` steht er (nur im Speicher) als
 ## Bestzeit und letzte Fahrt in der Ghost-Auswahl der Seite „Rundfahrt“.
+## Fahrtenbuch (#35): `--title --logbook` füllt den Spielstand (nur im Speicher) mit Beispielfahrten, Bestzeiten,
+## Segmentzeiten, Medaillen und Erfolgen, öffnet das Fahrtenbuch aus dem Startmenü und speichert je Seite
+## `logbook_overview.png`, `logbook_achievements.png` und `logbook_rides.png` statt der Titelbilder.
+## `--hud --rewards` speichert nach den Streckenbildern die Einblendung eines Erfolgs (`achievement.png`) und eines
+## Levelaufstiegs (`level_up.png`) an der letzten Position aus `--shots`.
 extends SceneTree
 
 ## Beispiel-Rundenzeiten (s) für `--laps`: gespeicherte Bestzeit vorher, dann die Runden der Fahrt.
@@ -59,6 +64,9 @@ var _laps := -1
 var _segments := false
 ## Rückstand auf den Beispiel-Ghost in Sekunden (`--ghost`; NAN = ohne Ghost).
 var _ghost_s := NAN
+## Fahrtenbuch statt Titelbilder (`--logbook`), Einblendungen von Erfolg und Levelaufstieg (`--rewards`).
+var _logbook := false
+var _rewards := false
 
 
 func _initialize() -> void:
@@ -126,6 +134,10 @@ func _initialize() -> void:
 			_segments = true
 		elif arg.begins_with("--ghost="):
 			_ghost_s = float(value)
+		elif arg == "--logbook":
+			_logbook = true
+		elif arg == "--rewards":
+			_rewards = true
 		elif arg.begins_with("--crop="):
 			var p := value.split(",")
 			_crop = Rect2i(int(p[0]), int(p[1]), int(p[2]), int(p[3]))
@@ -180,7 +192,10 @@ func _initialize() -> void:
 				_ride.save_game.record_ghost(config.track, LapTiming.DIRECTION_CW, kind, _sample_ghost(22.0 / 3.6))
 			_ride._update_round_trip_menu()
 	if title:
-		await _title_shots(out_dir)
+		if _logbook:
+			await _logbook_shots(out_dir)
+		else:
+			await _title_shots(out_dir)
 		quit(0)
 		return
 	_model = _ride.rider_model  # erst nach `_ready` der Hauptszene gesetzt
@@ -201,6 +216,8 @@ func _initialize() -> void:
 			await _close_ups(out_dir, d)
 	if _segments:
 		await _segment_shots(out_dir)
+	if _rewards and _hud:
+		await _reward_shots(out_dir)
 	if fps_to > fps_from:
 		await _measure(fps_from, fps_to, speed_kmh / 3.6)
 	if _laps >= 0 and _hud:
@@ -243,6 +260,50 @@ func _title_shots(out_dir: String) -> void:
 	while Time.get_ticks_msec() - start < 3000:
 		await process_frame
 	_save_image(out_dir.path_join("title_b.png"))
+
+
+## Fahrtenbuch mit Beispielstand (nur im Speicher): je Seite ein Bild.
+func _logbook_shots(out_dir: String) -> void:
+	var save: SaveGame = _ride.save_game
+	var track := RideConfig.TRACK_ISLAND
+	for i in range(24):
+		var stats := RideStats.new()
+		var laps := 1 + i % 3
+		stats.add(LAP_SAMPLES_S[1 + i % 4] * laps, 84.0 + i % 7, 9210.0 * laps)
+		save.add_ride(SaveGame.ride_entry(SaveGame.MODE_ROUND_TRIP, track, i % 5 != 0, laps, stats,
+				"2026-09-%02dT%02d:30:00Z" % [1 + i, 6 + i % 15]))
+	save.record_best_time(track, LapTiming.DIRECTION_CW, LAP_SAMPLES_S[2])
+	save.record_medal(track, LapTiming.DIRECTION_CW, Medals.LAP, Medals.SILVER)
+	var medals := [Medals.GOLD, Medals.SILVER, Medals.BRONZE]
+	for i in range(_ride.track.segments.size()):
+		var segment: Dictionary = _ride.track.segments[i]
+		save.record_segment_time(track, LapTiming.DIRECTION_CW, segment["id"],
+				_ride.medal_limits[segment["id"]][medals[i]] - 1.0)
+		save.record_medal(track, LapTiming.DIRECTION_CW, segment["id"], medals[i])
+	for id in ["km_1", "km_10", "km_100", "ride_km_20", "laps_1", "laps_10", "ride_laps_3", "morning", "evening",
+			"night", "clear", "clouds", "rain"]:
+		save.unlock_achievement(id, "2026-09-%02dT18:00:00Z" % (1 + id.length()))
+	await _frames(20)
+	_ride.start_menu.buttons["logbook"].pressed.emit()
+	for page in ["overview", "achievements", "rides"]:
+		_ride.logbook.show_page(page)
+		await _frames(4)
+		_save_image(out_dir.path_join("logbook_%s.png" % page))
+
+
+## Einblendungen wie in der Fahrt: ein neuer Erfolg, danach ein Levelaufstieg (die laufende Einblendung beendet).
+func _reward_shots(out_dir: String) -> void:
+	_ride.hud.end_celebration()
+	_ride._achievement_event({"type": Achievements.EVENT_WEATHER, "state": Weather.RAIN})
+	_ride._update_view()
+	await _frames(8)
+	_save_image(out_dir.path_join("achievement.png"))
+	_ride.hud.end_celebration()
+	_ride._km_before = DriverLevel.km_for(3) - _ride.stats.distance_m / 1000.0
+	_ride._check_level()
+	_ride._update_view()
+	await _frames(8)
+	_save_image(out_dir.path_join("level_up.png"))
 
 
 func _save_image(path: String) -> void:

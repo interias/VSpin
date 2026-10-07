@@ -2,7 +2,8 @@
 ##   Fahren        → Modus-Auswahl: Rundfahrt, Training und Arcade noch ausgegraut („bald“)
 ##   Rundfahrt     → Rundenzahl (1–n oder endlos), Tageszeit (wie im Einstellungsmenü), Ghost (aus, Bestzeit,
 ##                   letzte Fahrt; ohne Aufzeichnung ausgegraut, #32), Bestzeit; „Losfahren“ (#31)
-##   Fahrtenbuch, Garderobe  ausgegraut („bald“)
+##   Fahrtenbuch   öffnet das Fahrtenbuch (Statistik, Bestzeiten, Erfolge, letzte Fahrten; #35)
+##   Garderobe     ausgegraut („bald“)
 ##   Einstellungen öffnet das Menü „Grafik und Fenster“ (wie F2)
 ##   Beenden       beendet das Spiel (nicht im Browser; nur Enter oder Klick, nie die Leertaste – #19)
 ## Bedienung mit Maus und Tastatur (Pfeiltasten/Tab, Enter/Leertaste); beim Öffnen liegt der Fokus auf dem ersten
@@ -13,6 +14,8 @@ extends CanvasLayer
 ## „Fahren → Rundfahrt → Losfahren“ gewählt (Modus wie SaveGame.MODE_*); Rundenzahl und Tageszeit siehe
 ## `round_trip_laps()`, `time_index()` und `ghost_choice()`.
 signal ride_requested(mode: String)
+## „Fahrtenbuch“ gewählt (#35).
+signal logbook_requested
 ## „Einstellungen“ gewählt.
 signal settings_requested
 ## „Beenden“ gewählt.
@@ -213,7 +216,7 @@ func _build() -> void:
 	_panel.add_child(pages)
 	_main_page = _page(pages, "Main")
 	_add_button(_main_page, "drive", "Fahren", show_page.bind(true))
-	_add_button(_main_page, "logbook", "Fahrtenbuch – bald", Callable(), true)
+	_add_button(_main_page, "logbook", "Fahrtenbuch", logbook_requested.emit)
 	_add_button(_main_page, "wardrobe", "Garderobe – bald", Callable(), true)
 	_add_button(_main_page, "settings", "Einstellungen", settings_requested.emit)
 	var quit := _add_button(_main_page, "quit", "Beenden", quit_requested.emit)
