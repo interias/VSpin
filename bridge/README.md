@@ -28,6 +28,18 @@ Im Terminal: Pfeil hoch/`+` = Kadenz +5, Pfeil runter/`-` = Kadenz −5 (0–200
 Strg+C = beenden. Die Statuszeile zeigt Quelle, Verbindungsstatus, Kadenz und Anzahl Clients.
 Ohne Terminal (stdin kein TTY) ist die Tastatur aus, die Bridge läuft normal weiter.
 
+**Sauber beenden** (Session-CSV und Rohdaten vollständig, Exit-Code 0): Strg+C, `q`, unter Linux/macOS SIGTERM,
+unter Windows auch Strg+Untbr. Ohne Terminal und Signal – so beendet das Spiel unter Windows seine Bridge –
+`--stop-file DATEI`: Sobald die Datei existiert, endet die Bridge sauber und räumt sie weg (eine alte Datei beim
+Start wird vorher entfernt). Ein harter Abschuss (Task-Manager, TerminateProcess) lässt sich nicht abfangen; dann
+bleiben nur die bis dahin geschriebenen ganzen Zeilen. Unter `pythonw` (kein Konsolenfenster) schreibt die Bridge
+keine Terminal-Ausgabe.
+
+**Start aus dem Spiel (Windows):** Ist beim Start der Inselfahrt keine Bridge auf `127.0.0.1:8765` erreichbar,
+startet das Spiel sie selbst unsichtbar (`pythonw -m vspin_bridge --source sim --sessions-dir … --stop-file …`,
+Einstellungen in `games/island-ride/config.cfg [bridge]`) und beendet sie beim Schließen über die Stoppdatei. Eine
+schon laufende Bridge (z. B. hier von Hand gestartet) nutzt das Spiel nur mit und lässt sie laufen.
+
 Der Bus lauscht standardmäßig nur auf `127.0.0.1`. `--host ADRESSE` (z. B. `--host 0.0.0.0`) ist für den
 Container gedacht (`docker-compose.yml`, siehe [Anleitung](../docs/anleitung.md) „Mit Docker Desktop starten“), dessen Port nur auf
 `127.0.0.1` des Rechners veröffentlicht wird – nativ nicht verwenden, sonst ist der Bus im Netz erreichbar.
@@ -205,6 +217,8 @@ Testmuster: Tests starten die Bridge als echten Prozess (`python -m vspin_bridge
 Port 8765 muss frei sein. Kein Rad, kein Windows nötig. Laufen Tests aus mehreren Checkouts
 gleichzeitig, wartet jeder Lauf auf die Sperre `/tmp/vspin-bridge-tests.lock` (flock, nur
 Linux/macOS; unter Windows ohne Sperre) – Bridge-Tests laufen so nie parallel.
+Der Harness beendet die Bridge wie im Betrieb: unter Linux/macOS mit SIGTERM, unter Windows über die Stoppdatei
+wie das Spiel; „Strg+C“ ist SIGINT bzw. unter Windows Strg+Untbr an die eigene Prozessgruppe.
 
 Parser und Aufbereitung werden ebenso nur von außen getestet: Replay-Fixtures unter
 `tests/fixtures/` (handgebaut, erzeugt von `tests/fixtures/make_fixtures.py`; neu erzeugen mit

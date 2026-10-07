@@ -159,6 +159,7 @@ func _initialize() -> void:
 			profile = value
 	DisplayServer.window_set_size(size)
 	var config := RideConfig.load_file()
+	config.bridge_autostart = false  # Prüfhilfe startet nie selbst eine Bridge (#25)
 	config.track = RideConfig.TRACK_ISLAND
 	_ride = load("res://scenes/main.tscn").instantiate()
 	_ride.config = config

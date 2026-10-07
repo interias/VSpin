@@ -11,6 +11,7 @@ func _initialize() -> void:
 	var seconds := 6.0
 	var start_m := 0.0
 	var config := RideConfig.load_file()
+	config.bridge_autostart = false  # Prüfhilfe startet nie selbst eine Bridge (#25)
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--seconds="):
 			seconds = float(arg.get_slice("=", 1))

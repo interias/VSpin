@@ -63,6 +63,10 @@
 ## Teilbewertung der gefahrenen Phasen. Runden im Training zählen nicht für Bestzeit, Medaillen, Segmente und Ghost –
 ## die Vorgabe wechselt, die Runden wären nicht vergleichbar. Ein zu Ende gefahrenes Training meldet `training_finished`
 ## an die Erfolge; Name und Gesamtbewertung der Einheit stehen im Fahrteintrag.
+##
+## Bridge aus dem Spiel (#25, BridgeLauncher, nur Windows-Desktop): Ist beim Start keine Bridge auf der Bus-Adresse
+## erreichbar, startet das Spiel sie unsichtbar mit der Quelle aus `config.cfg [bridge]`; eine laufende wird nur
+## mitbenutzt. Beim Schließen (Fenster, „Beenden“) beendet das Spiel nur die eigene, sauber über die Stoppdatei.
 extends Node3D
 
 ## Neuer Spielzustand (siehe STATE_*).
@@ -144,6 +148,8 @@ var ghost_rider: PathFollow3D
 var ghost_model: RiderModel
 
 var bus: BusClient
+## Start der Bridge aus dem Spiel; startet nur, wenn `config.bus_url` die Bridge-Adresse ist (Tests: Fake-Bus-Port).
+var bridge_launcher: BridgeLauncher
 var model: RideModel
 ## Aktueller Spielzustand (STATE_*).
 var state := STATE_PAUSED_CONNECTION
@@ -217,6 +223,8 @@ func _ready() -> void:
 	bus.status_changed.connect(_on_status_changed)
 	bus.bus_connection_changed.connect(_on_bus_connection_changed)
 	bus.ack_received.connect(_on_ack)
+	bridge_launcher = BridgeLauncher.new(config, BridgeLauncher.game_dir())
+	bridge_launcher.begin()
 	model = RideModel.new(config, start_distance_m)
 	_new_lap_timing()
 	_reset_progress()
@@ -232,10 +240,11 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	bus.poll(delta)
+	bridge_launcher.poll(delta)
 	_update_state()
 	if state == STATE_MENU:
 		_fly_title(delta)
-		start_menu.show_wheel_status(bus)
+		start_menu.show_wheel_status(bus, bridge_launcher.hint())
 		return
 	if state == STATE_RIDING:
 		_ride(delta)
@@ -586,6 +595,8 @@ func _notification(what: int) -> void:
 func _exit_tree() -> void:
 	if bus != null:
 		bus.close()
+	if bridge_launcher != null:
+		bridge_launcher.stop()  # nur die eigene Bridge, sauber; eine mitbenutzte läuft weiter
 
 
 ## Fahrzeit der Fahrt in Sekunden (ohne Pausen); bei einer Runde die Rundenzeit. Die Zeit der laufenden Runde steht
@@ -679,7 +690,8 @@ func status_message() -> String:
 			var text: String
 			if not bus.bus_connected:
 				text = "%sBridge nicht erreichbar (%s)\n%s\nNeuer Versuch läuft …" % [
-						"Verbindung verloren: " if _ever_connected else "", bus.url, BRIDGE_START_HINT]
+						"Verbindung verloren: " if _ever_connected else "", bus.url,
+						bridge_launcher.hint() if not bridge_launcher.hint().is_empty() else BRIDGE_START_HINT]
 			elif bus.silent:
 				text = "Verbindung verloren (Bridge sendet seit %d s nichts)\nWarte auf Daten …" % roundi(
 						bus.silence_timeout_s)

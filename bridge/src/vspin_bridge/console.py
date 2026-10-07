@@ -5,7 +5,8 @@ from typing import TextIO
 
 
 class Console:
-    """Im TTY wird eine Zeile überschrieben; sonst (Pipe/Datei) eine Zeile pro Änderung."""
+    """Im TTY wird eine Zeile überschrieben; sonst (Pipe/Datei) eine Zeile pro Änderung.
+    Ohne Ausgabe (`pythonw`, Start aus dem Spiel: `sys.stdout` ist None) wird nichts geschrieben."""
 
     def __init__(self, stream: TextIO | None = None) -> None:
         self._stream = stream if stream is not None else sys.stdout
@@ -37,6 +38,8 @@ class Console:
             self._last = ""
 
     def _write(self, text: str) -> None:
+        if self._stream is None:
+            return
         self._stream.write(text)
         self._stream.flush()
 

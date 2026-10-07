@@ -29,6 +29,8 @@ const SUBTITLE := "Radfahren auf einer Mittelmeerinsel"
 const COLOR_OK := Color(0.45, 0.85, 0.5)
 const COLOR_WARN := Color(1.0, 0.78, 0.35)
 const COLOR_ERROR := Color(1.0, 0.45, 0.4)
+## Hinweis im Radstatus ohne Bus: Bridge von Hand starten.
+const BRIDGE_START_HINT := "Bridge starten: vspin-bridge --source sim"
 ## Rundenzahlen zur Auswahl; 0 = endlos.
 const LAP_CHOICES := [1, 2, 3, 4, 5, 6, 8, 10, 15, 20, 0]
 ## Ghost-Auswahl (#32): aus, Bestzeit-Runde, letzte Fahrt.
@@ -199,17 +201,20 @@ func set_covered(covered: bool) -> void:
 
 
 ## Radstatus unten im Menü aus dem Zustand des Bus-Clients.
-func show_wheel_status(bus: BusClient) -> void:
-	var status := wheel_status(bus.bus_connected, bus.status, bus.source)
+## `bridge_hint`: Hinweis des Bridge-Starts im Spiel (BridgeLauncher.hint), "" = Standardhinweis.
+func show_wheel_status(bus: BusClient, bridge_hint := "") -> void:
+	var status := wheel_status(bus.bus_connected, bus.status, bus.source, bridge_hint)
 	_status_label.text = status[0]
 	_status_dot.add_theme_color_override("font_color", status[1])
 
 
 ## Radstatus als [Text, Farbe]: Bridge nicht erreichbar, Simulator läuft, Rad verbunden – oder die Bridge läuft,
-## aber das Rad meldet sich nicht (`stale`/`disconnected`).
-static func wheel_status(bus_connected: bool, status: String, source: String) -> Array:
+## aber das Rad meldet sich nicht (`stale`/`disconnected`). Ohne Bus ergänzt `bridge_hint` (Start aus dem Spiel, z. B.
+## „Programm fehlt: …“) den Text statt des Hinweises zum Start von Hand.
+static func wheel_status(bus_connected: bool, status: String, source: String, bridge_hint := "") -> Array:
 	if not bus_connected:
-		return ["Bridge nicht erreichbar – Bridge starten: vspin-bridge --source sim", COLOR_ERROR]
+		return ["Bridge nicht erreichbar – " + (bridge_hint if not bridge_hint.is_empty() else BRIDGE_START_HINT),
+				COLOR_ERROR]
 	if status != BusClient.STATE_CONNECTED:
 		return ["Bridge läuft – Rad nicht verbunden (%s)" % status, COLOR_WARN]
 	match source:
