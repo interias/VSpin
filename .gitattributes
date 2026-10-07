@@ -1,0 +1,3 @@
+# Replay-Fixtures werden byteweise mit der Roh-JSONL der Bridge verglichen (ADR-0008):
+# immer mit LF auschecken, auch bei core.autocrlf=true.
+*.jsonl text eol=lf
