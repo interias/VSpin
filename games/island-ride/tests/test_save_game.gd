@@ -65,7 +65,7 @@ func test_ride_entry_is_a_summary_without_raw_telemetry() -> void:
 	var entry := SaveGame.ride_entry(SaveGame.MODE_ROUND_TRIP, RideConfig.TRACK_GRAYBOX, false, 0,
 			_stats(61.27, 90.0, 512.3456))
 	assert_eq(entry.keys(), ["date", "mode", "track", "finished", "laps", "duration_s", "distance_km",
-			"avg_cadence_rpm", "avg_speed_kmh"], "nur Zusammenfassung, kein Kadenzverlauf")
+			"avg_cadence_rpm", "avg_speed_kmh", "lap_times_s"], "nur Zusammenfassung, kein Kadenzverlauf")
 	assert_almost_eq(entry["duration_s"], 61.3, 0.0001)
 	assert_almost_eq(entry["distance_km"], 0.512, 0.0001)
 	assert_false(entry["finished"], "abgebrochen")

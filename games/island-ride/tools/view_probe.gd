@@ -5,7 +5,7 @@
 ##         [--fps-from=0 --fps-to=2310 --speed-kmh=50] [--size=1920x1080] [--cadence=85] [--close] [--pair]
 ##         [--advance=1.5] [--time=21:30] [--date=2026-06-21] [--weather=rain] [--profile=forward|compat]
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
-##         [--title] [--window=left|right|fullscreen]
+##         [--title] [--window=left|right|fullscreen] [--laps=3]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -27,7 +27,14 @@
 ## Startmenü (#30): `--title` startet wie das Spiel mit Titelbild und Kameraflug und speichert `title.png`,
 ## `title_modes.png` (Seite „Fahren“) und `title_b.png` (3 s später, Kamera weitergeflogen) statt der Streckenbilder.
 ## `--window` legt das Fenster vorher wie im Grafikmenü auf die linke/rechte Bildschirmhälfte oder ins Vollbild.
+## Rundfahrt (#31): `--laps=N` (0 = endlos) zeigt eine Fahrt über N Runden mit Beispiel-Bestzeit (LAP_SAMPLES_S, nur im
+## Speicher). Mit `--title` zusätzlich `title_round_trip.png` (Seite „Rundfahrt“), mit `--hud` steht der Fahrer in
+## Runde 2 (HUD mit Runde und Rundenzeit, Einblendung „Neue Bestzeit!“), danach `result.png` mit dem Ergebnis aller
+## Runden.
 extends SceneTree
+
+## Beispiel-Rundenzeiten (s) für `--laps`: gespeicherte Bestzeit vorher, dann die Runden der Fahrt.
+const LAP_SAMPLES_S := [905.3, 912.4, 884.7, 897.9, 890.2]
 
 var _ride: Node3D
 ## Echtes Fahrer-/Radmodell in der Szene und Kadenz, mit der es tritt.
@@ -39,6 +46,8 @@ var _crop := Rect2i()
 var _hud := false
 ## Debug-Anzeige (F3) zeigen (`--debug`).
 var _debug := false
+## Rundenzahl der Beispiel-Rundfahrt (`--laps`; −1 = ohne).
+var _laps := -1
 
 
 func _initialize() -> void:
@@ -100,6 +109,8 @@ func _initialize() -> void:
 			title = true
 		elif arg.begins_with("--window="):
 			window = value
+		elif arg.begins_with("--laps="):
+			_laps = int(value)
 		elif arg.begins_with("--crop="):
 			var p := value.split(",")
 			_crop = Rect2i(int(p[0]), int(p[1]), int(p[2]), int(p[3]))
@@ -144,6 +155,11 @@ func _initialize() -> void:
 	_set_sky(hour, date, weather)
 	if weather == Weather.RAIN:
 		await _frames(100)
+	if _laps >= 0:
+		_ride.save_game.record_best_time(config.track, LapTiming.DIRECTION_CW, LAP_SAMPLES_S[0])
+		_ride.laps = _laps
+		_ride._update_round_trip_menu()
+		(_ride.start_menu.options["laps"] as OptionButton).select(_ride.start_menu.LAP_CHOICES.find(_laps))
 	if title:
 		await _title_shots(out_dir)
 		quit(0)
@@ -166,6 +182,8 @@ func _initialize() -> void:
 			await _close_ups(out_dir, d)
 	if fps_to > fps_from:
 		await _measure(fps_from, fps_to, speed_kmh / 3.6)
+	if _laps >= 0 and _hud:
+		await _result_shot(out_dir)
 	_ride.rider_model = _model  # die Hauptszene läuft bis zum Beenden noch einen Frame weiter
 	dummy.free()
 	quit(0)
@@ -195,6 +213,10 @@ func _title_shots(out_dir: String) -> void:
 	_ride.start_menu.show_page(true)
 	await _frames(4)
 	_save_image(out_dir.path_join("title_modes.png"))
+	if _laps >= 0:
+		_ride.start_menu.show_round_trip()
+		await _frames(4)
+		_save_image(out_dir.path_join("title_round_trip.png"))
 	_ride.start_menu.show_page(false)
 	var start := Time.get_ticks_msec()
 	while Time.get_ticks_msec() - start < 3000:
@@ -244,15 +266,43 @@ func _close_ups(out_dir: String, d: float) -> void:
 
 
 ## Fahrer an Position `d`, Kamera sofort dahinter. Mit `--hud`: Tempo des Fahrmodells, Strecke und Zeit bis hier
-## (Beispiel: Ø 22 km/h).
+## (Beispiel: Ø 22 km/h); mit `--laps` in Runde 2 nach einer Beispielrunde mit neuer Bestzeit.
 func _place(d: float) -> void:
 	_ride.model.distance_m = d
 	if _hud:
 		_ride.model.speed_mps = _ride.model.target_speed_mps(_cadence, _ride.current_grade())
 		_ride.stats.distance_m = d
 		_ride.stats.ride_time_s = d / (22.0 / 3.6)
+	if _hud and _laps >= 0:
+		var lap: float = _ride.track.length_m()
+		_ride.lap_timing = LapTiming.new(lap, 0.0, _laps, LAP_SAMPLES_S[0])
+		_ride.lap_timing.advance(lap, LAP_SAMPLES_S[2])
+		_ride.lap_timing.advance(lap + d, d / (22.0 / 3.6))
+		_ride.model.distance_m = lap + d
+		_ride.stats.ride_time_s += LAP_SAMPLES_S[2]
+		_ride.stats.distance_m += lap
+		_ride.hud.celebrate("Neue Bestzeit!  %s" % _ride.format_time(LAP_SAMPLES_S[2], true))
 	_ride._update_view()
 	_ride._update_camera(0.0, true)
+
+
+## Ergebnis einer Rundfahrt über `--laps` Runden (endlos: drei Runden, dann „Fahrt beenden“) mit Beispielzeiten.
+func _result_shot(out_dir: String) -> void:
+	var lap: float = _ride.track.length_m()
+	var count := _laps if _laps > 0 else 3
+	_ride.lap_timing = LapTiming.new(lap, 0.0, _laps, LAP_SAMPLES_S[0])
+	_ride.stats = RideStats.new()
+	for i in range(count):
+		var t: float = LAP_SAMPLES_S[1 + i % (LAP_SAMPLES_S.size() - 1)]
+		_ride.lap_timing.advance(lap * (i + 1), t)
+		_ride.stats.add(t, 86.0, lap)
+	_ride.model.distance_m = lap * count
+	_ride.state = _ride.STATE_FINISHED
+	_ride.get_node("Hud/Message").modulate = Color.WHITE
+	_ride._update_view()
+	_ride._update_camera(0.0, true)
+	await _frames(8)
+	_save_image(out_dir.path_join("result.png"))
 
 
 func _frames(count: int) -> void:

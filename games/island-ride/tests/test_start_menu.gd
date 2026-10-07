@@ -137,6 +137,8 @@ func test_keyboard_drives_menu_into_ride() -> void:
 	await _press(KEY_ENTER)
 	assert_eq(_focused(game), game.start_menu.buttons["round_trip"], "Fahren → Modus-Auswahl")
 	await _press(KEY_ENTER)
+	assert_eq(_focused(game), game.start_menu.buttons["start"], "Rundfahrt → Rundenzahl und Tageszeit, Fokus auf „Losfahren“")
+	await _press(KEY_ENTER)
 	assert_false(game.start_menu.visible, "Menü weg")
 	assert_true(game.hud.visible, "HUD da")
 	assert_true(game.rider.visible)
@@ -166,6 +168,8 @@ func test_mouse_selects_menu_items() -> void:
 	assert_signal_emitted(menu, "quit_requested", "Beenden per Maus")
 	await _click(menu.buttons["drive"])
 	await _click(menu.buttons["round_trip"])
+	assert_signal_emit_count(menu, "ride_requested", 0, "Rundfahrt öffnet erst die Auswahl")
+	await _click(menu.buttons["start"])
 	assert_signal_emitted_with_parameters(menu, "ride_requested", [SaveGame.MODE_ROUND_TRIP])
 
 
@@ -208,6 +212,7 @@ func test_flow_title_ride_finish_menu_and_saved_ride_survives_restart() -> void:
 	assert_eq(game.state, "menu")
 	game.start_menu.buttons["drive"].pressed.emit()
 	game.start_menu.buttons["round_trip"].pressed.emit()
+	game.start_menu.buttons["start"].pressed.emit()
 	assert_true(await run_until(func(): return game.state == "finished", 5.0), "Fahrt bis ins Ziel")
 	assert_string_contains(game.status_message(), "Enter: zurück ins Menü")
 	assert_eq(game.save_game.rides().size(), 1, "Fahrt gleich im Ziel gespeichert")
@@ -313,6 +318,9 @@ func _check_both_pages(menu: CanvasLayer, label: String) -> void:
 	menu.show_page(true)
 	await wait_process_frames(2)
 	_assert_menu_inside(menu, label + " (Fahren)")
+	menu.show_round_trip()
+	await wait_process_frames(2)
+	_assert_menu_inside(menu, label + " (Rundfahrt)")
 
 
 func test_layout_fits_half_screen_window() -> void:

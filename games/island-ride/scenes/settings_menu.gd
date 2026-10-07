@@ -99,6 +99,26 @@ func set_ride_active(active: bool) -> void:
 	_end_ride.visible = active
 
 
+## Tageszeiten wie im Feld „Tageszeit“ (für das Rundfahrt-Menü, #31): [Beschriftungen, Index der aktuellen].
+func time_choices() -> Array:
+	_refresh()
+	var option: OptionButton = options["time"]
+	var labels := []
+	for i in range(option.item_count):
+		labels.append(option.get_item_text(i))
+	return [labels, option.selected]
+
+
+## Tageszeit wählen wie im Feld „Tageszeit“: wirkt sofort und wird gespeichert.
+func select_time(index: int) -> void:
+	_refresh()
+	var option: OptionButton = options["time"]
+	if index < 0 or index == option.selected:
+		return
+	option.select(index)
+	option.item_selected.emit(index)
+
+
 ## Kantenglättung, Auflösung, VSync, fps-Limit und Schatten anwenden (ohne Fenster).
 func apply() -> void:
 	settings.apply_to_viewport(get_viewport(), compatibility)

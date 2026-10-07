@@ -279,6 +279,25 @@ layout_mode = 2
 theme_type_variation = &"HudValue"
 text = "0:00"
 
+[node name="LapTime" type="VBoxContainer" parent="Layout/Rows/Top/Stats/Box/Main/Grid"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = -4
+
+[node name="Caption" type="Label" parent="Layout/Rows/Top/Stats/Box/Main/Grid/LapTime"]
+layout_mode = 2
+theme_type_variation = &"HudCaption"
+text = "Rundenzeit"
+
+[node name="Line" type="HBoxContainer" parent="Layout/Rows/Top/Stats/Box/Main/Grid/LapTime"]
+layout_mode = 2
+
+[node name="LapTimeValue" type="Label" parent="Layout/Rows/Top/Stats/Box/Main/Grid/LapTime/Line"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"HudValue"
+text = "0:00"
+
 [node name="Power" type="VBoxContainer" parent="Layout/Rows/Top/Stats/Box/Main/Grid"]
 unique_name_in_owner = true
 visible = false
@@ -320,6 +339,26 @@ layout_mode = 2
 size_flags_vertical = 3
 mouse_filter = 2
 
+[node name="Celebration" type="Label" parent="Layout/Rows/Fill"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -92.0
+offset_bottom = -48.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_colors/font_color = Color(1, 0.86, 0.45, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.7)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 30
+text = "Neue Bestzeit!"
+horizontal_alignment = 1
+vertical_alignment = 1
+
 [node name="Bottom" type="PanelContainer" parent="Layout/Rows"]
 unique_name_in_owner = true
 layout_mode = 2
@@ -333,7 +372,8 @@ theme_override_constants/separation = 4
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="Caption" type="Label" parent="Layout/Rows/Bottom/Box/Lap"]
+[node name="LapCaption" type="Label" parent="Layout/Rows/Bottom/Box/Lap"]
+unique_name_in_owner = true
 layout_mode = 2
 theme_type_variation = &"HudCaption"
 text = "Runde"

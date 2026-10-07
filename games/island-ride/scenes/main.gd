@@ -9,9 +9,10 @@
 ##
 ## Szenenfluss (#30): Titel → Modus-Auswahl → Fahrt → Ergebnis → Menü. Nach dem Start (`start_in_menu`) steht das
 ## Startmenü (`scenes/start_menu.gd`) über einem langsamen Kameraflug über die lebende Insel (Licht, Wetter, Bewegung
-## wie in der Fahrt; HUD und Fahrer ausgeblendet), unten der Radstatus. „Fahren → Rundfahrt“ startet die Fahrt
-## (`start_ride`); zurück ins Menü geht es im Ziel mit Enter oder jederzeit über „Fahrt beenden“ in den Einstellungen
-## (`return_to_menu`). Die beendete Fahrt landet als Zusammenfassung im Spielstand (SaveGame, `user://savegame.json`).
+## wie in der Fahrt; HUD und Fahrer ausgeblendet), unten der Radstatus. „Fahren → Rundfahrt“ zeigt Rundenzahl,
+## Tageszeit (dasselbe Feld wie im Einstellungsmenü) und Bestzeit, „Losfahren“ startet die Fahrt (`start_ride`); zurück
+## ins Menü geht es im Ziel mit Enter oder jederzeit über „Fahrt beenden“ in den Einstellungen (`return_to_menu`). Die
+## beendete Fahrt landet als Zusammenfassung im Spielstand (SaveGame, `user://savegame.json`).
 ##
 ## Spielzustände (`state`):
 ##   riding             fahren – Bus verbunden, Quelle `connected` und Daten seit dem letzten Abbruch
@@ -20,16 +21,21 @@
 ##                      oder noch keine Daten; auch wenn die Bridge bei offenem Bus schweigt (BusClient.silent).
 ##                      Ein Abbruch ist keine Kadenz 0 (ADR-0004): das Fahrmodell
 ##                      steht still und fährt automatisch weiter, sobald wieder Daten kommen.
-##   finished           Ziel erreicht – Zusammenfassung (Zeit, Ø Kadenz, Ø Tempo); Endzustand der Fahrt
+##   finished           Ziel erreicht – Ergebnis (Zeit, alle Rundenzeiten, Bestzeit, Ø Kadenz, Ø Tempo); Endzustand
+##                      der Fahrt. Auch „Fahrt beenden“ nach mindestens einer vollen Runde (z. B. endlos) zeigt erst
+##                      das Ergebnis der gefahrenen Runden.
 ##   menu               Startmenü mit Kameraflug, keine Fahrt (kein Fahrmodell, kein `set_grade`)
 ## Verbindungspause hat Vorrang vor der manuellen; eine manuelle Pause bleibt über einen Abbruch hinweg bestehen.
 ##
 ## Virtuelle Steigung (ADR-0007): das Spiel meldet die Steigung an der Fahrerposition per `set_grade`
 ## (Drosselung siehe GradeReporter), nicht in der Verbindungspause; danach wird sie neu gemeldet.
 ##
-## Runde: Start an `start_distance_m`, Ziel beim nächsten Überfahren der Start/Ziel-Linie (Streckenposition 0,
-## also nach einer vollen Runde, wenn bei 0 gestartet wird). Fahrzeit und Durchschnitte (RideStats) zählen
-## nur Zeit im Zustand `riding` – Pausen nicht.
+## Runden (#31): Start an `start_distance_m`, jede Runde endet beim Überfahren der Start/Ziel-Linie (Streckenposition
+## = Vielfaches der Rundenlänge), das Ziel nach `laps` Runden (0 = endlos). Rundenzeiten und Bestzeit führt die
+## Rundenwertung (LapTiming) allein aus Streckenposition und Fahrzeit – also nur aus Kadenz und Steigung (ADR-0010).
+## Die Bestzeit gilt je Strecke und Richtung (vorerst nur im Uhrzeigersinn) und steht im Spielstand; eine neue
+## Bestzeit blendet das HUD kurz ein. Fahrzeit und Durchschnitte (RideStats) zählen nur Zeit im Zustand `riding` –
+## Pausen nicht.
 extends Node3D
 
 ## Neuer Spielzustand (siehe STATE_*).
@@ -88,6 +94,10 @@ var save_path := SaveGame.DEFAULT_PATH
 var save_game: SaveGame
 ## Spielmodus der laufenden Fahrt (SaveGame.MODE_*).
 var ride_mode := SaveGame.MODE_ROUND_TRIP
+## Rundenzahl der laufenden Fahrt; 0 = endlos.
+var laps := 1
+## Rundenwertung der laufenden Fahrt (Rundenzeiten, Bestzeit).
+var lap_timing: LapTiming
 
 var bus: BusClient
 var model: RideModel
@@ -96,9 +106,9 @@ var state := STATE_PAUSED_CONNECTION
 ## Hinweis aus der letzten `ack` auf `set_grade` ("" = umgesetzt oder noch keine Antwort).
 var resistance_hint := ""
 var grade_reporter := GradeReporter.new()
-## Fahrzeit, Strecke und Durchschnitte der laufenden Runde (ohne Pausen).
+## Fahrzeit, Strecke und Durchschnitte der laufenden Fahrt (ohne Pausen).
 var stats := RideStats.new()
-## Streckenposition (wie `model.distance_m`) der Ziellinie.
+## Streckenposition (wie `model.distance_m`) der Ziellinie nach der letzten Runde (INF = endlos).
 var finish_distance_m := 0.0
 
 ## Insel-Welt (null bei der Graybox-Strecke).
@@ -137,7 +147,7 @@ func _ready() -> void:
 	add_child(settings_menu)
 	save_game = SaveGame.load_file(save_path) if not save_path.is_empty() else SaveGame.new()
 	start_menu = START_MENU.instantiate()
-	start_menu.ride_requested.connect(start_ride)
+	start_menu.ride_requested.connect(_on_ride_requested)
 	start_menu.settings_requested.connect(settings_menu.open)
 	start_menu.quit_requested.connect(_on_quit_requested)
 	add_child(start_menu)
@@ -153,8 +163,7 @@ func _ready() -> void:
 	bus.bus_connection_changed.connect(_on_bus_connection_changed)
 	bus.ack_received.connect(_on_ack)
 	model = RideModel.new(config, start_distance_m)
-	var lap := track.length_m()
-	finish_distance_m = (floorf(start_distance_m / lap) + 1.0) * lap if lap > 0.0 else INF
+	_new_lap_timing()
 	hud.setup(track, world)
 	_update_view()
 	_update_camera(0.0, true)
@@ -194,6 +203,8 @@ func _setup_sky_settings() -> void:
 func _on_settings_changed(key: String) -> void:
 	if key in ["time", "weather"]:
 		settings_menu.settings.apply_sky(sky)
+	if key == "time" and state == STATE_MENU:
+		_update_round_trip_menu()
 
 
 ## Strecke laut Konfiguration: Insel-Rundkurs mit Welt (Gelände, Meer, Stationen) oder Graybox mit Boden.
@@ -262,12 +273,14 @@ func _aim_camera(target: Vector3, look: Vector3, follow: float) -> void:
 		camera.look_at(_camera_look, Vector3.UP)
 
 
-## „Fahren“: neue Fahrt ab `start_distance_m` – Fahrmodell, Statistik und Pausen zurückgesetzt; gefahren wird, sobald
-## das Rad Daten liefert (wie bisher beim Start).
-func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP) -> void:
+## „Losfahren“: neue Fahrt ab `start_distance_m` über `lap_count` Runden (0 = endlos) – Fahrmodell, Statistik,
+## Rundenwertung und Pausen zurückgesetzt; gefahren wird, sobald das Rad Daten liefert (wie bisher beim Start).
+func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1) -> void:
 	ride_mode = mode
+	laps = lap_count
 	model = RideModel.new(config, start_distance_m)
 	stats = RideStats.new()
+	_new_lap_timing()
 	grade_reporter.reset()
 	resistance_hint = ""
 	_manual_pause = false
@@ -283,10 +296,34 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP) -> void:
 	_update_camera(0.0, true)
 
 
+## Rundfahrt aus dem Startmenü: gewählte Tageszeit wie im Einstellungsmenü setzen, dann mit der Rundenzahl losfahren.
+func _on_ride_requested(mode: String) -> void:
+	settings_menu.select_time(start_menu.time_index())
+	start_ride(mode, start_menu.round_trip_laps())
+
+
+## Neue Rundenwertung ab `start_distance_m` mit `laps` Runden und der gespeicherten Bestzeit.
+func _new_lap_timing() -> void:
+	lap_timing = LapTiming.new(track.length_m(), start_distance_m, laps,
+			save_game.best_time_s(config.track, LapTiming.DIRECTION_CW))
+	finish_distance_m = lap_timing.finish_m()
+
+
+## Seite „Rundfahrt“ im Startmenü: Tageszeiten wie im Einstellungsmenü und die Bestzeit der Strecke.
+func _update_round_trip_menu() -> void:
+	var times: Array = settings_menu.time_choices()
+	start_menu.set_time_choices(times[0], times[1])
+	var best := save_game.best_time_s(config.track, LapTiming.DIRECTION_CW)
+	start_menu.show_best_time(format_time(best, true) if is_finite(best) else "")
+
+
 ## Fahrt beenden (Ziel oder Abbruch) und zurück ins Startmenü; das Spiel läuft weiter. Die Fahrt kommt in den
-## Spielstand, sofern nicht schon geschehen.
+## Spielstand, sofern nicht schon geschehen. Mit mindestens einer vollen Runde (z. B. endlos) erst das Ergebnis.
 func return_to_menu() -> void:
 	if state == STATE_MENU:
+		return
+	if state != STATE_FINISHED and not lap_timing.lap_times.is_empty():
+		_finish_ride()
 		return
 	_save_ride()
 	_flight_m = model.distance_m
@@ -299,19 +336,28 @@ func _enter_menu() -> void:
 	hud.visible = false
 	rider.visible = false
 	settings_menu.set_ride_active(false)
+	_update_round_trip_menu()
 	start_menu.open()
 	state_changed.emit(state)
 	_fly_title(0.0, true)
 
 
-## Die laufende Fahrt als Zusammenfassung in den Spielstand (einmal je Fahrt). Eine abgebrochene Fahrt nur, wenn
-## gefahren wurde.
+## Ergebnis: Zustand `finished`, Fahrt in den Spielstand.
+func _finish_ride() -> void:
+	state = STATE_FINISHED
+	_save_ride()
+	state_changed.emit(state)
+
+
+## Die laufende Fahrt als Zusammenfassung in den Spielstand (einmal je Fahrt), mit den Zeiten der vollen Runden und
+## einer neuen Bestzeit. Eine abgebrochene Fahrt nur, wenn gefahren wurde.
 func _save_ride() -> void:
 	if state == STATE_MENU or _ride_saved or (state != STATE_FINISHED and stats.ride_time_s <= 0.0):
 		return
 	_ride_saved = true
-	var finished := state == STATE_FINISHED
-	save_game.add_ride(SaveGame.ride_entry(ride_mode, config.track, finished, 1 if finished else 0, stats))
+	save_game.add_ride(SaveGame.ride_entry(ride_mode, config.track, lap_timing.finished(), lap_timing.lap_times.size(),
+			stats, SaveGame.utc_now(), lap_timing.lap_times))
+	save_game.record_best_time(config.track, LapTiming.DIRECTION_CW, lap_timing.ride_best_s())
 	if not save_path.is_empty():
 		save_game.save_file(save_path)
 
@@ -349,7 +395,8 @@ func _exit_tree() -> void:
 		bus.close()
 
 
-## Fahrzeit der laufenden Runde in Sekunden (ohne Pausen); nach dem Ziel die Rundenzeit.
+## Fahrzeit der Fahrt in Sekunden (ohne Pausen); bei einer Runde die Rundenzeit. Die Zeit der laufenden Runde steht
+## in `lap_timing.lap_time_s`.
 func lap_time_s() -> float:
 	return stats.ride_time_s
 
@@ -394,8 +441,9 @@ static func format_power(watts: float, estimated: bool) -> String:
 func status_message() -> String:
 	match state:
 		STATE_FINISHED:
-			return "Ziel erreicht!\nZeit: %s\nØ Kadenz: %d rpm\nØ Tempo: %.1f km/h\nEnter: zurück ins Menü · Esc: Einstellungen" % [
-					format_time(lap_time_s(), true), roundi(stats.avg_cadence()), stats.avg_speed_kmh()]
+			return "%s\nZeit: %s\n%s\nØ Kadenz: %d rpm\nØ Tempo: %.1f km/h\nEnter: zurück ins Menü · Esc: Einstellungen" % [
+					"Ziel erreicht!" if lap_timing.finished() else "Fahrt beendet", format_time(lap_time_s(), true),
+					lap_result(), roundi(stats.avg_cadence()), stats.avg_speed_kmh()]
 		STATE_PAUSED_MANUAL:
 			return "Pause\nP / Leertaste: weiter\nEsc / F2: Einstellungen (Fahrt beenden, Beenden)"
 		STATE_PAUSED_CONNECTION:
@@ -416,6 +464,14 @@ func status_message() -> String:
 	return ""
 
 
+## Rundenzeiten und Bestzeit fürs Ergebnis, z. B. "Runden: 1:52.3 · 1:49.8\nBestzeit: 1:49.8 – neu!".
+func lap_result() -> String:
+	var times := lap_timing.lap_times.map(func(t): return format_time(t, true))
+	var best := lap_timing.best_s()
+	return "%s: %s\nBestzeit: %s%s" % ["Runde" if times.size() == 1 else "Runden", " · ".join(times),
+			format_time(best, true) if is_finite(best) else "–", " – neu!" if lap_timing.new_best() else ""]
+
+
 func _update_state() -> void:
 	if bus.bus_connected:
 		_ever_connected = true
@@ -434,21 +490,21 @@ func _update_state() -> void:
 		state_changed.emit(state)
 
 
-## Ein Zeitschritt Fahrt: Fahrmodell, Statistik und Ziel. Den Schritt über die Ziellinie zählt die
-## Statistik nur anteilig bis zur Linie, damit Rundenzeit und Durchschnitte genau sind.
+## Ein Zeitschritt Fahrt: Fahrmodell, Statistik, Rundenwertung und Ziel. Den Schritt über die Ziellinie zählen
+## Statistik und Rundenwertung nur anteilig bis zur Linie, damit Rundenzeiten und Durchschnitte genau sind.
 func _ride(delta: float) -> void:
 	var before := model.distance_m
 	model.step(bus.cadence, current_grade(), delta)
 	var moved := model.distance_m - before
-	if model.distance_m < finish_distance_m:
-		stats.add(delta, bus.cadence, moved)
-		return
-	var fraction := (finish_distance_m - before) / moved if moved > 0.0 else 1.0
-	stats.add(delta * fraction, bus.cadence, finish_distance_m - before)
-	model.distance_m = finish_distance_m
-	state = STATE_FINISHED
-	_save_ride()
-	state_changed.emit(state)
+	var used := delta
+	if model.distance_m >= finish_distance_m:
+		used = delta * ((finish_distance_m - before) / moved if moved > 0.0 else 1.0)
+		model.distance_m = finish_distance_m
+	stats.add(used, bus.cadence, model.distance_m - before)
+	if lap_timing.advance(model.distance_m, used) > 0 and lap_timing.last_lap_is_new_best():
+		hud.celebrate("Neue Bestzeit!  %s" % format_time(lap_timing.lap_times[-1], true))
+	if lap_timing.finished():
+		_finish_ride()
 
 
 ## Meldet die Steigung per `set_grade`, wenn sie sich genug geändert hat (gedrosselt, siehe GradeReporter).
@@ -522,7 +578,8 @@ func _update_view() -> void:
 	var grade := current_grade()
 	hud.show_ride(bus.cadence, model.speed_kmh(), stats.distance_m, format_time(lap_time_s()), grade,
 			format_grade(grade), current_station(), format_power(bus.power_w(), bus.power_estimated()))
-	hud.show_lap(model.distance_m, start_distance_m, finish_distance_m, rider.progress)
+	hud.show_lap(model.distance_m, lap_timing.lap_start_m(), lap_timing.lap_end_m(), rider.progress)
+	hud.show_lap_count(lap_timing.lap_number(), laps, format_time(lap_timing.lap_time_s))
 	if debug_label.visible:
 		debug_label.text = debug_text()
 	hint_label.text = resistance_hint
