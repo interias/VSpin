@@ -8,12 +8,11 @@ import csv
 import errno
 import json
 import re
-import signal
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from bridge_harness import BRIDGE_ROOT, receive_json, wait_until
+from bridge_harness import BRIDGE_ROOT, FIXTURES_DIR, receive_json, wait_until
 from vspin_bridge.session import files as session_files
 from vspin_bridge.sources.sim import SimulatorSource
 from websockets.exceptions import ConnectionClosed
@@ -63,8 +62,8 @@ def read_csv(path: Path) -> tuple[str, list[dict]]:
     return lines[0], [dict(zip(rows[0], row)) for row in rows[1:]]
 
 
-def stop_with(bridge, sig: signal.Signals) -> int:
-    bridge.proc.send_signal(sig)
+def stop_with_ctrl_c(bridge) -> int:
+    bridge.interrupt()
     bridge.proc.wait(timeout=5)
     return bridge.stop()
 
@@ -75,7 +74,7 @@ def test_simulator_run_writes_csv_matching_the_bus(bridge_process, bus_client, t
     bridge = start_sim(bridge_process, sessions)
     client = connect(bus_client)
     seen = telemetry(client, 10)
-    assert bridge.stop() == 0  # SIGTERM
+    assert bridge.stop() == 0  # SIGTERM, unter Windows Stoppdatei
     seen += [m for m in drain(client) if m["type"] == "telemetry"]
 
     path = session_file(sessions)
@@ -118,7 +117,7 @@ def test_grade_is_logged_after_set_grade(bridge_process, bus_client, tmp_path):
 
     uphill = set_grade(0.07)
     downhill = set_grade(-0.02)
-    assert stop_with(bridge, signal.SIGINT) == 0
+    assert stop_with_ctrl_c(bridge) == 0
 
     _, rows = read_csv(session_file(tmp_path))
     by_t = {int(r["t_ms"]): r for r in rows}
@@ -135,7 +134,7 @@ def test_ctrl_c_leaves_complete_csv(bridge_process, bus_client, tmp_path):
     bridge = start_sim(bridge_process, tmp_path)
     client = connect(bus_client)
     telemetry(client, 6)
-    assert stop_with(bridge, signal.SIGINT) == 0
+    assert stop_with_ctrl_c(bridge) == 0
     seen = [m for m in drain(client) if m["type"] == "telemetry"]
 
     header, rows = read_csv(session_file(tmp_path))  # endet mit \n, jede Zeile 9 Felder
@@ -144,6 +143,31 @@ def test_ctrl_c_leaves_complete_csv(bridge_process, bus_client, tmp_path):
     assert all(r["t_ms"].isdigit() and float(r["cadence"]) == 80 for r in rows)
     if seen:  # was nach dem Signal noch am Bus kam, steht auch in der CSV
         assert int(rows[-1]["t_ms"]) == seen[-1]["t_ms"]
+
+
+def test_stop_file_leaves_complete_session(bridge_process, bus_client, tmp_path):
+    """Stoppweg des Spiels (#25, unter Windows auch des Harness): Stoppdatei mitten im Replay."""
+    fixture = FIXTURES_DIR / "csc_stop.raw.jsonl"
+    bridge = bridge_process("--source", "replay", str(fixture), "--wait-client", "--sessions-dir", str(tmp_path))
+    client = connect(bus_client)
+    seen = telemetry(client, 6)
+    bridge.request_stop()
+    bridge.proc.wait(timeout=5)
+    assert bridge.stop() == 0
+    seen += [m for m in drain(client) if m["type"] == "telemetry"]
+    assert not bridge.stop_file.exists()  # die Bridge räumt die Stoppdatei weg
+
+    path = session_file(tmp_path)
+    header, rows = read_csv(path)  # endet mit \n, jede Zeile 9 Felder
+    assert header == HEADER
+    # Client hing ab Start am Bus (--wait-client): CSV und Bus enthalten genau dieselben Samples.
+    assert [int(r["t_ms"]) for r in rows] == [m["t_ms"] for m in seen]
+    # Rohdaten: ganze Zeilen, genau der Anfang der Aufnahme – abgebrochen vor ihrem Ende.
+    raw = path.with_name(path.stem + ".raw.jsonl").read_bytes()
+    recording = fixture.read_bytes()
+    assert raw.endswith(b"\n") and recording.startswith(raw) and len(raw) < len(recording)
+    assert len(raw.splitlines()) >= len(rows)
+    assert "Traceback" not in bridge.log()
 
 
 def test_hard_kill_leaves_only_whole_lines(bridge_process, bus_client, tmp_path):

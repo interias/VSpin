@@ -3,6 +3,7 @@ Statuszeile im Terminal, Tastatur für den Simulator."""
 
 import asyncio
 import contextlib
+import time
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -40,6 +41,7 @@ STALE = "stale"
 DISCONNECTED = "disconnected"
 
 STALE_AFTER_S = 3.0  # verbunden, aber so lange keine Daten → stale (ADR-0004)
+CLOCK_RESOLUTION_S = time.get_clock_info("monotonic").resolution  # Takt von Bridge-Zeit und Event-Loop
 RECONNECT_INTERVAL_S = 3.0  # nach einem Abbruch alle 3 s neu verbinden (ADR-0004)
 
 CADENCE_STEP = 5.0
@@ -80,6 +82,7 @@ class Bridge:
         )
         self._stop: asyncio.Event | None = None
         self._stale_timer: asyncio.TimerHandle | None = None
+        self._stale_since_ms = 0  # Bridge-Zeit des letzten Samples (bzw. der Verbindung)
         self._first_client = asyncio.Event()
 
     async def run(self, stop: asyncio.Event) -> None:
@@ -177,7 +180,6 @@ class Bridge:
     def _on_sample(self, sample: TelemetrySample) -> None:
         # Daten nach einer Lücke: erst `status: connected`, dann die Telemetrie.
         self._set_state(CONNECTED, "wieder Daten")
-        self._arm_stale_timer()
         # Aufbereitung auf der Zeitachse der Quelle, am Bus dann die Bridge-Zeit (ADR-0004).
         processed = self._processor.process(sample)
         if processed.discarded:
@@ -186,6 +188,7 @@ class Bridge:
                 f"(außerhalb {CADENCE_MIN:.0f}–{CADENCE_MAX:.0f} rpm)"
             )
         published = replace(processed.sample, t_ms=bridge_time_ms())
+        self._arm_stale_timer(published.t_ms)
         self._cadence = published.cadence
         self._bus.publish(telemetry_message(published))
         # Eine CSV-Zeile pro Sample am Bus – ohne `await` dazwischen, also nie nur eins von beiden.
@@ -211,12 +214,17 @@ class Bridge:
                 f"({session.csv.path}). Bridge läuft weiter, ohne Session-Dateien."
             )
 
-    def _arm_stale_timer(self) -> None:
+    def _arm_stale_timer(self, since_ms: int | None = None) -> None:
         """(Neu) starten: kommt STALE_AFTER_S lang kein Sample, wird der Status `stale`.
-        Kadenz 0 ist ein normales Sample – nur ausbleibende Daten zählen."""
+        Kadenz 0 ist ein normales Sample – nur ausbleibende Daten zählen. `since_ms`: Bridge-Zeit
+        des letzten Samples (Standard: jetzt)."""
+        self._stale_since_ms = bridge_time_ms() if since_ms is None else since_ms
+        self._schedule_stale(STALE_AFTER_S)
+
+    def _schedule_stale(self, delay_s: float) -> None:
         self._cancel_stale_timer()
         loop = asyncio.get_running_loop()
-        self._stale_timer = loop.call_later(STALE_AFTER_S, self._on_stale)
+        self._stale_timer = loop.call_later(delay_s, self._on_stale)
 
     def _cancel_stale_timer(self) -> None:
         if self._stale_timer is not None:
@@ -225,6 +233,12 @@ class Bridge:
 
     def _on_stale(self) -> None:
         self._stale_timer = None
+        # Der Event-Loop löst Timer bis zu einer Uhr-Auflösung zu früh aus (Windows: 15,6 ms) –
+        # `stale` erst, wenn auf der Bridge-Zeit wirklich STALE_AFTER_S vergangen sind.
+        remaining_ms = STALE_AFTER_S * 1000 - (bridge_time_ms() - self._stale_since_ms)
+        if remaining_ms > 0:
+            self._schedule_stale(remaining_ms / 1000 + CLOCK_RESOLUTION_S)
+            return
         if self._state == CONNECTED:
             self._set_state(STALE, f"seit {STALE_AFTER_S:g} s keine Daten")
 

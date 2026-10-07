@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import contextlib
 import random
 import signal
 import sys
@@ -101,6 +102,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Adresse, auf der der Bus lauscht (Standard: 127.0.0.1); 0.0.0.0 nur im Container, "
         "dessen Port nur auf 127.0.0.1 des Hosts veröffentlicht ist (docker-compose.yml)",
     )
+    parser.add_argument(
+        "--stop-file",
+        type=Path,
+        default=None,
+        metavar="DATEI",
+        help="sauber beenden, sobald diese Datei existiert (Start aus dem Spiel; Windows kennt kein SIGTERM)",
+    )
     return parser
 
 
@@ -123,22 +131,31 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(exc))
     console = Console()
     try:
-        return asyncio.run(_run(source, console, args.sessions_dir, args.wait_client, args.host))
-    except KeyboardInterrupt:  # Windows: kein add_signal_handler, Strg+C kommt so an
+        return asyncio.run(
+            _run(source, console, args.sessions_dir, args.wait_client, args.host, args.stop_file)
+        )
+    except KeyboardInterrupt:  # Strg+C vor dem Anmelden der Signal-Handler
         console.close()
         return 0
 
 
+STOP_FILE_POLL_S = 0.1
+
+
 async def _run(
-    source: DeviceSource, console: Console, sessions_dir: Path, wait_for_client: bool, host: str
+    source: DeviceSource,
+    console: Console,
+    sessions_dir: Path,
+    wait_for_client: bool,
+    host: str,
+    stop_file: Path | None = None,
 ) -> int:
     stop = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, stop.set)
-        except (NotImplementedError, RuntimeError):
-            pass  # Windows
+    _stop_on_signals(stop)
+    watcher = None
+    if stop_file is not None:
+        stop_file.unlink(missing_ok=True)  # Rest eines früheren Laufs beendet nicht gleich wieder
+        watcher = asyncio.create_task(_watch_stop_file(stop_file, stop))
     try:
         await Bridge(source, console, sessions_dir, wait_for_client, host).run(stop)
     except BusStartError as exc:
@@ -147,7 +164,34 @@ async def _run(
     except SessionStartError as exc:
         console.info(f"vspin-bridge: Session-Datei konnte nicht angelegt werden: {exc}")
         return 1
+    finally:
+        if watcher is not None:
+            watcher.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watcher
+            with contextlib.suppress(OSError):
+                stop_file.unlink(missing_ok=True)
     return 0
+
+
+def _stop_on_signals(stop: asyncio.Event) -> None:
+    """Strg+C/SIGTERM (Linux/macOS) bzw. Strg+C/Strg+Untbr (Windows) beenden sauber: `stop` wird gesetzt,
+    die Bridge schließt Bus und Session ab. Unter Windows gibt es kein `add_signal_handler`; der Handler
+    läuft dort im Hauptthread und weckt den Event-Loop. TerminateProcess (kill) lässt sich nicht abfangen."""
+    loop = asyncio.get_running_loop()
+    if sys.platform == "win32":
+        for sig in (signal.SIGINT, signal.SIGBREAK):
+            signal.signal(sig, lambda *_: loop.call_soon_threadsafe(stop.set))
+        return
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, stop.set)
+
+
+async def _watch_stop_file(path: Path, stop: asyncio.Event) -> None:
+    """Stoppweg ohne Signal (Spiel unter Windows): die Bridge endet sauber, sobald `path` existiert."""
+    while not path.exists():
+        await asyncio.sleep(STOP_FILE_POLL_S)
+    stop.set()
 
 
 if __name__ == "__main__":

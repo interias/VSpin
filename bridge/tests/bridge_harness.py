@@ -87,6 +87,7 @@ def bridge_env() -> dict[str, str]:
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(SRC_DIR), env.get("PYTHONPATH")]))
     env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"  # Ausgabe in UTF-8, wie der Harness sie liest (Windows: sonst cp1252)
     return env
 
 
@@ -98,6 +99,7 @@ def run_bridge(args: list[str], cwd: Path, timeout_s: float = START_TIMEOUT_S) -
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         env=bridge_env(),
         cwd=cwd,
         timeout=timeout_s,
@@ -108,11 +110,16 @@ def run_bridge(args: list[str], cwd: Path, timeout_s: float = START_TIMEOUT_S) -
 
 
 class BridgeProcess:
-    """Startet die Bridge als Subprozess, wartet auf den Bus und beendet sie sauber."""
+    """Startet die Bridge als Subprozess, wartet auf den Bus und beendet sie sauber.
+
+    Beenden wie im Betrieb: Linux/macOS mit SIGTERM; Windows über die Stoppdatei (`--stop-file`), wie das
+    Spiel seine Bridge beendet – TerminateProcess ließe sich nicht abfangen. `interrupt()` ist Strg+C.
+    """
 
     def __init__(self, args: list[str], log_path: Path) -> None:
         self.args = args
         self.log_path = log_path
+        self.stop_file = log_path.with_suffix(".stop")
         self.proc: subprocess.Popen | None = None
         self.returncode: int | None = None
 
@@ -122,7 +129,7 @@ class BridgeProcess:
         env = bridge_env()
         self._log = open(self.log_path, "w", encoding="utf-8")
         self.proc = subprocess.Popen(
-            [sys.executable, "-m", "vspin_bridge", *self.args],
+            [sys.executable, "-m", "vspin_bridge", *self.args, "--stop-file", str(self.stop_file)],
             stdin=subprocess.DEVNULL,  # kein TTY → Tastatur aus, Bridge läuft trotzdem
             stdout=self._log,
             stderr=subprocess.STDOUT,
@@ -130,6 +137,8 @@ class BridgeProcess:
             # Arbeitsverzeichnis = Testverzeichnis: die Standard-Ablage `./sessions` landet dort,
             # nie im Repo.
             cwd=self.log_path.parent,
+            # Windows: eigene Prozessgruppe, damit `interrupt()` nur diese Bridge trifft.
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
         )
 
         def ready() -> bool:
@@ -148,7 +157,7 @@ class BridgeProcess:
             return self.returncode
         if self.proc.poll() is None:
             if sys.platform == "win32":
-                self.proc.terminate()
+                self.request_stop()
             else:
                 self.proc.send_signal(signal.SIGTERM)
             try:
@@ -161,6 +170,15 @@ class BridgeProcess:
         self._log.close()
         wait_until(lambda: not port_open(), STOP_TIMEOUT_S, f"Port {PORT} nach Stopp frei")
         return self.returncode
+
+    def request_stop(self) -> None:
+        """Stoppweg des Spiels: Stoppdatei anlegen – die Bridge endet sauber (alle Plattformen)."""
+        self.stop_file.touch()
+
+    def interrupt(self) -> None:
+        """Strg+C im Kommandofenster: SIGINT. Windows kann Strg+C nicht gezielt an einen Prozess schicken –
+        dort Strg+Untbr an die eigene Prozessgruppe; die Bridge behandelt beide gleich."""
+        self.proc.send_signal(signal.CTRL_BREAK_EVENT if sys.platform == "win32" else signal.SIGINT)
 
     def log(self) -> str:
         return self.log_path.read_text(encoding="utf-8", errors="replace")
