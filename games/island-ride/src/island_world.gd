@@ -10,6 +10,7 @@
 ##   Stations  je Station ein Node3D (Name = id) am Abschnittsbeginn mit Label3D; Metadaten `station_name`,
 ##             `distance_m`; dazu `aussichtspunkt` (Landmarke)
 ##   Props     je Station ein Node3D (Name = id) mit der Deko
+##   Landmarks Sehenswürdigkeiten (Leuchtturm, Talaia, Ermita, …), Details Kleindetails – siehe IslandLandmarks (G2)
 class_name IslandWorld
 extends Node3D
 
@@ -61,6 +62,7 @@ const CYPRESS_COLORS := {
 ## Wird von `build()` gesetzt.
 var terrain: IslandTerrain
 var track: Track
+var landmarks: IslandLandmarks
 
 static var _terrain_mesh: ArrayMesh = null
 static var _models := {}
@@ -85,6 +87,8 @@ func build(course_track: Track) -> void:
 	_add_mesh("Road", track.road_mesh(), _vertex_color_material())
 	_build_stations()
 	_build_props()
+	landmarks = IslandLandmarks.new(self)
+	landmarks.build()
 
 
 func _vertex_color_material() -> StandardMaterial3D:

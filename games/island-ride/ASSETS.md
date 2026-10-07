@@ -26,6 +26,7 @@ daneben. Kein Git LFS.
 | Insel-Gelände (Höhenfeld, Vertex-Farben) | prozedural, `src/island_terrain.gd` | MIT (Projektlizenz) |
 | Rundkurs (Grundriss, Höhenprofil), Fahrbahn | selbst erstellt, `src/island_course.gd`, `src/track.gd` | MIT (Projektlizenz) |
 | Meer, Kai, Molen, Leuchtturm, Poller, Straßen- und Trockenmauern, Randsteine, Plattform am Aussichtspunkt (Brüstung, Bänke, Fernrohr), Start/Ziel-Bogen, Stationsmarker | Godot-Grundkörper (Box, Zylinder), `src/island_world.gd` | MIT (Projektlizenz) |
+| Sehenswürdigkeiten (Leuchtturm auf der Felsküste, Talaia, Burgruine, Aquädukt, Windmühlen, Cala mit Sonnenschirmen und Fischerhütten, Terrasse der Ermita) und Kleindetails (Kilometersteine, Agaven, Feigenkakteen, Schafe, Ziegen, Bushaltestelle) – G2; Kirche/Kloster der Ermita, Felsen, Zypressen, Blumen und Boote aus den Kenney-Modellen oben, **keine neuen Dateien** | Godot-Grundkörper (Box, Kegelstumpf, Kugel), je Landmarke zu einem Mesh zusammengesetzt, `src/island_landmarks.gd` | MIT (Projektlizenz) |
 | Schrift (HUD, Stationsschilder) | in die Engine eingebaute Standardschrift (Open Sans), keine Datei im Repo | SIL OFL 1.1 (Godot-Lizenzhinweise) |
 
 Testwerkzeug, nicht Teil des Spiels: GUT 9.4 (`addons/gut`, MIT, Lizenz in `addons/gut/LICENSE.md`).
