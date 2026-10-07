@@ -252,13 +252,16 @@ darunter je Fahrerprofil die Fahrten. Jede beendete Fahrt wird als Zusammenfassu
 Abbruch („Fahrt beenden“, Beenden, Fenster schließen), sofern gefahren wurde: Datum (UTC), Modus, Strecke,
 `finished`, Runden (volle), Dauer, Strecke in km, Ø Kadenz, Ø Tempo, Rundenzeiten (`lap_times_s`). Keine Rohtelemetrie
 (die steht in der Session-CSV der Bridge). Bestzeiten stehen je Profil unter `best_times` (Strecke → Richtung →
-Sekunden, z. B. `{"island": {"cw": 873.4}}`). Spätere Bereiche (Ghosts, Medaillen …) kommen additiv dazu; ältere
+Sekunden, z. B. `{"island": {"cw": 873.4}}`), Segment-Bestzeiten unter `segment_best_times` und die beste Medaille je Runde
+(`lap`) und Segment unter `medals` (Strecke → Richtung → Segment-ID, #33). Spätere Bereiche (Ghosts …) kommen additiv dazu; ältere
 Stände werden beim Laden hochgestuft, ein Stand einer neueren Version bleibt unverändert erhalten, eine unlesbare
 Datei wird als `savegame.json.defekt` beiseitegelegt statt überschrieben.
 
 Sichtprüfung: `view_probe.gd -- --title [--window=left|right|fullscreen]` speichert `title.png`, `title_modes.png`
 und `title_b.png` (3 s später); mit `--laps=3` zusätzlich `title_round_trip.png`. `--hud --laps=3 --shots=1500`
-zeigt das HUD in Runde 2 und speichert danach `result.png` (Ergebnis mit allen Rundenzeiten).
+zeigt das HUD in Runde 2 und speichert danach `result.png` (Ergebnis mit allen Rundenzeiten, Medaillen und Segmenten).
+`--hud --segments` speichert je Segment `segment_<id>.png` (Live-Zeit) und `segment_<id>_result.png` (Ergebnis beim
+Verlassen); die Torbögen zeigt `--shots=466,2326,5686`.
 
 ### Tasten
 
@@ -308,7 +311,7 @@ Schlicht, halbtransparente Panels, Standardschrift der Engine:
 - **Unten – Runde und Höhenprofil** (`src/hud_profile.gd`): Fortschrittsbalken mit Prozent und Restdistanz, darunter
   das Höhenprofil des Rundkurses mit Abschnittsgrenzen und -namen (Name nur, wenn er in den Abschnitt passt),
   höchstem Punkt und Marker an der Fahrerposition; der gefahrene Teil ist hinterlegt.
-- Über dem unteren Panel dezent der `set_grade`-Hinweis, in der Mitte groß Pause-/Verbindungs-/Ziel-Meldungen.
+- Über dem unteren Panel dezent der `set_grade`-Hinweis, mittig zwischen oben und unten Pause-/Verbindungs-/Ziel-Meldungen.
 
 Layout nur über Anker und Container: passt im schmalen Halbbild-Fenster (960 × 1040) wie in 1920 × 1080 und
 1600 × 900, mit und ohne `display/window/stretch/mode="canvas_items"` (geprüft in `tests/test_hud.gd`). Profil und
@@ -381,6 +384,40 @@ Streckenposition und Fahrzeit – also nur aus Kadenz und Steigung (ADR-0010).
 
 Fahrzeit, Rundenzeiten und Durchschnitte zählen nur Zeit im Zustand `riding` – Pausen nicht; ein Zeitschritt über die
 Start/Ziel-Linie wird anteilig aufgeteilt (`src/ride_stats.gd`, `src/lap_timing.gd`).
+
+### Segmente und Medaillen (#33)
+
+Drei **Segmente** im Uhrzeigersinn mit eigener Zeit, je mit blauem Torbogen am Start (Name auf dem Banner):
+
+| Segment | Strecke (km) | in der Station |
+|---|---|---|
+| Küstenwelle | 0,48–2,24 | Küstenstraße (die drei Wellen) |
+| Bergwertung | 2,34–4,59 | Serpentinen, bis zur Kuppe am Aussichtspunkt |
+| Dorfsprint | 5,70–6,01 | Bergdorf |
+
+Segmente sind Daten (`IslandCourse.SEGMENTS`, Start- und Endmeter je Richtung; die Gegenrichtung kommt mit #34). Im
+Segment steht über dem unteren Panel dessen Name mit Live-Zeit („Bergwertung 3:01.8“), beim Verlassen blendet das HUD das
+Ergebnis ein („Bergwertung 7:34.5 · Silber – neue Bestzeit!“). Gewertet wird nur ein ganz durchfahrenes Segment, jede
+Runde neu, Ein- und Ausfahrt anteilig wie bei den Runden (`src/segment_timing.gd`, von `LapTiming.advance` mitgeführt).
+
+**Medaillen** (Bronze/Silber/Gold) gibt es für jede Runde und jedes Segment. Die Schwellen sind nicht eingetragen,
+sondern aus dem Fahrmodell berechnet (`src/medals.gd`): die Zeit bei konstant **70 rpm** (Bronze), **85 rpm** (Silber)
+und **95 rpm** (Gold) – das echte Fahrmodell fährt dazu beim Start einmal eine Runde aus dem Stand über das
+Steigungsprofil (≈ 0,2 s, danach zwischengespeichert). Ändern sich Strecke, Segmente oder `[ride]`-Werte, ändern sich die
+Schwellen mit. Mit der Spiel-Konfiguration auf der Insel:
+
+| | Gold | Silber | Bronze |
+|---|---|---|---|
+| Runde | 20:20.2 | 22:43.6 | 27:35.5 |
+| Küstenwelle | 3:55.6 | 4:23.3 | 5:19.6 |
+| Bergwertung | 6:47.5 | 7:35.5 | 9:13.1 |
+| Dorfsprint | 0:37.2 | 0:41.5 | 0:50.4 |
+
+Eine verkürzte erste Runde (Start nicht an der Start/Ziel-Linie, nur in Tests) bekommt keine Medaille. Das Ergebnis zeigt
+die Medaille je Runde („Medaillen: Silber · Gold“, ab 6 Runden gezählt: „12× Gold · 8× Silber“) und je Segment die
+schnellste Zeit der Fahrt mit Medaille. Eine laufende Einblendung wird im Ziel ausgeblendet. Segment-
+Bestzeiten und beste Medaillen gehen wie die Bestzeit am Fahrtende in den Spielstand. Auch hier zählen nur Kadenz und
+Steigung (ADR-0010).
 
 ### Virtuelle Steigung (`set_grade`)
 
@@ -514,6 +551,8 @@ src/hud_minimap.gd      HudMinimap: Inselkarte mit Strecke, Landmarken, Fahrer-P
 src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeout), status/telemetry parsen, send_message
 src/ride_stats.gd       RideStats: Fahrzeit, Strecke, Ø Kadenz, Ø Tempo (ohne Pausen) – reine Logik
 src/lap_timing.gd       LapTiming: Rundenwertung – Rundenzeiten, Ziel nach n Runden oder endlos, Bestzeit – reine Logik
+src/segment_timing.gd   SegmentTiming: Segmentzeiten (Live-Zeit, gewertete Segmente, Segment-Bestzeit) – reine Logik
+src/medals.gd           Medals: Medaillen-Schwellen aus dem Fahrmodell (70/85/95 rpm), Medaille einer Zeit – reine Logik
 src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik
 src/ride_model.gd       RideModel: reine Logik (Kadenz, Steigung, Δt, Konfig → Geschwindigkeit, Position)
 src/rider_motion.gd     RiderMotion: Kurbel-/Radwinkel, Schräglage, Vorbeuge, Glieder-IK – reine Logik
@@ -522,9 +561,9 @@ src/ride_config.gd      RideConfig: liest config.cfg
 src/graphics_settings.gd GraphicsSettings: Grafik-/Fenstereinstellungen, Tageszeit/Wetter (user://settings.cfg), Anwenden, Fensterhälften
 scenes/settings_menu.*  Menü „Grafik und Fenster“ (F2, F11), von der Hauptszene eingehängt
 scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt-Auswahl, Radstatus (#30, #31)
-src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Bestzeiten, Hochstufung
+src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Bestzeiten, Segment-Bestzeiten, Medaillen, Hochstufung
 src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz), stations, station_at(), road_mesh()
-src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil, Stationen (reine Daten/Logik)
+src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil, Stationen, Segmente (reine Daten/Logik)
 src/island_terrain.gd   IslandTerrain: Höhenfeld (prozedural oder Höhenkarte), unter die Straße geformt, Mesh
 src/island_world.gd     IslandWorld: Gelände, Meer, Fahrbahn, Stationsmarker, Deko aller Stationen mit Modellen (#15, #16)
 src/island_landmarks.gd IslandLandmarks: Sehenswürdigkeiten und Kleindetails (G2), Platzierungsdaten für Tests

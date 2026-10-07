@@ -5,7 +5,7 @@
 ##         [--fps-from=0 --fps-to=2310 --speed-kmh=50] [--size=1920x1080] [--cadence=85] [--close] [--pair]
 ##         [--advance=1.5] [--time=21:30] [--date=2026-06-21] [--weather=rain] [--profile=forward|compat]
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
-##         [--title] [--window=left|right|fullscreen] [--laps=3]
+##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -30,7 +30,10 @@
 ## Rundfahrt (#31): `--laps=N` (0 = endlos) zeigt eine Fahrt über N Runden mit Beispiel-Bestzeit (LAP_SAMPLES_S, nur im
 ## Speicher). Mit `--title` zusätzlich `title_round_trip.png` (Seite „Rundfahrt“), mit `--hud` steht der Fahrer in
 ## Runde 2 (HUD mit Runde und Rundenzeit, Einblendung „Neue Bestzeit!“), danach `result.png` mit dem Ergebnis aller
-## Runden.
+## Runden (mit Medaillen und, über die Beispielzeiten anteilig, den Segmenten, #33).
+## Segmente (#33): `--segments` (mit `--hud`) stellt den Fahrer in jedes Segment der Strecke – HUD mit Live-Zeit,
+## `segment_<id>.png` – und kurz hinter sein Ende mit dem Ergebnis beim Verlassen (`segment_<id>_result.png`);
+## Beispielzeit knapp unter der Silber-Schwelle. Die Torbögen zeigen `--shots` kurz vor dem Segmentstart.
 extends SceneTree
 
 ## Beispiel-Rundenzeiten (s) für `--laps`: gespeicherte Bestzeit vorher, dann die Runden der Fahrt.
@@ -48,6 +51,8 @@ var _hud := false
 var _debug := false
 ## Rundenzahl der Beispiel-Rundfahrt (`--laps`; −1 = ohne).
 var _laps := -1
+## Live-Zeit und Ergebnis je Segment zeigen (`--segments`).
+var _segments := false
 
 
 func _initialize() -> void:
@@ -111,6 +116,8 @@ func _initialize() -> void:
 			window = value
 		elif arg.begins_with("--laps="):
 			_laps = int(value)
+		elif arg == "--segments":
+			_segments = true
 		elif arg.begins_with("--crop="):
 			var p := value.split(",")
 			_crop = Rect2i(int(p[0]), int(p[1]), int(p[2]), int(p[3]))
@@ -180,6 +187,8 @@ func _initialize() -> void:
 			_save(out_dir.path_join("shot_%d_b.png" % int(d)))
 		if close:
 			await _close_ups(out_dir, d)
+	if _segments:
+		await _segment_shots(out_dir)
 	if fps_to > fps_from:
 		await _measure(fps_from, fps_to, speed_kmh / 3.6)
 	if _laps >= 0 and _hud:
@@ -290,19 +299,51 @@ func _place(d: float) -> void:
 func _result_shot(out_dir: String) -> void:
 	var lap: float = _ride.track.length_m()
 	var count := _laps if _laps > 0 else 3
-	_ride.lap_timing = LapTiming.new(lap, 0.0, _laps, LAP_SAMPLES_S[0])
+	_ride.lap_timing = LapTiming.new(lap, 0.0, _laps, LAP_SAMPLES_S[0], _ride.track.segments)
 	_ride.stats = RideStats.new()
 	for i in range(count):
 		var t: float = LAP_SAMPLES_S[1 + i % (LAP_SAMPLES_S.size() - 1)]
 		_ride.lap_timing.advance(lap * (i + 1), t)
 		_ride.stats.add(t, 86.0, lap)
 	_ride.model.distance_m = lap * count
-	_ride.state = _ride.STATE_FINISHED
+	_ride._finish_ride()  # wie im Spiel: Einblendung aus, Spielstand nur im Speicher (save_path "")
 	_ride.get_node("Hud/Message").modulate = Color.WHITE
 	_ride._update_view()
 	_ride._update_camera(0.0, true)
 	await _frames(8)
 	_save_image(out_dir.path_join("result.png"))
+
+
+## Je Segment: Fahrer bei 40 % des Segments (HUD mit Live-Zeit), dann 15 m hinter dem Ende (Ergebnis beim
+## Verlassen). Beispielfahrt: das Segment in knapp der Silber-Zeit, vorher 22 km/h.
+func _segment_shots(out_dir: String) -> void:
+	var celebration: Control = _ride.hud.get_node("%Celebration")
+	for segment in _ride.track.segments:
+		var start: float = segment["start_m"]
+		var length: float = segment["end_m"] - start
+		var inside_mps: float = length / (_ride.medal_limits[segment["id"]][Medals.SILVER] - 1.0)
+		var timing := LapTiming.new(_ride.track.length_m(), 0.0, 0, INF, _ride.track.segments)
+		timing.advance(start, start / (22.0 / 3.6))
+		timing.advance(start + 0.4 * length, 0.4 * length / inside_mps)
+		_place(start + 0.4 * length)  # setzt mit `--laps` eine eigene Rundenwertung – danach ersetzen
+		_ride.lap_timing = timing
+		_ride.model.distance_m = start + 0.4 * length
+		celebration.hide()
+		_ride._update_view()
+		_pedal(1.0)
+		await _frames(8)
+		_save_image(out_dir.path_join("segment_%s.png" % segment["id"]))
+		timing.advance(segment["end_m"], 0.6 * length / inside_mps)
+		timing.advance(segment["end_m"] + 15.0, 15.0 / inside_mps)
+		_place(segment["end_m"] + 15.0)
+		_ride.lap_timing = timing
+		_ride.model.distance_m = segment["end_m"] + 15.0
+		_ride.hud.celebrate(_ride.segment_result_text(timing.segments.results[-1]))
+		_ride._update_view()
+		_ride._update_camera(0.0, true)
+		_pedal(0.2)
+		await _frames(8)
+		_save_image(out_dir.path_join("segment_%s_result.png" % segment["id"]))
 
 
 func _frames(count: int) -> void:

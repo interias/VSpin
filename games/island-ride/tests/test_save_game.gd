@@ -134,3 +134,44 @@ func test_broken_file_is_set_aside_not_overwritten() -> void:
 		assert_eq(SaveGame.load_file(TEMP_PATH).rides(), [], "kein Spielstand (%s) → neuer Stand" % text)
 		assert_false(FileAccess.file_exists(TEMP_PATH), "%s beiseitegelegt" % text)
 		assert_true(FileAccess.file_exists(TEMP_PATH + SaveGame.BROKEN_SUFFIX))
+
+
+func test_segment_best_times_and_best_medals_survive_restart() -> void:
+	var save := SaveGame.load_file(TEMP_PATH)
+	assert_eq(save.segment_best_s("island", "cw", "dorfsprint"), INF, "noch keine Segment-Bestzeit")
+	assert_eq(save.best_medal("island", "cw", Medals.LAP), Medals.NONE, "noch keine Medaille")
+	assert_true(save.record_segment_time("island", "cw", "dorfsprint", 41.23456))
+	assert_false(save.record_segment_time("island", "cw", "dorfsprint", 45.0), "langsamer: bleibt")
+	assert_false(save.record_segment_time("island", "cw", "dorfsprint", INF), "ungültig: bleibt")
+	assert_true(save.record_segment_time("island", "cw", "bergwertung", 455.0))
+	assert_true(save.record_medal("island", "cw", Medals.LAP, Medals.BRONZE))
+	assert_true(save.record_medal("island", "cw", Medals.LAP, Medals.SILVER), "bessere Medaille ersetzt")
+	assert_false(save.record_medal("island", "cw", Medals.LAP, Medals.BRONZE), "schlechtere nicht")
+	assert_false(save.record_medal("island", "cw", "dorfsprint", Medals.NONE), "keine Medaille wird nicht eingetragen")
+	assert_true(save.record_medal("island", "cw", "dorfsprint", Medals.GOLD))
+	assert_eq(save.save_file(TEMP_PATH), OK)
+	var file := JSON.parse_string(FileAccess.get_file_as_string(TEMP_PATH)) as Dictionary
+	var stored: Dictionary = file["profiles"][save.profile_key()]
+	assert_eq(stored["segment_best_times"], {"island": {"cw": {"dorfsprint": 41.235, "bergwertung": 455.0}}},
+			"je Strecke → Richtung → Segment, auf 0,001 s")
+	assert_eq(stored["medals"], {"island": {"cw": {"lap": "silver", "dorfsprint": "gold"}}})
+	var loaded := SaveGame.load_file(TEMP_PATH)
+	assert_eq(loaded.version(), 1, "additiver Bereich, Format bleibt Version 1")
+	assert_almost_eq(loaded.segment_best_s("island", "cw", "dorfsprint"), 41.235, 0.0001)
+	assert_eq(loaded.segment_best_times("island", "cw").size(), 2)
+	assert_eq(loaded.segment_best_times("graybox", "cw"), {}, "andere Strecke: keine")
+	assert_eq(loaded.best_medal("island", "cw", Medals.LAP), Medals.SILVER)
+	assert_eq(loaded.best_medal("island", "cw", "dorfsprint"), Medals.GOLD)
+
+
+func test_unreadable_segment_and_medal_values_are_ignored() -> void:
+	_write(JSON.stringify({"version": 1, "active_profile": "abcdef0123456789", "profiles": {"abcdef0123456789": {
+			"segment_best_times": {"island": {"cw": {"dorfsprint": "schnell", "bergwertung": -3}}, "graybox": 7},
+			"medals": {"island": {"cw": {"lap": "platin", "dorfsprint": 3}}}}}}))
+	var save := SaveGame.load_file(TEMP_PATH)
+	assert_eq(save.segment_best_times("island", "cw"), {}, "ungültige Zeiten zählen nicht")
+	assert_eq(save.segment_best_s("graybox", "cw", "x"), INF)
+	assert_eq(save.best_medal("island", "cw", Medals.LAP), Medals.NONE, "unbekannte Medaille zählt nicht")
+	assert_eq(save.best_medal("island", "cw", "dorfsprint"), Medals.NONE)
+	assert_true(save.record_segment_time("graybox", "cw", "x", 12.0), "kaputter Bereich wird beim Eintragen ersetzt")
+	assert_eq(save.segment_best_s("graybox", "cw", "x"), 12.0)

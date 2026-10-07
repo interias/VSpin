@@ -8,6 +8,7 @@
 ##   stations            Abschnitte in Fahrtrichtung [{id, name, start_m}] (leer = keine, z. B. Graybox)
 ##   station_at(distance) Abschnitt an einer Streckenposition ({} ohne Stationen)
 ##   road_mesh()         Fahrbahn als Band entlang des Pfads
+##   segments            Segmente mit eigener Zeit [{id, name, start_m, end_m}] (#33; leer = keine, z. B. Graybox)
 class_name Track
 extends Path3D
 
@@ -19,6 +20,8 @@ const ROAD_STEP_M := 2.0
 
 ## Abschnitte in Fahrtrichtung: [{id, name, start_m}], nach start_m sortiert, erster bei 0.
 var stations: Array = []
+## Segmente in Fahrtrichtung: [{id, name, start_m, end_m}] innerhalb einer Runde (start_m < end_m).
+var segments: Array = []
 
 
 func length_m() -> float:

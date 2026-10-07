@@ -10,6 +10,7 @@
 ##   Stations  je Station ein Node3D (Name = id) am Abschnittsbeginn mit Label3D; Metadaten `station_name`,
 ##             `distance_m`; dazu `aussichtspunkt` (Landmarke)
 ##   Props     je Station ein Node3D (Name = id) mit der Deko
+##   Segments  je Segment ein Torbogen am Start (Name = id, #33)
 ##   Landmarks Sehenswürdigkeiten (Leuchtturm, Talaia, Ermita, …), Details Kleindetails – siehe IslandLandmarks (G2)
 ##   Motion    bewegte Szenen und Effekte (Windmühlen, Leuchtturm, Boote, Vögel, Wolken) – siehe WorldMotion (G3);
 ##             Meer und Vegetation bekommen dort ihre Shader (Wellen/Brandung, Wind)
@@ -86,6 +87,7 @@ func build(course_track: Track) -> void:
 	_add_mesh("Road", track.road_mesh(), _vertex_color_material())
 	_build_stations()
 	_build_props()
+	_build_segment_gates()
 	landmarks = IslandLandmarks.new(self)
 	landmarks.build()
 	motion = WorldMotion.new()
@@ -299,6 +301,36 @@ func _build_harbour() -> void:
 	_box(arch, "PfostenL", Vector3(0.5, 5.5, 0.5), Vector3(-4.0, 0.0, 0.0), red)
 	_box(arch, "PfostenR", Vector3(0.5, 5.5, 0.5), Vector3(4.0, 0.0, 0.0), red)
 	_box(arch, "Banner", Vector3(8.5, 1.2, 0.3), Vector3(0.0, 5.0, 0.0), Color(0.95, 0.95, 0.95))
+
+
+## Torbögen am Start jedes Segments (#33, Track.segments) im Stil des Start/Ziel-Bogens, blau statt rot, mit dem Namen
+## des Segments auf dem Banner (zur anfahrenden Kamera hin). Knoten `Segments/<id>` mit Metadaten `segment_name`,
+## `distance_m`.
+func _build_segment_gates() -> void:
+	var gates := Node3D.new()
+	gates.name = "Segments"
+	add_child(gates)
+	var blue := Color(0.12, 0.3, 0.62)
+	for segment in track.segments:
+		var arch := Node3D.new()
+		arch.name = segment["id"]
+		arch.set_meta("segment_name", segment["name"])
+		arch.set_meta("distance_m", segment["start_m"])
+		arch.position = track.position_at(segment["start_m"])
+		arch.rotation.y = _yaw_at(segment["start_m"])
+		gates.add_child(arch)
+		_box(arch, "PfostenL", Vector3(0.5, 5.5, 0.5), Vector3(-4.0, 0.0, 0.0), blue)
+		_box(arch, "PfostenR", Vector3(0.5, 5.5, 0.5), Vector3(4.0, 0.0, 0.0), blue)
+		_box(arch, "Banner", Vector3(8.5, 1.2, 0.3), Vector3(0.0, 5.0, 0.0), Color(0.95, 0.95, 0.95))
+		var label := Label3D.new()
+		label.name = "Name"
+		label.text = segment["name"]
+		label.font_size = 72
+		label.pixel_size = 0.01
+		label.outline_size = 0
+		label.modulate = blue
+		label.position = Vector3(0.0, 5.6, 0.16)
+		arch.add_child(label)
 
 
 ## Küstenstraße (#15): seeseitig (links in Fahrtrichtung) eine niedrige Natursteinmauer am Straßenrand, Büsche und

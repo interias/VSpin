@@ -9,7 +9,8 @@
 ##   Ziel       nach `laps` Runden; `laps` = 0 heißt endlos.
 ##   Bestzeit   schnellste abgeschlossene Runde je Strecke und Richtung; eine angefangene Runde zählt nicht.
 ##              `best_before_s` ist die gespeicherte Bestzeit vor der Fahrt (INF = noch keine).
-## Segmente, Medaillen (#33), Ghost (#32) und Gegenrichtung (#34) erweitern dieses Modul.
+##   Segmente   (#33) `segments` (SegmentTiming) läuft in `advance` mit: dieselbe Position und Fahrzeit, bis zum Ziel.
+## Medaillen bewertet Medals (#33); Ghost (#32) und Gegenrichtung (#34) erweitern dieses Modul.
 class_name LapTiming
 extends RefCounted
 
@@ -26,6 +27,8 @@ var best_before_s := INF
 var lap_times: Array[float] = []
 ## Fahrzeit der laufenden Runde in Sekunden.
 var lap_time_s := 0.0
+## Segmentzeiten dieser Fahrt (#33).
+var segments: SegmentTiming
 
 ## Streckenposition seit dem letzten Schritt.
 var _distance_m := 0.0
@@ -37,7 +40,10 @@ var _lap_start_m := 0.0
 var _finish_m := INF
 
 
-func _init(lap_length: float, start_distance_m: float = 0.0, lap_count: int = 1, best_s: float = INF) -> void:
+## `segment_list`: Segmente der Strecke (Track.segments), `segment_best`: ihre gespeicherten Bestzeiten (ID → s).
+func _init(lap_length: float, start_distance_m: float = 0.0, lap_count: int = 1, best_s: float = INF,
+		segment_list: Array = [], segment_best: Dictionary = {}) -> void:
+	segments = SegmentTiming.new(lap_length, start_distance_m, segment_list, segment_best)
 	lap_length_m = lap_length
 	laps = maxi(lap_count, 0)
 	best_before_s = best_s
@@ -57,6 +63,7 @@ func advance(distance_m: float, delta_s: float) -> int:
 	var completed := 0
 	var from_m := _distance_m
 	var left_s := delta_s
+	var used_s := delta_s
 	while distance_m >= _next_line_m and not finished():
 		var share := (_next_line_m - from_m) / (distance_m - from_m) if distance_m > from_m else 1.0
 		var to_line_s := left_s * clampf(share, 0.0, 1.0)
@@ -64,6 +71,7 @@ func advance(distance_m: float, delta_s: float) -> int:
 		completed += 1
 		if finished():
 			lap_time_s = lap_times[-1]  # im Ziel bleibt die letzte Runde stehen
+			used_s = delta_s - left_s + to_line_s
 			break
 		lap_time_s = 0.0
 		left_s -= to_line_s
@@ -73,6 +81,7 @@ func advance(distance_m: float, delta_s: float) -> int:
 	if not finished():
 		lap_time_s += left_s
 	_distance_m = minf(distance_m, _finish_m)
+	segments.advance(_distance_m, used_s)
 	return completed
 
 

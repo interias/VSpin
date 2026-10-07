@@ -14,6 +14,7 @@
 ##   IslandCourse.curve()     Curve3D des Rundkurses (gecacht, geschlossen: letzter Punkt = erster Punkt)
 ##   IslandCourse.stations()  [{id, name, start_m}] in Fahrtrichtung, start_m = Streckenposition auf der Kurve
 ##   IslandCourse.landmarks() [{id, name, distance_m}] besondere Punkte (Aussichtspunkt)
+##   IslandCourse.segments(richtung) [{id, name, start_m, end_m}] Segmente mit eigener Zeit (#33)
 class_name IslandCourse
 extends RefCounted
 
@@ -40,6 +41,17 @@ const SECTIONS := [
 	{"id": "hain", "name": "Pinien-/Olivenhain", "rise": 10.0, "wave": 0.02, "waves": 2},
 	{"id": "bergdorf", "name": "Bergdorf", "rise": 2.0},
 	{"id": "abfahrt", "name": "Abfahrt", "to_height": START_HEIGHT, "wave": 0.012, "waves": 3, "runout_m": 320.0, "runout_grade": -0.015},
+]
+
+## Segmente (#33): feste Abschnitte mit eigener Zeit, je Richtung Start- und Endmeter (Streckenposition, Start <
+## Ende in Fahrtrichtung). Reine Daten – die Gegenrichtung (#34) ergänzt je Segment nur einen Eintrag.
+##   Küstenwelle  die drei Wellen der Küstenstraße (Kuppen bei ~0,6 / 1,2 / 1,8 km)
+##   Bergwertung  die Serpentinen von der ersten Rampe bis zur Kuppe am Aussichtspunkt
+##   Dorfsprint   durchs Bergdorf
+const SEGMENTS := [
+	{"id": "kuestenwelle", "name": "Küstenwelle", "cw": {"start_m": 480.0, "end_m": 2240.0}},
+	{"id": "bergwertung", "name": "Bergwertung", "cw": {"start_m": 2340.0, "end_m": 4590.0}},
+	{"id": "dorfsprint", "name": "Dorfsprint", "cw": {"start_m": 5700.0, "end_m": 6010.0}},
 ]
 
 static var _cache: Dictionary = {}
@@ -99,10 +111,21 @@ static func _hairpin(at: Vector2, eastbound: bool) -> Array[Vector2]:
 	return points
 
 
-## Macht `track` zum Insel-Rundkurs: Kurve und Stationen.
+## Macht `track` zum Insel-Rundkurs: Kurve, Stationen und Segmente (im Uhrzeigersinn).
 static func apply_to(track: Track) -> void:
 	track.curve = curve()
 	track.stations = stations().duplicate(true)
+	track.segments = segments(LapTiming.DIRECTION_CW)
+
+
+## Segmente in Richtung `direction` (LapTiming.DIRECTION_*): [{id, name, start_m, end_m}], in Fahrtrichtung.
+static func segments(direction: String) -> Array:
+	var result := []
+	for segment in SEGMENTS:
+		if segment.has(direction):
+			result.append({"id": segment["id"], "name": segment["name"], "start_m": segment[direction]["start_m"],
+					"end_m": segment[direction]["end_m"]})
+	return result
 
 
 ## Curve3D des Rundkurses (gecacht).
