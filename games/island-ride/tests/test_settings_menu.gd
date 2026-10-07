@@ -55,6 +55,7 @@ func test_quit_button_requests_quit() -> void:
 	assert_not_null(quit, "Knopf „Beenden“ im Menü")
 	assert_eq(quit.text, "Beenden")
 	assert_true(quit.is_visible_in_tree())
+	assert_eq(quit.focus_mode, Control.FOCUS_NONE, "Beenden nur per Klick, nie per Leertaste/Enter")
 	quit.pressed.emit()
 	assert_signal_emitted(ride, "quit_requested", "Beenden über den Knopf")
 

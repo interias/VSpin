@@ -213,6 +213,7 @@ func _build() -> void:
 	var quit := _add_button(actions, "Beenden", quit_requested.emit)
 	quit.name = "Quit"
 	quit.visible = not web  # im Browser lässt sich das Spiel nicht beenden
+	quit.focus_mode = Control.FOCUS_NONE  # nur per Klick: Leertaste (Pause) beendet nie versehentlich
 	for key in ["vsync", "window_mode", "window_size"]:
 		for control in _rows[key]:
 			control.visible = not web
