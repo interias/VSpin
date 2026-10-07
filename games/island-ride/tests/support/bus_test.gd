@@ -51,13 +51,16 @@ func config_for(bus: FakeBusServer, path: String = RideConfig.DEFAULT_PATH,
 	return config
 
 
-## Instanziert die Hauptszene mit `config` (oder Spiel-Konfiguration + `bus`) ab Streckenposition `start_m`.
+## Instanziert die Hauptszene mit `config` (oder Spiel-Konfiguration + `bus`) ab Streckenposition `start_m`; die
+## Fahrt läuft sofort (ohne Startmenü), Spielstand nur im Speicher.
 func spawn_ride(bus: FakeBusServer, start_m: float = 0.0, config: RideConfig = null) -> Node:
 	var ride := MAIN_SCENE.instantiate()
 	ride.config = config if config != null else config_for(bus)
 	ride.start_distance_m = start_m
 	ride.quit_on_request = false
 	ride.settings_path = ""  # nie die echten Grafikeinstellungen lesen/schreiben
+	ride.save_path = ""  # nie den echten Spielstand lesen/schreiben
+	ride.start_in_menu = false  # sofort fahren, ohne Startmenü
 	add_child_autofree(ride)
 	return ride
 

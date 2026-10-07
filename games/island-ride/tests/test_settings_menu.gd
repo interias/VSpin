@@ -115,6 +115,8 @@ func _spawn_ride_with_settings() -> Node:
 	ride.config = config
 	ride.quit_on_request = false
 	ride.settings_path = TEMP_PATH
+	ride.save_path = ""
+	ride.start_in_menu = false
 	add_child_autofree(ride)
 	return ride
 
