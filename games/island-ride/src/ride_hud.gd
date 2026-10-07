@@ -6,9 +6,12 @@
 ##   oben rechts  Minikarte (HudMinimap): Insel, Strecke, Landmarken, Fahrer-Pfeil
 ##   unten        Runde („Runde 2 / 3“, endlos „Runde 2“, bei einer Runde nur „Runde“), Rundenfortschritt (Balken,
 ##                Prozent, Restdistanz) und Höhenprofil mit Marker (HudProfile)
-##   Celebration  dezente Einblendung „Neue Bestzeit!“ über dem unteren Panel, blendet nach CELEBRATION_S aus (#31)
-##   Message/Hint/Debug  Zustandsmeldung (Mitte), `set_grade`-Hinweis (über dem unteren Panel), Debug-Anzeige F3
-##                (unter dem Werte-Panel) – Inhalte setzt die Hauptszene.
+##   Celebration  dezente Einblendung „Neue Bestzeit!“ über dem unteren Panel, blendet nach CELEBRATION_S aus (#31);
+##                ebenso das Ergebnis beim Verlassen eines Segments (#33)
+##   Segment      im Segment an derselben Stelle dessen Name und Live-Zeit („Bergwertung  3:12.4“, #33); eine
+##                Einblendung hat Vorrang
+##   Message/Hint/Debug  Zustandsmeldung (mittig zwischen oben und unten), `set_grade`-Hinweis (über dem unteren
+##                Panel), Debug-Anzeige F3 (unter dem Werte-Panel) – Inhalte setzt die Hauptszene.
 ## Layout nur über Anker und Container (kein fester Bildschirmort): passt in 960×1040 wie in 1920×1080, mit und
 ## ohne `stretch/mode="canvas_items"`.
 ##
@@ -42,6 +45,7 @@ const CELEBRATION_S := 4.0
 @onready var _distance_value: Label = %DistanceValue
 @onready var _time_value: Label = %TimeValue
 @onready var _lap_time_value: Label = %LapTimeValue
+@onready var _segment: Label = %Segment
 @onready var _power: Control = %Power
 @onready var _power_value: Label = %PowerValue
 @onready var _lap_caption: Label = %LapCaption
@@ -53,8 +57,11 @@ const CELEBRATION_S := 4.0
 @onready var _minimap: HudMinimap = %Minimap
 @onready var _hint: Label = $Hint
 @onready var _debug: Label = $Debug
+@onready var _message: Label = $Message
 
 var _grade_color := COLOR_FLAT
+## Laufendes Segment für `readout()` („Bergwertung: 3:12.4“, "" = keins).
+var _segment_line := ""
 var _celebration_tween: Tween
 
 
@@ -62,6 +69,7 @@ func _ready() -> void:
 	_top.resized.connect(_place_overlays)
 	_bottom.resized.connect(_place_overlays)
 	_stats.resized.connect(_place_overlays)
+	(_celebration.get_parent() as Control).resized.connect(_place_overlays)
 	_place_overlays()
 
 
@@ -110,6 +118,14 @@ func show_lap_count(number: int, total: int, lap_time_text: String) -> void:
 	_lap_time_value.text = lap_time_text
 
 
+## Laufendes Segment: Name als Beschriftung und Live-Zeit als fertiger Anzeigetext; "" als Name blendet aus.
+## Solange eine Einblendung läuft, bleibt die Live-Zeit verborgen.
+func show_segment(segment_name: String, time_text: String) -> void:
+	_segment_line = "" if segment_name.is_empty() else "%s: %s" % [segment_name, time_text]
+	_segment.text = "%s  %s" % [segment_name, time_text]
+	_segment.visible = not segment_name.is_empty() and not _celebration.visible
+
+
 ## Beschriftung des Rundenfortschritts: „Runde“ bei einer Runde, „Runde 2 / 3“, endlos „Runde 2“.
 static func lap_caption(number: int, total: int) -> String:
 	if total == 1:
@@ -128,6 +144,13 @@ func celebrate(text: String) -> void:
 	_celebration_tween.tween_interval(CELEBRATION_S - 1.0)
 	_celebration_tween.tween_property(_celebration, "modulate:a", 0.0, 1.0)
 	_celebration_tween.tween_callback(_celebration.hide)
+
+
+## Laufende Einblendung sofort ausblenden (im Ziel steht sonst das Ergebnis davor).
+func end_celebration() -> void:
+	if _celebration_tween != null:
+		_celebration_tween.kill()
+	_celebration.hide()
 
 
 ## Text der Einblendung, solange sie sichtbar ist ("" sonst).
@@ -164,7 +187,8 @@ static func grade_direction(grade: float) -> int:
 
 
 ## Die sichtbaren Werte als Textzeilen „Name: Wert Einheit“, genau wie angezeigt (Tests, Logs), z. B.
-## "Kadenz: 90 rpm", "Steigung: +6.0 %", "Leistung: ~142 W", "Rundenzeit: 3:05", "Runde 2 / 3: 34 % (noch 6.08 km)".
+## "Kadenz: 90 rpm", "Steigung: +6.0 %", "Leistung: ~142 W", "Rundenzeit: 3:05", "Bergwertung: 1:12.4",
+## "Runde 2 / 3: 34 % (noch 6.08 km)".
 func readout() -> String:
 	var lines := []
 	for field in [%Cadence, %Speed, %Distance, %Time, %LapTime, %Grade, _section, _power]:
@@ -177,11 +201,14 @@ func readout() -> String:
 		if unit != null and not unit.text.is_empty():
 			text += " " + unit.text
 		lines.append(text)
+	if _segment.is_visible_in_tree():
+		lines.append(_segment_line)
 	lines.append("%s: %s (%s)" % [_lap_caption.text, _lap_percent.text, _lap_remaining.text])
 	return "\n".join(lines)
 
 
-## Hinweis über dem unteren Panel, Debug-Anzeige unter dem Werte-Panel – beide folgen dem Layout.
+## Hinweis über dem unteren Panel, Debug-Anzeige unter dem Werte-Panel, Zustandsmeldung mittig im freien Feld
+## zwischen oben und unten (dort hat auch ein langes Fahrtergebnis Platz) – alle folgen dem Layout.
 func _place_overlays() -> void:
 	if _hint == null:
 		return
@@ -191,3 +218,8 @@ func _place_overlays() -> void:
 	var stats := _stats.get_global_rect()
 	_debug.offset_top = stats.end.y + OVERLAY_GAP_PX
 	_debug.offset_bottom = stats.end.y + OVERLAY_GAP_PX + 150.0
+	# Anker in der Fenstermitte, die Meldung wächst nach oben und unten
+	var center := (_celebration.get_parent() as Control).get_global_rect().get_center().y \
+			- _message.get_parent_area_size().y / 2.0
+	_message.offset_top = center - 100.0
+	_message.offset_bottom = center + 100.0

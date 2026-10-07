@@ -124,6 +124,17 @@ func test_shows_values_with_signed_colored_grade_and_estimated_watts() -> void:
 	assert_eq(RideHud.grade_color(0.03), RideHud.COLOR_UP, "bergauf: warm")
 
 
+func test_segment_live_time_only_inside_a_segment() -> void:
+	var hud := _hud()
+	assert_false(hud.readout().contains("Bergwertung"), "außerhalb eines Segments keine Segmentzeit")
+	hud.show_segment("Bergwertung", "1:12.4")
+	assert_string_contains(hud.readout(), "Bergwertung: 1:12.4", "im Segment: Name und Live-Zeit")
+	hud.show_segment("", "")
+	assert_false(hud.readout().contains("Bergwertung"), "nach dem Segment ausgeblendet")
+	hud.celebrate("Bergwertung  7:35.2 · Silber – neue Bestzeit!")
+	assert_eq(hud.celebration(), "Bergwertung  7:35.2 · Silber – neue Bestzeit!", "Ergebnis beim Verlassen")
+
+
 ## Alle sichtbaren HUD-Anzeigen in `viewport_size` (Pixel); `canvas_size` ≠ Null wie `stretch/mode="canvas_items"`
 ## (die Oberfläche wird in dieser Größe angelegt und skaliert). Liefert das HUD nach dem Layout.
 func _layout_in(viewport_size: Vector2i, canvas_size: Vector2i = Vector2i.ZERO) -> RideHud:
@@ -142,6 +153,7 @@ func _layout_in(viewport_size: Vector2i, canvas_size: Vector2i = Vector2i.ZERO) 
 	hud.show_ride(118.0, 58.4, 9210.0, "1:02:33", -0.088, "-8.8 %", "Pinien-/Olivenhain", "~1042 W")
 	hud.show_lap(4000.0, 0.0, 9210.0, 4000.0)
 	hud.show_lap_count(12, 20, "1:02:33")
+	hud.show_segment("Küstenwelle", "12:34.5")
 	hud.celebrate("Neue Bestzeit!  1:02:33.4")
 	(hud.get_node("Hint") as Label).text = "Widerstand: nicht unterstützt"
 	(hud.get_node("Debug") as Label).text = \
@@ -193,3 +205,18 @@ func test_layout_fits_with_canvas_items_stretch() -> void:
 	# canvas_items mit Basis 1920×1080: Halbbild 960×1040 mit aspect "expand" → Oberfläche 1920×2080, "keep" → 1920×1080.
 	_assert_inside(await _layout_in(Vector2i(960, 1040), Vector2i(1920, 2080)), "canvas_items expand")
 	_assert_inside(await _layout_in(Vector2i(960, 540), Vector2i(1920, 1080)), "canvas_items keep")
+
+
+func test_segment_live_time_fits_between_panels() -> void:
+	for size in [Vector2i(960, 1040), Vector2i(1920, 1080), Vector2i(1152, 648)]:
+		var hud := await _layout_in(size)
+		hud.get_node("%Celebration").hide()  # die Live-Zeit steht an der Stelle der Einblendung, die Vorrang hat
+		hud.show_segment("Küstenwelle", "12:34.5")
+		await wait_process_frames(2)
+		var segment: Control = hud.get_node("%Segment")
+		assert_true(segment.is_visible_in_tree(), "%s: Live-Zeit sichtbar" % size)
+		var rect := segment.get_global_rect()
+		assert_true(hud.get_node("Layout").get_viewport_rect().encloses(rect), "%s: im Fenster" % size)
+		for other in ["%Stats", "%Bottom", "Hint"]:
+			assert_false(rect.intersects((hud.get_node(other) as Control).get_global_rect()), "%s: frei von %s" % [size, other])
+		assert_false(rect.intersects(hud.get_node("%Minimap").get_parent().get_global_rect()), "%s: frei von der Karte" % size)

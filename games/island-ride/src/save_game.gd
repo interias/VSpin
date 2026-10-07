@@ -5,11 +5,15 @@
 ##
 ##   {"version": 1, "active_profile": "<16 Hex-Zeichen>",
 ##    "profiles": {"<schlüssel>": {"created": "…Z", "rides": [{"date": "…Z", "mode": "rundfahrt", …}],
-##                                 "best_times": {"<strecke>": {"<richtung>": <sekunden>}}}}}
+##                                 "best_times": {"<strecke>": {"<richtung>": <sekunden>}},
+##                                 "segment_best_times": {"<strecke>": {"<richtung>": {"<segment>": <sekunden>}}},
+##                                 "medals": {"<strecke>": {"<richtung>": {"lap"|"<segment>": "gold"|…}}}}}}
 ##
 ## Bestzeiten (#31): schnellste Runde je Strecke und Richtung (LapTiming.DIRECTION_*), in Sekunden.
+## Segment-Bestzeiten (#33): schnellste Zeit je Strecke, Richtung und Segment-ID, in Sekunden.
+## Medaillen (#33): beste Medaille (Medals.GOLD/SILVER/BRONZE) je Strecke, Richtung und Runde (Medals.LAP) bzw. Segment.
 ##
-## Erweitern (Ghosts, Medaillen, Erfolge, Fahrerlevel, Garderobe – spätere Pakete) geht additiv:
+## Erweitern (Ghosts, Erfolge, Fahrerlevel, Garderobe – spätere Pakete) geht additiv:
 ## neue Bereiche in PROFILE_DEFAULTS bekommen beim Laden ihren Standardwert. Ändert sich das Format, steigt
 ## VERSION und `_upgrade_steps()` bekommt einen Schritt von der alten Version aus – alte Stände werden beim Laden
 ## hochgestuft, nie verworfen. Ein Stand aus einer neueren Version bleibt unverändert erhalten (unbekannte
@@ -23,7 +27,7 @@ const VERSION := 1
 ## Spielmodus einer Fahrt (CONTEXT.md: Rundfahrt; Training und Arcade folgen).
 const MODE_ROUND_TRIP := "rundfahrt"
 ## Bereiche je Fahrerprofil mit Standardwert (fehlende werden beim Laden ergänzt).
-const PROFILE_DEFAULTS := {"rides": [], "best_times": {}}
+const PROFILE_DEFAULTS := {"rides": [], "best_times": {}, "segment_best_times": {}, "medals": {}}
 ## Endung, unter der eine unlesbare Datei beiseitegelegt wird.
 const BROKEN_SUFFIX := ".defekt"
 
@@ -102,6 +106,58 @@ func record_best_time(track: String, direction: String, seconds: float) -> bool:
 		tracks[track] = {}
 	tracks[track][direction] = snappedf(seconds, 0.001)
 	return true
+
+
+## Segment-Bestzeit von `segment_id` auf `track` in Richtung `direction` in Sekunden (INF = noch keine).
+func segment_best_s(track: String, direction: String, segment_id: String) -> float:
+	return segment_best_times(track, direction).get(segment_id, INF)
+
+
+## Alle gültigen Segment-Bestzeiten auf `track` in Richtung `direction`: Segment-ID → Sekunden.
+func segment_best_times(track: String, direction: String) -> Dictionary:
+	var result := {}
+	var times := _area("segment_best_times", track, direction)
+	for id in times:
+		if (times[id] is float or times[id] is int) and times[id] > 0.0:
+			result[id] = float(times[id])
+	return result
+
+
+## Trägt `seconds` als Segment-Bestzeit ein, wenn sie schneller ist als die bisherige. Gibt zurück, ob sie eingetragen
+## wurde. Schreibt nicht auf die Platte (das macht `save_file`).
+func record_segment_time(track: String, direction: String, segment_id: String, seconds: float) -> bool:
+	if not is_finite(seconds) or seconds <= 0.0 or seconds >= segment_best_s(track, direction, segment_id):
+		return false
+	_area("segment_best_times", track, direction, true)[segment_id] = snappedf(seconds, 0.001)
+	return true
+
+
+## Beste Medaille für `key` (Medals.LAP oder Segment-ID) auf `track` in Richtung `direction` (Medals.NONE = keine).
+func best_medal(track: String, direction: String, key: String) -> String:
+	var medal = _area("medals", track, direction).get(key)
+	return medal if medal is String and Medals.rank(medal) > 0 else Medals.NONE
+
+
+## Trägt `medal` für `key` ein, wenn sie besser ist als die bisherige. Gibt zurück, ob sie eingetragen wurde.
+func record_medal(track: String, direction: String, key: String, medal: String) -> bool:
+	if Medals.rank(medal) <= Medals.rank(best_medal(track, direction, key)):
+		return false
+	_area("medals", track, direction, true)[key] = medal
+	return true
+
+
+## Bereich `area` des Profils für Strecke und Richtung ({} wenn er fehlt oder ungültig ist); mit `create` angelegt.
+func _area(area: String, track: String, direction: String, create: bool = false) -> Dictionary:
+	var tracks: Dictionary = profile()[area]
+	if not (tracks.get(track) is Dictionary):
+		if not create:
+			return {}
+		tracks[track] = {}
+	if not (tracks[track].get(direction) is Dictionary):
+		if not create:
+			return {}
+		tracks[track][direction] = {}
+	return tracks[track][direction]
 
 
 ## Zusammenfassung einer beendeten Fahrt – keine Rohtelemetrie. `finished`: Ziel erreicht (sonst abgebrochen oder

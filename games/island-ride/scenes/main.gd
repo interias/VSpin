@@ -36,6 +36,12 @@
 ## Die Bestzeit gilt je Strecke und Richtung (vorerst nur im Uhrzeigersinn) und steht im Spielstand; eine neue
 ## Bestzeit blendet das HUD kurz ein. Fahrzeit und Durchschnitte (RideStats) zählen nur Zeit im Zustand `riding` –
 ## Pausen nicht.
+##
+## Segmente und Medaillen (#33): Die Strecke trägt ihre Segmente als Daten (Track.segments); die Rundenwertung misst sie
+## mit (SegmentTiming). Im Segment zeigt das HUD dessen Live-Zeit, beim Verlassen blendet es Zeit, Medaille und ggf.
+## „neue Bestzeit“ ein. Runden und Segmente bekommen Medaillen nach Schwellen, die Medals aus dem Fahrmodell berechnet
+## (`medal_limits`); das Ergebnis zeigt sie je Runde und je Segment. Segment-Bestzeiten und beste Medaillen gehen am
+## Fahrtende in den Spielstand, wie die Bestzeit.
 extends Node3D
 
 ## Neuer Spielzustand (siehe STATE_*).
@@ -96,8 +102,10 @@ var save_game: SaveGame
 var ride_mode := SaveGame.MODE_ROUND_TRIP
 ## Rundenzahl der laufenden Fahrt; 0 = endlos.
 var laps := 1
-## Rundenwertung der laufenden Fahrt (Rundenzeiten, Bestzeit).
+## Rundenwertung der laufenden Fahrt (Rundenzeiten, Bestzeit, Segmentzeiten).
 var lap_timing: LapTiming
+## Medaillen-Schwellen der Strecke aus dem Fahrmodell (Medals.thresholds): {Medals.LAP: {…}, "<segment-id>": {…}}.
+var medal_limits: Dictionary = {}
 
 var bus: BusClient
 var model: RideModel
@@ -302,11 +310,14 @@ func _on_ride_requested(mode: String) -> void:
 	start_ride(mode, start_menu.round_trip_laps())
 
 
-## Neue Rundenwertung ab `start_distance_m` mit `laps` Runden und der gespeicherten Bestzeit.
+## Neue Rundenwertung ab `start_distance_m` mit `laps` Runden, den Segmenten der Strecke und den gespeicherten
+## Bestzeiten; dazu die Medaillen-Schwellen (beim ersten Mal berechnet, danach zwischengespeichert).
 func _new_lap_timing() -> void:
 	lap_timing = LapTiming.new(track.length_m(), start_distance_m, laps,
-			save_game.best_time_s(config.track, LapTiming.DIRECTION_CW))
+			save_game.best_time_s(config.track, LapTiming.DIRECTION_CW), track.segments,
+			save_game.segment_best_times(config.track, LapTiming.DIRECTION_CW))
 	finish_distance_m = lap_timing.finish_m()
+	medal_limits = Medals.thresholds(track, config)
 
 
 ## Seite „Rundfahrt“ im Startmenü: Tageszeiten wie im Einstellungsmenü und die Bestzeit der Strecke.
@@ -345,6 +356,7 @@ func _enter_menu() -> void:
 ## Ergebnis: Zustand `finished`, Fahrt in den Spielstand.
 func _finish_ride() -> void:
 	state = STATE_FINISHED
+	hud.end_celebration()  # „neu!“ steht im Ergebnis; die Einblendung stünde dahinter
 	_save_ride()
 	state_changed.emit(state)
 
@@ -358,6 +370,11 @@ func _save_ride() -> void:
 	save_game.add_ride(SaveGame.ride_entry(ride_mode, config.track, lap_timing.finished(), lap_timing.lap_times.size(),
 			stats, SaveGame.utc_now(), lap_timing.lap_times))
 	save_game.record_best_time(config.track, LapTiming.DIRECTION_CW, lap_timing.ride_best_s())
+	for i in range(lap_timing.lap_times.size()):
+		save_game.record_medal(config.track, LapTiming.DIRECTION_CW, Medals.LAP, lap_medal(i))
+	for result in lap_timing.segments.results:
+		save_game.record_segment_time(config.track, LapTiming.DIRECTION_CW, result["id"], result["time_s"])
+		save_game.record_medal(config.track, LapTiming.DIRECTION_CW, result["id"], segment_medal(result))
 	if not save_path.is_empty():
 		save_game.save_file(save_path)
 
@@ -464,12 +481,52 @@ func status_message() -> String:
 	return ""
 
 
-## Rundenzeiten und Bestzeit fürs Ergebnis, z. B. "Runden: 1:52.3 · 1:49.8\nBestzeit: 1:49.8 – neu!".
+## Rundenzeiten, Medaillen, Bestzeit und Segmente fürs Ergebnis, z. B. "Runden: 1:52.3 · 1:49.8\nMedaillen: Silber ·
+## Gold\nBestzeit: 1:49.8 – neu!\nSegmente: Dorfsprint 0:41.2 Gold" – je Segment die schnellste Zeit der Fahrt.
 func lap_result() -> String:
 	var times := lap_timing.lap_times.map(func(t): return format_time(t, true))
+	var medals := []
+	for i in range(times.size()):
+		medals.append(lap_medal(i))
 	var best := lap_timing.best_s()
-	return "%s: %s\nBestzeit: %s%s" % ["Runde" if times.size() == 1 else "Runden", " · ".join(times),
+	var text := "%s: %s\n%s: %s\nBestzeit: %s%s" % ["Runde" if times.size() == 1 else "Runden", " · ".join(times),
+			"Medaille" if times.size() == 1 else "Medaillen", Medals.summary(medals),
 			format_time(best, true) if is_finite(best) else "–", " – neu!" if lap_timing.new_best() else ""]
+	var segments := []
+	for segment in track.segments:
+		var fastest := {}
+		for result in lap_timing.segments.results:
+			if result["id"] == segment["id"] and (fastest.is_empty() or result["time_s"] < fastest["time_s"]):
+				fastest = result
+		if not fastest.is_empty():
+			segments.append(("%s %s %s" % [segment["name"], format_time(fastest["time_s"], true),
+					Medals.name_of(segment_medal(fastest))]).strip_edges())
+	if not segments.is_empty():
+		text += "\nSegmente: " + " · ".join(segments)
+	return text
+
+
+## Medaille der Runde `index` (ab 0). Eine verkürzte erste Runde (Start nicht an der Start/Ziel-Linie) bekommt keine.
+func lap_medal(index: int) -> String:
+	if index == 0 and not is_zero_approx(track.wrap_distance(start_distance_m)):
+		return Medals.NONE
+	return Medals.medal_for(lap_timing.lap_times[index], medal_limits.get(Medals.LAP, {}))
+
+
+## Medaille eines gewerteten Segments ({id, time_s, …} aus SegmentTiming.results).
+func segment_medal(result: Dictionary) -> String:
+	return Medals.medal_for(result["time_s"], medal_limits.get(result["id"], {}))
+
+
+## Einblendung beim Verlassen eines Segments, z. B. "Dorfsprint  0:41.2 · Gold – neue Bestzeit!".
+func segment_result_text(result: Dictionary) -> String:
+	var text := "%s  %s" % [result["name"], format_time(result["time_s"], true)]
+	var medal := Medals.name_of(segment_medal(result))
+	if not medal.is_empty():
+		text += " · " + medal
+	if result["new_best"]:
+		text += " – neue Bestzeit!"
+	return text
 
 
 func _update_state() -> void:
@@ -501,8 +558,11 @@ func _ride(delta: float) -> void:
 		used = delta * ((finish_distance_m - before) / moved if moved > 0.0 else 1.0)
 		model.distance_m = finish_distance_m
 	stats.add(used, bus.cadence, model.distance_m - before)
+	var segments_before := lap_timing.segments.results.size()
 	if lap_timing.advance(model.distance_m, used) > 0 and lap_timing.last_lap_is_new_best():
 		hud.celebrate("Neue Bestzeit!  %s" % format_time(lap_timing.lap_times[-1], true))
+	for i in range(segments_before, lap_timing.segments.results.size()):
+		hud.celebrate(segment_result_text(lap_timing.segments.results[i]))
 	if lap_timing.finished():
 		_finish_ride()
 
@@ -580,6 +640,8 @@ func _update_view() -> void:
 			format_grade(grade), current_station(), format_power(bus.power_w(), bus.power_estimated()))
 	hud.show_lap(model.distance_m, lap_timing.lap_start_m(), lap_timing.lap_end_m(), rider.progress)
 	hud.show_lap_count(lap_timing.lap_number(), laps, format_time(lap_timing.lap_time_s))
+	var segment := lap_timing.segments.current()
+	hud.show_segment(segment.get("name", ""), format_time(segment["time_s"], true) if not segment.is_empty() else "")
 	if debug_label.visible:
 		debug_label.text = debug_text()
 	hint_label.text = resistance_hint
