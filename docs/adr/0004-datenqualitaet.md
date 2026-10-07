@@ -42,3 +42,5 @@ rauschen, aussetzen oder abreißen. Vorgabe: für den Anfang so einfach wie mög
 - Zeitkonstante des EMA von ~1 s auf **0,3 s** gesenkt (Entscheidung des Nutzers nach dem v1-Lauf).
 - Grund: Mit 1 s lief die Kadenz am Bus ca. 1 s hinter dem Treten her – unvereinbar mit dem
   Abnahmekriterium < 200 ms Kurbel → Bildschirm (ADR-0001).
+- Meldet das Gerät ausdrücklich Kadenz 0, ist sie 0, sobald der geglättete Wert unter 1 rpm
+  fällt – sonst erreicht der EMA 0 nur asymptotisch (mit 1 s fiel die Kadenz über 5–7 s ab).

@@ -145,8 +145,9 @@ Gilt für alle Quellen gleich, auch für den Simulator (ADR-0004):
 Gerechnet wird auf der Zeitachse der Quelle – beim Replay der Aufnahme. Ein Replay liefert
 daher bei jedem `--speed` dieselben Werte; am Bus steht trotzdem die Bridge-Zeit.
 
-Hinweis Simulator: er liefert explizite Werte, auch Kadenz 0. Die geglättete Kadenz fällt
-dann über einige Sekunden gegen 0 (EMA), statt nach 2,5 s auf 0 zu springen.
+Meldet die Quelle ausdrücklich Kadenz 0 (Simulator, FTMS), fällt die geglättete Kadenz
+(EMA) und ist 0, sobald sie unter 1 rpm liegt – von 80 rpm nach ~1,3 s, statt 0 nur
+asymptotisch zu erreichen.
 
 ## Rauschen
 

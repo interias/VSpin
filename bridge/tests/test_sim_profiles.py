@@ -86,6 +86,19 @@ def test_profile_plays_deterministically(bridge_process, bus_client, tmp_path):
     assert t_ms[4] - t_ms[3] >= 700, t_ms
 
 
+def test_reported_cadence_zero_reaches_zero_quickly(bridge_process, bus_client, tmp_path):
+    profile = write_profile(
+        tmp_path, "[[steps]]\nduration_s = 1\ncadence = 60\n\n[[steps]]\nduration_s = 3\ncadence = 0\n"
+    )
+    rows = play_to_end(bridge_process, bus_client, tmp_path / "out", "--profile", str(profile))
+    assert raw_cadences(rows) == [60.0] * 4 + [0.0] * 12
+    # Die Quelle meldet ausdrücklich 0: am Bus fällt die Kadenz und ist nach spätestens
+    # 1,5 s (6 Takten) genau 0 – statt nur asymptotisch (EMA allein: erst nach ~2,1 s 0,0).
+    falling = cadences(rows)[4:]
+    assert falling == sorted(falling, reverse=True), falling
+    assert 0 < falling[0] < 60 and falling[5:] == [0.0] * 7, falling
+
+
 def test_noise_with_seed_is_reproducible(bridge_process, bus_client, tmp_path):
     profile = write_profile(tmp_path, STEADY_PROFILE)
 
