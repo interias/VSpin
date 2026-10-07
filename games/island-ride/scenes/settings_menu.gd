@@ -1,5 +1,6 @@
 ## Menü „Grafik und Fenster“ (G4): `Esc` oder `F2` öffnet/schließt (auch aus der Pause), `F11` schaltet Vollbild um.
-## Beenden nur über den Knopf „Beenden“ (Signal `quit_requested`; nicht im Browser).
+## Beenden nur über den Knopf „Beenden“ (Signal `quit_requested`; nicht im Browser). Während einer Fahrt zusätzlich
+## „Fahrt beenden“ (Signal `ride_end_requested`): zurück ins Startmenü, ohne das Spiel zu schließen (#30).
 ## Jede Änderung wirkt sofort und wird in `settings_path` gespeichert (GraphicsSettings, `user://settings.cfg`).
 ## Beim Start wendet das Menü die gespeicherten Einstellungen an; die Fenstergeometrie (auch nach Ziehen oder
 ## Windows-Snap) wird beim Beenden gemerkt. Das Spiel läuft weiter, solange das Menü offen ist.
@@ -13,6 +14,8 @@ extends CanvasLayer
 signal settings_changed(key: String)
 ## Knopf „Beenden“ gedrückt (die Hauptszene beendet das Spiel).
 signal quit_requested
+## Knopf „Fahrt beenden“ gedrückt (die Hauptszene kehrt ins Startmenü zurück).
+signal ride_end_requested
 
 const AA_LABELS := {"off": "Aus", "fxaa": "FXAA", "msaa_2x": "MSAA 2×", "msaa_4x": "MSAA 4×", "msaa_8x": "MSAA 8×",
 		"taa": "TAA"}
@@ -35,6 +38,7 @@ var options := {}
 var _rows := {}
 var _panel: PanelContainer
 var _window_buttons: HBoxContainer
+var _end_ride: Button
 ## Fenstermodus vor dem Vollbild (für `F11` zurück).
 var _windowed_mode := GraphicsSettings.WINDOW_WINDOWED
 
@@ -88,6 +92,11 @@ func close() -> void:
 	var focus := _panel.get_viewport().gui_get_focus_owner()
 	if focus != null:
 		focus.release_focus()
+
+
+## Läuft eine Fahrt? Nur dann gibt es „Fahrt beenden“.
+func set_ride_active(active: bool) -> void:
+	_end_ride.visible = active
 
 
 ## Kantenglättung, Auflösung, VSync, fps-Limit und Schatten anwenden (ohne Fenster).
@@ -210,6 +219,9 @@ func _build() -> void:
 	actions.add_theme_constant_override("separation", 8)
 	box.add_child(actions)
 	_add_button(actions, "Schließen", close)
+	_end_ride = _add_button(actions, "Fahrt beenden", _on_end_ride)
+	_end_ride.name = "EndRide"
+	_end_ride.visible = false
 	var quit := _add_button(actions, "Beenden", quit_requested.emit)
 	quit.name = "Quit"
 	quit.visible = not web  # im Browser lässt sich das Spiel nicht beenden
@@ -223,6 +235,11 @@ func _build() -> void:
 	if web:
 		hint.text = "Esc / F2: schließen"
 	_refresh()
+
+
+func _on_end_ride() -> void:
+	close()
+	ride_end_requested.emit()
 
 
 func _add_row(grid: GridContainer, key: String, text: String, labels: Array, values: Array, setter: Callable) -> void:

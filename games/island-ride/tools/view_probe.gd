@@ -5,6 +5,7 @@
 ##         [--fps-from=0 --fps-to=2310 --speed-kmh=50] [--size=1920x1080] [--cadence=85] [--close] [--pair]
 ##         [--advance=1.5] [--time=21:30] [--date=2026-06-21] [--weather=rain] [--profile=forward|compat]
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
+##         [--title] [--window=left|right|fullscreen]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -23,6 +24,9 @@
 ## `--weather` festes Wetter (clear, light_clouds, overcast, rain) ohne Überblendung. Ohne Angabe gilt `[sky]` aus
 ## config.cfg. Bei Regen wartet die Probe, bis die Tropfen gefallen sind. `--profile` erzwingt das Lichtprofil
 ## (Vergleich: Compatibility-Renderer mit `--profile=forward` zeigt das Bild ohne Web-Profil).
+## Startmenü (#30): `--title` startet wie das Spiel mit Titelbild und Kameraflug und speichert `title.png`,
+## `title_modes.png` (Seite „Fahren“) und `title_b.png` (3 s später, Kamera weitergeflogen) statt der Streckenbilder.
+## `--window` legt das Fenster vorher wie im Grafikmenü auf die linke/rechte Bildschirmhälfte oder ins Vollbild.
 extends SceneTree
 
 var _ride: Node3D
@@ -48,6 +52,8 @@ func _initialize() -> void:
 	var pair := false
 	var advance := 0.0
 	var menu := false
+	var title := false
+	var window := ""
 	var graphics := GraphicsSettings.new()
 	var hour := NAN
 	var date := ""
@@ -90,6 +96,10 @@ func _initialize() -> void:
 			_debug = true
 		elif arg == "--menu":
 			menu = true
+		elif arg == "--title":
+			title = true
+		elif arg.begins_with("--window="):
+			window = value
 		elif arg.begins_with("--crop="):
 			var p := value.split(",")
 			_crop = Rect2i(int(p[0]), int(p[1]), int(p[2]), int(p[3]))
@@ -107,12 +117,20 @@ func _initialize() -> void:
 	_ride = load("res://scenes/main.tscn").instantiate()
 	_ride.config = config
 	_ride.settings_path = ""
+	_ride.save_path = ""
+	_ride.start_in_menu = title
 	root.add_child(_ride)
 	_ride.get_node("Hud").visible = _hud
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	await _frames(10)
 	_ride.settings_menu.settings = graphics  # erst nach `_ready` der Hauptszene vorhanden
 	_ride.settings_menu.apply()
+	if window == "fullscreen":
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+	elif window in ["left", "right"]:
+		_ride.settings_menu.place_half(window == "right")
+	if not window.is_empty():
+		await _frames(30)
 	_ride.debug_label.visible = _debug
 	if menu:
 		_ride.settings_menu.open()
@@ -126,6 +144,10 @@ func _initialize() -> void:
 	_set_sky(hour, date, weather)
 	if weather == Weather.RAIN:
 		await _frames(100)
+	if title:
+		await _title_shots(out_dir)
+		quit(0)
+		return
 	_model = _ride.rider_model  # erst nach `_ready` der Hauptszene gesetzt
 	var dummy := RiderModel.new()
 	_ride.rider_model = dummy
@@ -164,6 +186,26 @@ func _set_sky(hour: float, date: String, weather: String) -> void:
 	sky.apply_now()
 	print("SKY local=%.2f h sun=%.1f°/%.1f° weather=%s compat=%s lights=%s" % [sky.clock.local_hour(), sky.sun_angles.x,
 			sky.sun_angles.y, sky.weather.state, sky.compatibility, sky.current["lights_on"]])
+
+
+## Titelbild mit Startmenü (Hauptseite, Seite „Fahren“) und ein Bild 3 s später (Kameraflug).
+func _title_shots(out_dir: String) -> void:
+	await _frames(20)
+	_save_image(out_dir.path_join("title.png"))
+	_ride.start_menu.show_page(true)
+	await _frames(4)
+	_save_image(out_dir.path_join("title_modes.png"))
+	_ride.start_menu.show_page(false)
+	var start := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - start < 3000:
+		await process_frame
+	_save_image(out_dir.path_join("title_b.png"))
+
+
+func _save_image(path: String) -> void:
+	root.get_texture().get_image().save_png(path)
+	print("SHOT %s window=%s+%s mode=%d camera=%s" % [path, DisplayServer.window_get_position(),
+		DisplayServer.window_get_size(), DisplayServer.window_get_mode(), _ride.camera.global_position])
 
 
 func _save(path: String) -> void:

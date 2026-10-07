@@ -7,6 +7,12 @@
 ## Grafik und Fenster: eigenes Menü (`settings_menu`, Esc/F2, F11), hier nur eingehängt; dort auch „Beenden“.
 ## HUD (`Hud`, RideHud, Szene `scenes/hud.tscn`): bekommt pro Frame die Werte, Rundenfortschritt und Position.
 ##
+## Szenenfluss (#30): Titel → Modus-Auswahl → Fahrt → Ergebnis → Menü. Nach dem Start (`start_in_menu`) steht das
+## Startmenü (`scenes/start_menu.gd`) über einem langsamen Kameraflug über die lebende Insel (Licht, Wetter, Bewegung
+## wie in der Fahrt; HUD und Fahrer ausgeblendet), unten der Radstatus. „Fahren → Rundfahrt“ startet die Fahrt
+## (`start_ride`); zurück ins Menü geht es im Ziel mit Enter oder jederzeit über „Fahrt beenden“ in den Einstellungen
+## (`return_to_menu`). Die beendete Fahrt landet als Zusammenfassung im Spielstand (SaveGame, `user://savegame.json`).
+##
 ## Spielzustände (`state`):
 ##   riding             fahren – Bus verbunden, Quelle `connected` und Daten seit dem letzten Abbruch
 ##   paused_manual      pausiert per Taste (P/Leertaste), bis erneut gedrückt
@@ -14,7 +20,8 @@
 ##                      oder noch keine Daten; auch wenn die Bridge bei offenem Bus schweigt (BusClient.silent).
 ##                      Ein Abbruch ist keine Kadenz 0 (ADR-0004): das Fahrmodell
 ##                      steht still und fährt automatisch weiter, sobald wieder Daten kommen.
-##   finished           Ziel erreicht – Zusammenfassung (Zeit, Ø Kadenz, Ø Tempo); Endzustand
+##   finished           Ziel erreicht – Zusammenfassung (Zeit, Ø Kadenz, Ø Tempo); Endzustand der Fahrt
+##   menu               Startmenü mit Kameraflug, keine Fahrt (kein Fahrmodell, kein `set_grade`)
 ## Verbindungspause hat Vorrang vor der manuellen; eine manuelle Pause bleibt über einen Abbruch hinweg bestehen.
 ##
 ## Virtuelle Steigung (ADR-0007): das Spiel meldet die Steigung an der Fahrerposition per `set_grade`
@@ -34,6 +41,7 @@ const STATE_RIDING := "riding"
 const STATE_PAUSED_MANUAL := "paused_manual"
 const STATE_PAUSED_CONNECTION := "paused_connection"
 const STATE_FINISHED := "finished"
+const STATE_MENU := "menu"
 
 ## Tastenbelegung: Aktion → Tasten (physische Tastenposition, unabhängig vom Layout).
 const KEY_BINDINGS := {
@@ -41,14 +49,24 @@ const KEY_BINDINGS := {
 	"ride_debug": [KEY_F3],
 	"ride_settings": [KEY_ESCAPE, KEY_F2],
 	"ride_fullscreen": [KEY_F11],
+	"ride_menu": [KEY_ENTER, KEY_KP_ENTER],
 }
 ## Menü „Grafik und Fenster“ (Esc/F2, F11, Beenden; siehe `scenes/settings_menu.gd`).
 const SETTINGS_MENU := preload("res://scenes/settings_menu.tscn")
+## Startmenü (Titel, Menüpunkte, Radstatus).
+const START_MENU := preload("res://scenes/start_menu.tscn")
 ## Kamera: Abstand hinter dem Fahrer, Höhe und Blickpunkt voraus aus der Konfiguration (`[camera]`, RideConfig);
 ## Glättung (Zeitkonstante).
 const CAMERA_SMOOTHING_S := 0.45
 ## Mindesthöhe der Kamera über dem Gelände (Insel).
 const CAMERA_TERRAIN_CLEARANCE_M := 1.5
+## Titelbild: Kameraflug entlang des Rundkurses – Tempo, Höhe über der Straße, Blickpunkt voraus, Mindesthöhe über
+## dem Gelände und Glättung (ruhig auch in den Kehren).
+const TITLE_FLIGHT_MPS := 9.0
+const TITLE_FLIGHT_HEIGHT_M := 38.0
+const TITLE_LOOK_AHEAD_M := 170.0
+const TITLE_TERRAIN_CLEARANCE_M := 22.0
+const TITLE_SMOOTHING_S := 2.5
 
 const BRIDGE_START_HINT := "Bridge starten: vspin-bridge --source sim"
 const RESISTANCE_NOT_SUPPORTED := "Widerstand: nicht unterstützt"
@@ -59,9 +77,17 @@ var config: RideConfig = null
 @export var start_distance_m := 0.0
 ## Beendet das Spiel bei „Beenden“ im Menü; Tests schalten das ab und beobachten `quit_requested`.
 @export var quit_on_request := true
+## Nach dem Start erst das Startmenü zeigen (Spiel); Tests und Prüfhilfen fahren sofort los.
+@export var start_in_menu := true
 ## Grafik-/Fenstereinstellungen; "" = Standardwerte, nichts speichern, Fenster unberührt (Tests, Probe).
 var settings_path := GraphicsSettings.DEFAULT_PATH
 var settings_menu: CanvasLayer
+var start_menu: CanvasLayer
+## Spielstand; "" = nicht laden/speichern, Fahrten nur im Speicher (Tests, Probe).
+var save_path := SaveGame.DEFAULT_PATH
+var save_game: SaveGame
+## Spielmodus der laufenden Fahrt (SaveGame.MODE_*).
+var ride_mode := SaveGame.MODE_ROUND_TRIP
 
 var bus: BusClient
 var model: RideModel
@@ -85,6 +111,10 @@ var _camera_look := Vector3.ZERO
 ## Telemetrie seit dem letzten Verbindungsverlust empfangen? Erst dann wird weitergefahren.
 var _data_since_loss := false
 var _ever_connected := false
+## Laufende Fahrt schon im Spielstand?
+var _ride_saved := false
+## Streckenposition des Kameraflugs im Titelbild.
+var _flight_m := 0.0
 
 @onready var track: Track = $Track
 @onready var rider: PathFollow3D = $Track/Rider
@@ -103,7 +133,15 @@ func _ready() -> void:
 	settings_menu = SETTINGS_MENU.instantiate()
 	settings_menu.settings_path = settings_path
 	settings_menu.quit_requested.connect(_on_quit_requested)
+	settings_menu.ride_end_requested.connect(return_to_menu)
 	add_child(settings_menu)
+	save_game = SaveGame.load_file(save_path) if not save_path.is_empty() else SaveGame.new()
+	start_menu = START_MENU.instantiate()
+	start_menu.ride_requested.connect(start_ride)
+	start_menu.settings_requested.connect(settings_menu.open)
+	start_menu.quit_requested.connect(_on_quit_requested)
+	add_child(start_menu)
+	settings_menu.visibility_changed.connect(func(): start_menu.set_covered(settings_menu.visible))
 	_setup_track()
 	sky = SkyController.new()
 	add_child(sky)
@@ -120,11 +158,20 @@ func _ready() -> void:
 	hud.setup(track, world)
 	_update_view()
 	_update_camera(0.0, true)
+	if start_in_menu:
+		_enter_menu()
+	else:
+		start_menu.close()
+		settings_menu.set_ride_active(true)
 
 
 func _process(delta: float) -> void:
 	bus.poll(delta)
 	_update_state()
+	if state == STATE_MENU:
+		_fly_title(delta)
+		start_menu.show_wheel_status(bus)
+		return
 	if state == STATE_RIDING:
 		_ride(delta)
 	_report_grade(delta)
@@ -193,11 +240,80 @@ func _update_camera(delta: float, snap: bool = false) -> void:
 	var look := track.to_global(track.position_at(d + config.camera_look_ahead_m)) + up * config.camera_look_height_m
 	if world != null:
 		target.y = maxf(target.y, world.terrain.height_at(target.x, target.z) + CAMERA_TERRAIN_CLEARANCE_M)
-	var follow := 1.0 if snap else 1.0 - exp(-delta / CAMERA_SMOOTHING_S)
+	_aim_camera(target, look, 1.0 if snap else 1.0 - exp(-delta / CAMERA_SMOOTHING_S))
+
+
+## Titelbild: die Kamera fliegt langsam hoch über dem Rundkurs voraus und blickt weit nach vorn. `snap` springt.
+func _fly_title(delta: float, snap: bool = false) -> void:
+	_flight_m += TITLE_FLIGHT_MPS * delta
+	var up := Vector3.UP
+	var target := track.to_global(track.position_at(_flight_m)) + up * TITLE_FLIGHT_HEIGHT_M
+	var look := track.to_global(track.position_at(_flight_m + TITLE_LOOK_AHEAD_M)) + up * 4.0
+	if world != null:
+		target.y = maxf(target.y, world.terrain.height_at(target.x, target.z) + TITLE_TERRAIN_CLEARANCE_M)
+	_aim_camera(target, look, 1.0 if snap else 1.0 - exp(-delta / TITLE_SMOOTHING_S))
+
+
+## Kamera um den Anteil `follow` (0..1) zur Position `target` und zum Blickpunkt `look` hin bewegen.
+func _aim_camera(target: Vector3, look: Vector3, follow: float) -> void:
 	camera.global_position = camera.global_position.lerp(target, follow)
 	_camera_look = _camera_look.lerp(look, follow)
 	if camera.global_position.distance_to(_camera_look) > 0.01:
 		camera.look_at(_camera_look, Vector3.UP)
+
+
+## „Fahren“: neue Fahrt ab `start_distance_m` – Fahrmodell, Statistik und Pausen zurückgesetzt; gefahren wird, sobald
+## das Rad Daten liefert (wie bisher beim Start).
+func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP) -> void:
+	ride_mode = mode
+	model = RideModel.new(config, start_distance_m)
+	stats = RideStats.new()
+	grade_reporter.reset()
+	resistance_hint = ""
+	_manual_pause = false
+	_ride_saved = false
+	start_menu.close()
+	settings_menu.set_ride_active(true)
+	hud.visible = true
+	rider.visible = true
+	state = STATE_PAUSED_CONNECTION
+	state_changed.emit(state)
+	_update_state()
+	_update_view()
+	_update_camera(0.0, true)
+
+
+## Fahrt beenden (Ziel oder Abbruch) und zurück ins Startmenü; das Spiel läuft weiter. Die Fahrt kommt in den
+## Spielstand, sofern nicht schon geschehen.
+func return_to_menu() -> void:
+	if state == STATE_MENU:
+		return
+	_save_ride()
+	_flight_m = model.distance_m
+	_enter_menu()
+
+
+func _enter_menu() -> void:
+	state = STATE_MENU
+	_manual_pause = false
+	hud.visible = false
+	rider.visible = false
+	settings_menu.set_ride_active(false)
+	start_menu.open()
+	state_changed.emit(state)
+	_fly_title(0.0, true)
+
+
+## Die laufende Fahrt als Zusammenfassung in den Spielstand (einmal je Fahrt). Eine abgebrochene Fahrt nur, wenn
+## gefahren wurde.
+func _save_ride() -> void:
+	if state == STATE_MENU or _ride_saved or (state != STATE_FINISHED and stats.ride_time_s <= 0.0):
+		return
+	_ride_saved = true
+	var finished := state == STATE_FINISHED
+	save_game.add_ride(SaveGame.ride_entry(ride_mode, config.track, finished, 1 if finished else 0, stats))
+	if not save_path.is_empty():
+		save_game.save_file(save_path)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -205,7 +321,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		debug_label.visible = not debug_label.visible
 		_update_view()
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("ride_pause"):
+	elif event.is_action_pressed("ride_menu") and state == STATE_FINISHED:
+		return_to_menu()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("ride_pause") and state != STATE_MENU:
 		if state != STATE_FINISHED:
 			_manual_pause = not _manual_pause
 		_update_state()
@@ -214,9 +333,15 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _on_quit_requested() -> void:
+	_save_ride()
 	quit_requested.emit()
 	if quit_on_request:
 		get_tree().quit()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		_save_ride()  # Fenster geschlossen mitten in der Fahrt
 
 
 func _exit_tree() -> void:
@@ -269,10 +394,10 @@ static func format_power(watts: float, estimated: bool) -> String:
 func status_message() -> String:
 	match state:
 		STATE_FINISHED:
-			return "Ziel erreicht!\nZeit: %s\nØ Kadenz: %d rpm\nØ Tempo: %.1f km/h\nEsc: Menü (Beenden)" % [
+			return "Ziel erreicht!\nZeit: %s\nØ Kadenz: %d rpm\nØ Tempo: %.1f km/h\nEnter: zurück ins Menü · Esc: Einstellungen" % [
 					format_time(lap_time_s(), true), roundi(stats.avg_cadence()), stats.avg_speed_kmh()]
 		STATE_PAUSED_MANUAL:
-			return "Pause\nP / Leertaste: weiter\nEsc / F2: Menü (Grafik und Fenster, Beenden)"
+			return "Pause\nP / Leertaste: weiter\nEsc / F2: Einstellungen (Fahrt beenden, Beenden)"
 		STATE_PAUSED_CONNECTION:
 			var text: String
 			if not bus.bus_connected:
@@ -294,7 +419,7 @@ func status_message() -> String:
 func _update_state() -> void:
 	if bus.bus_connected:
 		_ever_connected = true
-	if state == STATE_FINISHED:
+	if state == STATE_FINISHED or state == STATE_MENU:
 		return
 	var connection_ok := bus.bus_connected and bus.status == BusClient.STATE_CONNECTED and _data_since_loss
 	var next := STATE_RIDING
@@ -322,6 +447,7 @@ func _ride(delta: float) -> void:
 	stats.add(delta * fraction, bus.cadence, finish_distance_m - before)
 	model.distance_m = finish_distance_m
 	state = STATE_FINISHED
+	_save_ride()
 	state_changed.emit(state)
 
 

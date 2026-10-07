@@ -3,8 +3,9 @@
 Prototyp-Game (ADR-0005): 3D-Radsimulator in Godot 4.4 (GDScript). Das Spiel ist ein Client am
 Bus (`docs/bus-protocol.md`); die Kadenz bewegt den Fahrer entlang eines `Path3D` – kein Lenken.
 Stand: Insel-Rundkurs (~9,2 km, Grundform aus Gelände + Straße, #14) mit HUD, Debug-Anzeige, Spielzuständen
-(Pause bei Verbindungsverlust, manuelle Pause, Ziel mit Zusammenfassung) und `set_grade` an die Bridge. Die kurze
-Graybox-Strecke bleibt per Konfiguration wählbar (und ist die Grundlage vieler Tests).
+(Pause bei Verbindungsverlust, manuelle Pause, Ziel mit Zusammenfassung) und `set_grade` an die Bridge; Startmenü
+mit Titelbild und Spielstand (#30). Die kurze Graybox-Strecke bleibt per Konfiguration wählbar (und ist die Grundlage
+vieler Tests).
 
 ## Insel und Rundkurs (#14, ADR-0006)
 
@@ -222,13 +223,47 @@ Kurbel mit Kettenblatt, Kette und Pedalen, Trinkflasche; Fahrer mit Helm und Bri
    ```
 Reihenfolge egal: Startet das Spiel zuerst, zeigt es „Bridge nicht erreichbar … Bridge starten:
 `vspin-bridge --source sim`“ und versucht alle `reconnect_s` Sekunden zu verbinden.
+3. Im Startmenü **Fahren → Rundfahrt** wählen.
+
+### Startmenü und Spielstand (#30)
+
+Nach dem Start erscheint das **Titelbild**: die Kamera fliegt langsam hoch über dem Rundkurs (38 m über der Straße,
+9 m/s, mindestens 22 m über dem Gelände) über die lebende Insel – Tageszeit, Wetter, Bewegung wie in der Fahrt; HUD
+und Fahrer sind ausgeblendet. Darüber das Menü (`scenes/start_menu.gd`, per Maus oder Tastatur: Pfeiltasten/Tab,
+Enter/Leertaste):
+
+| Punkt | Wirkung |
+|---|---|
+| **Fahren** | Modus-Auswahl: **Rundfahrt** startet die Fahrt (Insel-Rundkurs wie bisher), *Training – bald* und *Arcade – bald* ausgegraut, „Zurück“ |
+| *Fahrtenbuch – bald*, *Garderobe – bald* | ausgegraut |
+| **Einstellungen** | öffnet das Menü „Grafik und Fenster“ (wie `Esc`/`F2`) |
+| **Beenden** | beendet das Spiel (im Browser ausgeblendet) |
+
+Unten steht dauerhaft der **Radstatus**: „Rad verbunden“ (Quelle `ble`), „Simulator läuft“ (`sim`), „Bridge nicht
+erreichbar – Bridge starten: …“ oder „Bridge läuft – Rad nicht verbunden (stale)“. Im Menü läuft keine Fahrt und es geht
+kein `set_grade` an die Bridge. **Zurück ins Menü**, ohne das Spiel zu schließen: im Ziel mit `Enter`, jederzeit über
+„Fahrt beenden“ in den Einstellungen (`Esc`/`F2`). Eine neue Fahrt beginnt wieder am Start.
+
+**Spielstand** (`src/save_game.gd`, ADR-0008 Nachtrag): `user://savegame.json` – unter Windows
+`%APPDATA%\Godot\app_userdata\Inselfahrt\savegame.json`, im Browser im lokalen Speicher des Browsers. JSON mit
+`version` (Formatversion, derzeit 1) und `active_profile` (Profilschlüssel, 16 Hex-Zeichen, ab dem ersten Speichern);
+darunter je Fahrerprofil die Fahrten. Jede beendete Fahrt wird als Zusammenfassung angehängt – im Ziel sofort, bei
+Abbruch („Fahrt beenden“, Beenden, Fenster schließen), sofern gefahren wurde: Datum (UTC), Modus, Strecke,
+`finished`, Runden, Dauer, Strecke in km, Ø Kadenz, Ø Tempo. Keine Rohtelemetrie (die steht in der Session-CSV der
+Bridge). Spätere Bereiche (Bestzeiten, Ghosts, Medaillen …) kommen additiv dazu; ältere Stände werden beim Laden
+hochgestuft, ein Stand einer neueren Version bleibt unverändert erhalten, eine unlesbare Datei wird als
+`savegame.json.defekt` beiseitegelegt statt überschrieben.
+
+Sichtprüfung: `view_probe.gd -- --title [--window=left|right|fullscreen]` speichert `title.png`, `title_modes.png`
+und `title_b.png` (3 s später).
 
 ### Tasten
 
 | Taste | Wirkung |
 |---|---|
 | `P` oder Leertaste | Pause an/aus (jederzeit) |
-| `Esc` oder `F2` | Menü „Grafik und Fenster“ auf/zu (jederzeit, auch aus der Pause); **Beenden** über den Knopf „Beenden“ im Menü (nicht im Browser) |
+| `Esc` oder `F2` | Menü „Grafik und Fenster“ auf/zu (jederzeit, auch aus der Pause); **Beenden** über den Knopf „Beenden“ im Menü (nicht im Browser), in der Fahrt „Fahrt beenden“ zurück ins Startmenü |
+| `Enter` | im Ziel: zurück ins Startmenü |
 | `F3` | Debug-Anzeige an/aus |
 | `F11` | Vollbild an/aus (nicht im Browser) |
 
@@ -241,7 +276,8 @@ Physische Tastenposition (gleich auf QWERTZ/QWERTY); definiert in `scenes/main.g
 | `riding` – fahren | Bus verbunden, Quelle `connected` und seit dem letzten Abbruch Telemetrie empfangen | – |
 | `paused_manual` – pausiert (manuell) | `P`/Leertaste | „Pause“ |
 | `paused_connection` – pausiert (Verbindung) | Bridge nicht erreichbar, Quelle `stale`/`disconnected`, noch keine Daten oder Bridge schweigt bei offenem Bus | „Bridge nicht erreichbar … Bridge starten“ bzw. „Verbindung verloren (Rad: stale)“ / „(Bridge sendet seit 4 s nichts)“ |
-| `finished` – Ziel erreicht | Ziellinie überfahren (Endzustand, Pause-Taste wirkungslos) | „Ziel erreicht!“ mit Zeit, Ø Kadenz, Ø Tempo |
+| `finished` – Ziel erreicht | Ziellinie überfahren (Endzustand der Fahrt, Pause-Taste wirkungslos) | „Ziel erreicht!“ mit Zeit, Ø Kadenz, Ø Tempo; `Enter` zurück ins Menü |
+| `menu` – Startmenü | nach dem Start und nach jeder Fahrt | Titelbild mit Menü und Radstatus (HUD aus) |
 
 In jeder Pause steht das Fahrmodell still: Position und Geschwindigkeit bleiben, wie sie waren. Ein
 Verbindungsabbruch ist **keine Kadenz 0** (ADR-0004) – der Fahrer rollt nicht aus. Sobald der Bus wieder
@@ -291,8 +327,8 @@ Bridge ändern und schauen, wann „Kadenz roh“ und `t_ms` nachziehen.
 
 Das Menü wirkt sofort und speichert jede Änderung in `user://settings.cfg` – unter Windows
 `%APPDATA%\Godot\app_userdata\Inselfahrt\settings.cfg` (getrennt von `config.cfg`; Datei löschen = Standardwerte).
-Das Spiel läuft weiter, solange das Menü offen ist. Unten „Schließen“ und „Beenden“ (beendet das Spiel; im Browser
-ausgeblendet) – `Esc` beendet nicht mehr direkt (#19).
+Das Spiel läuft weiter, solange das Menü offen ist. Unten „Schließen“, in der Fahrt „Fahrt beenden“ (zurück ins
+Startmenü) und „Beenden“ (beendet das Spiel; im Browser ausgeblendet) – `Esc` beendet nicht mehr direkt (#19).
 
 | Option | Auswahl | Standard |
 |---|---|---|
@@ -471,6 +507,8 @@ src/rider_model.gd      RiderModel: Fahrer und Rennrad aus Grundkörpern, Pose a
 src/ride_config.gd      RideConfig: liest config.cfg
 src/graphics_settings.gd GraphicsSettings: Grafik-/Fenstereinstellungen, Tageszeit/Wetter (user://settings.cfg), Anwenden, Fensterhälften
 scenes/settings_menu.*  Menü „Grafik und Fenster“ (F2, F11), von der Hauptszene eingehängt
+scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Radstatus (#30)
+src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Hochstufung
 src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz), stations, station_at(), road_mesh()
 src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil, Stationen (reine Daten/Logik)
 src/island_terrain.gd   IslandTerrain: Höhenfeld (prozedural oder Höhenkarte), unter die Straße geformt, Mesh

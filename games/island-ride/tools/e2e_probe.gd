@@ -21,6 +21,8 @@ func _initialize() -> void:
 	var ride = load("res://scenes/main.tscn").instantiate()
 	ride.config = config
 	ride.start_distance_m = start_m
+	ride.start_in_menu = false
+	ride.save_path = ""
 	root.add_child(ride)
 	await create_timer(seconds).timeout
 	print("E2E url=%s track=%s bus_connected=%s status=%s state=%s source=%s cadence=%.1f speed_kmh=%.2f distance_m=%.1f grade=%.3f grade_sent=%.4f station=%s hint=%s" % [
