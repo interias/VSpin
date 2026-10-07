@@ -1,0 +1,15 @@
+; Engine configuration file.
+; Godot 4.4 – Inselfahrt (Prototyp-Game, ADR-0005).
+
+config_version=5
+
+[application]
+
+config/name="Inselfahrt"
+config/description="3D-Radsimulator am VSPIN-Bus: Kadenz -> Geschwindigkeit."
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.4")
+
+[rendering]
+
+renderer/rendering_method="forward_plus"

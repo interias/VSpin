@@ -1,0 +1,31 @@
+# Persönliche Trainingsdaten (ADR-0008)
+sessions/
+*.fit
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+
+# Godot 4
+.godot/
+*.import
+export_presets.cfg
+*.translation
+
+# PlatformIO
+.pio/
+
+# Editoren / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
