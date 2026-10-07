@@ -335,6 +335,9 @@ Das Spiel meldet die Steigung an der Fahrerposition per `{"v": 0, "type": "set_g
 - gleich nach dem Verbinden (sobald gefahren wird) den aktuellen Wert,
 - danach nur bei Änderung um mindestens 0,5 Prozentpunkte (0.005) und höchstens 2-mal pro Sekunde –
   eine gedrosselte Änderung wird mit dem dann aktuellen Wert nachgeholt,
+- Endwert: weicht der gemeldete Wert (unter der Schwelle) ab und hat sich die Steigung 1 s lang nicht um
+  0,5 Prozentpunkte bewegt, wird der aktuelle Wert einmal nachgesendet (danach erst wieder nach einer neuen
+  Bewegung über die Schwelle) – so bleibt am Ende einer Rampe nicht ein bis zu 0,5 Prozentpunkte alter Wert stehen,
 - nicht in der Verbindungspause (sinnlos); nach der Rückkehr wird der aktuelle Wert erneut gemeldet,
   auch wenn er sich nicht geändert hat.
 
