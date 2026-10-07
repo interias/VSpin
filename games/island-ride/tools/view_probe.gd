@@ -1,0 +1,101 @@
+## Manuelle Sichtprüfung (#15): startet die Hauptszene gerendert (ohne `--headless`, ohne Bus), stellt den Fahrer
+## an Streckenpositionen und speichert je ein Viewport-Bild; optional fährt sie einen Abschnitt mit festem Tempo ab
+## und misst die Bildrate.
+##   godot --path games/island-ride -s res://tools/view_probe.gd -- --out=C:/tmp/shots [--shots=0,200,450]
+##         [--fps-from=0 --fps-to=2310 --speed-kmh=50] [--size=1920x1080]
+## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
+## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
+## (ohne Bridge stünde dort die Verbindungsmeldung). VSync wie im Projekt (Standard: an).
+extends SceneTree
+
+var _ride: Node3D
+
+
+func _initialize() -> void:
+	var out_dir := OS.get_user_data_dir()
+	var shots: Array[float] = []
+	var fps_from := -1.0
+	var fps_to := -1.0
+	var speed_kmh := 50.0
+	var size := Vector2i(1920, 1080)
+	for arg in OS.get_cmdline_user_args():
+		var value := arg.get_slice("=", 1)
+		if arg.begins_with("--out="):
+			out_dir = value
+		elif arg.begins_with("--shots="):
+			for part in value.split(",", false):
+				shots.append(float(part))
+		elif arg.begins_with("--fps-from="):
+			fps_from = float(value)
+		elif arg.begins_with("--fps-to="):
+			fps_to = float(value)
+		elif arg.begins_with("--speed-kmh="):
+			speed_kmh = float(value)
+		elif arg.begins_with("--size="):
+			size = Vector2i(int(value.get_slice("x", 0)), int(value.get_slice("x", 1)))
+	DisplayServer.window_set_size(size)
+	var config := RideConfig.load_file()
+	config.track = RideConfig.TRACK_ISLAND
+	_ride = load("res://scenes/main.tscn").instantiate()
+	_ride.config = config
+	root.add_child(_ride)
+	_ride.get_node("Hud").visible = false
+	DirAccess.make_dir_recursive_absolute(out_dir)
+	await _frames(10)
+	for d in shots:
+		_place(d)
+		await _frames(8)
+		var path := out_dir.path_join("shot_%d.png" % int(d))
+		root.get_texture().get_image().save_png(path)
+		print("SHOT %s station=%s" % [path, _ride.current_station()])
+	if fps_to > fps_from:
+		await _measure(fps_from, fps_to, speed_kmh / 3.6)
+	quit(0)
+
+
+## Fahrer an Position `d`, Kamera sofort dahinter.
+func _place(d: float) -> void:
+	_ride.model.distance_m = d
+	_ride._update_view()
+	_ride._update_camera(0.0, true)
+
+
+func _frames(count: int) -> void:
+	for i in range(count):
+		await RenderingServer.frame_post_draw
+
+
+## Fährt von `from` bis `to` mit `speed` m/s (eigener Vorschub, das Fahrmodell steht ohne Bus) und misst die
+## Frame-Zeiten. Die erste Sekunde (Aufwärmen) zählt nicht.
+func _measure(from: float, to: float, speed: float) -> void:
+	_place(from)
+	await _frames(30)
+	var times := PackedFloat32Array()
+	var last := Time.get_ticks_usec()
+	var d := from
+	var warmup := 1.0
+	while d < to:
+		await process_frame
+		var now := Time.get_ticks_usec()
+		var dt := (now - last) / 1000000.0
+		last = now
+		d += speed * dt
+		_ride.model.distance_m = d
+		if warmup > 0.0:
+			warmup -= dt
+			continue
+		times.append(dt)
+	var sorted := times.duplicate()
+	sorted.sort()
+	var total := 0.0
+	for t in times:
+		total += t
+	var worst := sorted[sorted.size() - 1]
+	var low_1 := sorted[int(sorted.size() * 0.99)]
+	var slow := 0
+	for t in times:
+		if t > 1.0 / 50.0:
+			slow += 1
+	print("FPS from=%.0f to=%.0f speed_kmh=%.0f frames=%d mean=%.1f min=%.1f low1pct=%.1f below50=%d size=%s vsync=%s adapter=%s" % [
+		from, to, speed * 3.6, times.size(), times.size() / total, 1.0 / worst, 1.0 / low_1, slow,
+		DisplayServer.window_get_size(), DisplayServer.window_get_vsync_mode(), RenderingServer.get_video_adapter_name()])

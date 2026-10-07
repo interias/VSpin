@@ -35,6 +35,16 @@ const IMAGE_MAX_M := 360.0
 const BAY_CENTER := Vector2(300.0, 1460.0)
 const BAY_SIGMA_M := 150.0
 
+## Küstenstraße (#15): Im Südwesten/Westen rückt die Küstenlinie bis auf `COAST_REACH` × Straßenabstand (vom
+## Inselmittelpunkt, Superellipsen-Maß) an die Küstenstraße heran, das Gelände fällt von der Straße zum Meer ab
+## (Breite `COAST_SHORE` im Landanteil) – sonst verdeckt eine Hochfläche das Meer. Wirksam im Winkelbereich
+## `COAST_SECTOR_DEG` (Einblenden von x bis y, Ausblenden von z bis w; Grad, 90 = Süden, 180 = Westen) – Hafenbucht
+## und Serpentinen bleiben bis auf die Übergänge unberührt (Hafen ab ~0,30 km, Serpentinen bis ~3,0 km, dort
+## Gewicht ≤ 0,6 bzw. ≤ 0,2).
+const COAST_REACH := 1.05
+const COAST_SHORE := 0.07
+const COAST_SECTOR_DEG := Vector4(86.0, 100.0, 186.0, 198.0)
+
 ## Vertex-Anzahl je Achse.
 var columns := 0
 var rows := 0
@@ -44,6 +54,8 @@ var road_distance := PackedFloat32Array()
 
 static var _noise: FastNoiseLite = null
 static var _cached: IslandTerrain = null
+## Superellipsen-Maß der Küstenstraße je Grad Polarwinkel (360 Werte), siehe `_coast_road_e()`.
+static var _coast_table := PackedFloat32Array()
 
 
 func _init() -> void:
@@ -192,10 +204,13 @@ func _sample(values: PackedFloat32Array, x: float, z: float, outside: float) -> 
 	return lerpf(top, bottom, tz)
 
 
-## Landanteil an (x, z): > 0 an Land (größer = weiter im Inland), < 0 im Meer. Superellipse ~2,1 × 3,1 km
-## mit leicht verrauschter Küste und einer Bucht am Hafen.
+## Landanteil an (x, z): > 0 an Land (größer = weiter im Inland), < 0 im Meer. Superellipse ~2 × 3,1 km
+## mit leicht verrauschter Küste, einer Bucht am Hafen und dem Meer nah an der Küstenstraße.
 static func land(x: float, z: float) -> float:
-	var e := pow(pow(absf(x) / 1050.0, 2.6) + pow(absf(z) / 1550.0, 2.6), 1.0 / 2.6)
+	var e := _ellipse(x, z)
+	var w := _coast_weight(x, z)
+	if w > 0.0:
+		e /= lerpf(1.0, _coast_road_e(x, z) * COAST_REACH, w)
 	e *= 1.0 + 0.035 * _noise_2d(x * 0.6, z * 0.6)
 	var bay := Vector2(x, z).distance_squared_to(BAY_CENTER)
 	return 1.0 - e - 0.3 * exp(-bay / (2.0 * BAY_SIGMA_M * BAY_SIGMA_M))
@@ -210,9 +225,73 @@ static func natural_height(x: float, z: float, base: float) -> float:
 	var interior := base \
 			+ 90.0 * exp(-(pow((x + 330.0) / 260.0, 2.0) + pow((z + 730.0) / 190.0, 2.0))) \
 			+ 14.0 * _noise_2d(x, z)
-	# Küstenabfall: im Westen steile Klippen, im Süden/Osten flach.
-	var shore := lerpf(0.02, 0.1, smoothstep(-600.0, 0.0, x))
+	# Küstenabfall: im Westen steile Klippen, im Süden/Osten flach; an der Küstenstraße von der Straße zum Meer.
+	var shore := lerpf(lerpf(0.02, 0.1, smoothstep(-600.0, 0.0, x)), COAST_SHORE, _coast_weight(x, z))
 	return 1.5 + (maxf(interior, 2.0) - 1.5) * smoothstep(0.0, shore, l)
+
+
+## Superellipsen-Maß der Inselform (1 = Küste ohne Bucht/Rauschen, homogen: doppelter Abstand = doppeltes Maß).
+static func _ellipse(x: float, z: float) -> float:
+	return pow(pow(absf(x) / 1050.0, 2.6) + pow(absf(z) / 1550.0, 2.6), 1.0 / 2.6)
+
+
+## Polarwinkel (Grad, 0..360) im Maß der Superellipse: 90 = Süden, 180 = Westen.
+static func _polar_deg(x: float, z: float) -> float:
+	return fposmod(rad_to_deg(atan2(z / 1550.0, x / 1050.0)), 360.0)
+
+
+## Gewicht 0..1 des Küstenstraßen-Bereichs an (x, z), siehe COAST_SECTOR_DEG.
+static func _coast_weight(x: float, z: float) -> float:
+	var a := _polar_deg(x, z)
+	return smoothstep(COAST_SECTOR_DEG.x, COAST_SECTOR_DEG.y, a) * (1.0 - smoothstep(COAST_SECTOR_DEG.z, COAST_SECTOR_DEG.w, a))
+
+
+## Superellipsen-Maß der Küstenstraße in Richtung (x, z) – aus den Streckenpunkten des Abschnitts `kueste`,
+## je Grad gemittelt, Lücken mit dem nächsten Wert gefüllt, leicht geglättet (einmal berechnet).
+static func _coast_road_e(x: float, z: float) -> float:
+	if _coast_table.is_empty():
+		_coast_table = _build_coast_table()
+	var a := _polar_deg(x, z)
+	var i := int(a) % 360
+	return lerpf(_coast_table[i], _coast_table[(i + 1) % 360], a - floorf(a))
+
+
+static func _build_coast_table() -> PackedFloat32Array:
+	var samples := IslandCourse.samples()
+	var curve := IslandCourse.curve()
+	var stations := IslandCourse.stations()
+	var range_m := Vector2.ZERO
+	for i in range(stations.size() - 1):
+		if stations[i]["id"] == "kueste":
+			range_m = Vector2(stations[i]["start_m"], stations[i + 1]["start_m"])
+	var sums := PackedFloat32Array()
+	var counts := PackedInt32Array()
+	sums.resize(360)
+	counts.resize(360)
+	for p in samples:
+		var along := curve.get_closest_offset(p)
+		if along < range_m.x or along > range_m.y:
+			continue
+		var bin := int(_polar_deg(p.x, p.z)) % 360
+		sums[bin] += _ellipse(p.x, p.z)
+		counts[bin] += 1
+	var filled := PackedFloat32Array()
+	filled.resize(360)
+	for i in range(360):
+		var best := -1
+		for k in range(181):
+			for j in [i - k, i + k]:
+				if best < 0 and counts[posmod(j, 360)] > 0:
+					best = posmod(j, 360)
+		filled[i] = sums[best] / counts[best] if best >= 0 else 1.0
+	var table := PackedFloat32Array()
+	table.resize(360)
+	for i in range(360):
+		var sum := 0.0
+		for k in range(-3, 4):
+			sum += filled[posmod(i + k, 360)]
+		table[i] = sum / 7.0
+	return table
 
 
 static func _noise_2d(x: float, z: float) -> float:
@@ -241,6 +320,7 @@ func build_mesh() -> ArrayMesh:
 	var olive := Color(0.42, 0.5, 0.29)
 	var shoulder := Color(0.72, 0.66, 0.55)
 	var seabed := Color(0.55, 0.6, 0.55)
+	var coast_rock := Color(0.5, 0.45, 0.4)
 	for row in range(rows):
 		for col in range(columns):
 			var i := row * columns + col
@@ -262,6 +342,10 @@ func build_mesh() -> ArrayMesh:
 			else:
 				c = dry.lerp(olive, clampf(0.5 + 0.8 * _noise_2d(p.x * 3.0, p.y * 3.0), 0.0, 1.0))
 				c = c.lerp(rock, smoothstep(0.6, 1.1, slope))
+			# Felsküste (#15): seeseitiger Hang der Küstenstraße bis ans Wasser felsfarben (nahe am Wasser voll)
+			var coast := _coast_weight(p.x, p.y) if h > -2.0 else 0.0
+			if coast > 0.0:
+				c = c.lerp(coast_rock, coast * (1.0 - smoothstep(0.015, 0.06, land(p.x, p.y))))
 			if road_distance[i] < 9.0:
 				c = shoulder
 			colors[i] = c

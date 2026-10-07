@@ -1,6 +1,7 @@
-## Insel-Welt um den Rundkurs (ADR-0006, #14) – Grundform aus Godot-Bordmitteln: Gelände (IslandTerrain),
-## Meer, Fahrbahn, Stationsmarker und einfache Graybox-Deko je Station (Kai und Boote, Felsen, Mauer am
-## Aussichtspunkt, Pinien/Oliven, Häuser mit Kirche). Keine fremden Assets (siehe ASSETS.md).
+## Insel-Welt um den Rundkurs (ADR-0006, #14) – Gelände (IslandTerrain), Meer, Fahrbahn, Stationsmarker und Deko
+## je Station. Hafen und Küstenstraße sind ausgestaltet (#15) mit Low-Poly-Modellen von Kenney (CC0, unter
+## `assets/kenney/`, Nachweis in ASSETS.md); die übrigen Stationen haben Graybox-Deko aus Grundkörpern (Mauer am
+## Aussichtspunkt, Pinien/Oliven, Häuser mit Kirche).
 ##
 ## Aufbau (Kinder dieses Knotens):
 ##   Terrain   MeshInstance3D des Höhenfelds
@@ -13,12 +14,32 @@ class_name IslandWorld
 extends Node3D
 
 const SEA_SIZE_M := 9000.0
+## Modelle (Kenney, CC0) – Nachweis in ASSETS.md.
+const MODEL_DIR := "res://assets/kenney/"
+## Hafen: Kaimauer an der Bucht (Welt-z, gerade in Ost-West-Richtung).
+const QUAY_EDGE_Z := 1302.0
+## Küstenstraße: Modelle (Dateinamen in `assets/kenney/nature/`).
+const COAST_CLIFFS := ["rock_tallA", "rock_tallB", "rock_tallG"]
+const COAST_ROCKS := ["rock_largeA", "rock_largeB", "rock_largeD"]
+const COAST_BUSHES := ["plant_bushLarge", "plant_bushDetailed", "plant_bush"]
+const COAST_PINES := ["tree_simple", "tree_plateau", "tree_detailed"]
+## Knotennamen-Präfix der Felsen auf dem Hang zwischen Straße und Meer (Felsküste im Blick).
+const SLOPE_ROCK_PREFIX := "Hang_"
+## Nature-Kit-Materialfarben (Türkis/Orange) → mediterrane Töne, nach Materialname.
+const NATURE_COLORS := {
+	"leafsGreen": Color(0.22, 0.38, 0.18),
+	"grass": Color(0.34, 0.42, 0.2),
+	"woodBark": Color(0.45, 0.33, 0.24),
+	"dirt": Color(0.72, 0.66, 0.56),
+	"_defaultMat": Color(0.8, 0.76, 0.68),
+}
 
 ## Wird von `build()` gesetzt.
 var terrain: IslandTerrain
 var track: Track
 
 static var _terrain_mesh: ArrayMesh = null
+static var _models := {}
 var _rng := RandomNumberGenerator.new()
 
 
@@ -161,17 +182,77 @@ func _build_props() -> void:
 	_build_descent()
 
 
-## Hafen: Kai an der Bucht, zwei Molen ins Wasser, Boote, Start/Ziel-Bogen.
+## Hafen (#15): Kai von der Straße bis zur Kaimauer an der Bucht, Poller, zwei Molen mit Leuchtfeuern, Boote am Kai
+## und in der Bucht, Ladung auf dem Kai, Häuserzeile mit Terrakotta-Dächern auf der Landseite, Palmen,
+## Ruderboote am Strand; Start/Ziel-Bogen. Modelle: Kenney (CC0, siehe ASSETS.md).
 func _build_harbour() -> void:
 	var node := _props_node("hafen")
-	var stone := Color(0.78, 0.74, 0.66)
-	_box(node, "Kai", Vector3(260.0, 2.6, 16.0), Vector3(270.0, -0.5, 1292.0), stone)
-	_box(node, "MoleWest", Vector3(10.0, 2.4, 100.0), Vector3(200.0, -0.5, 1350.0), stone)
-	_box(node, "MoleOst", Vector3(10.0, 2.4, 130.0), Vector3(410.0, -0.5, 1365.0), stone)
-	var boat_colors := [Color(0.95, 0.95, 0.95), Color(0.2, 0.45, 0.75), Color(0.85, 0.3, 0.2)]
-	for i in range(6):
-		var at := Vector3(240.0 + i * 25.0, -0.4, 1325.0 + (i % 2) * 25.0)
-		_box(node, "Boot%d" % i, Vector3(3.0, 1.4, 9.0), at, boat_colors[i % boat_colors.size()], 0.15 * (i - 3))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1501
+	var stone := Color(0.6, 0.58, 0.54)
+	# Kai: Segmente entlang der Straße (Oberkante auf Fahrbahnhöhe, über dem Gelände) bis zur geraden Kaimauer.
+	var bollards: Array[Transform3D] = []
+	var palms := {"tree_palmTall": [] as Array[Transform3D], "tree_palmBend": [] as Array[Transform3D]}
+	var d := -60.0
+	var i := 0
+	while d <= 170.0:
+		var p := track.position_at(d)
+		var depth := QUAY_EDGE_Z - (p.z + 3.4)
+		_box(node, "Kai%d" % i, Vector3(10.6, 7.0, depth), Vector3(p.x, p.y - 6.9, p.z + 3.4 + depth / 2.0), stone)
+		bollards.append(Transform3D(Basis(), Vector3(p.x, p.y + 0.4, QUAY_EDGE_Z - 0.8)))
+		if i % 2 == 0:
+			var palm := Vector3(p.x + rng.randf_range(-2.0, 2.0), p.y + 0.1, p.z + 8.5)
+			palms["tree_palmTall" if i % 4 == 0 else "tree_palmBend"].append(_scaled(palm, rng.randf_range(5.5, 7.0), rng.randf() * TAU))
+		d += 10.0
+		i += 1
+	_multimesh(node, "Poller", _cylinder(0.25, 0.6), Color(0.25, 0.25, 0.27), bollards)
+	_box(node, "MoleWest", Vector3(10.0, 6.2, 100.0), Vector3(200.0, -4.0, 1350.0), stone)
+	_box(node, "MoleOst", Vector3(10.0, 6.2, 130.0), Vector3(410.0, -4.0, 1365.0), stone)
+	_beacon(node, "LeuchtfeuerWest", Vector3(200.0, 2.2, 1396.0), Color(0.2, 0.6, 0.3))
+	_beacon(node, "LeuchtfeuerOst", Vector3(410.0, 2.2, 1426.0), Color(0.85, 0.2, 0.15))
+	# Boote: am Kai mit dem Bug zur Mauer (mediterran), dazu einige vor Anker in der Bucht.
+	var moored := ["boat-sail-a", "boat-fishing-small", "boat-sail-b", "boat-tug-a", "boat-sail-a", "boat-row-small"]
+	var x := 236.0
+	i = 0
+	while x < 400.0:
+		if rng.randf() < 0.85:
+			var model: String = moored[i % moored.size()]
+			_place_model(node, "watercraft/%s.glb" % model, Vector3(x, -0.45, QUAY_EDGE_Z + 6.0),
+					PI + rng.randf_range(-0.06, 0.06), 2.4)
+		x += rng.randf_range(6.5, 8.0)
+		i += 1
+	for at in [Vector3(290.0, -0.45, 1385.0), Vector3(335.0, -0.45, 1435.0), Vector3(255.0, -0.45, 1440.0),
+			Vector3(370.0, -0.45, 1395.0), Vector3(165.0, -0.45, 1390.0), Vector3(120.0, -0.45, 1430.0),
+			Vector3(70.0, -0.45, 1455.0), Vector3(20.0, -0.45, 1470.0)]:
+		if terrain.height_at(at.x, at.z) < -1.5:
+			_place_model(node, "watercraft/%s.glb" % ["boat-sail-b", "boat-sail-a"][int(at.x) % 2], at, rng.randf() * TAU, 2.2)
+	for at in [Vector3(230.0, -0.3, 1365.0), Vector3(385.0, -0.3, 1360.0), Vector3(315.0, -0.3, 1470.0)]:
+		_place_model(node, "watercraft/buoy-flag.glb", at, 0.0, 1.6)
+	# Ladung auf dem Kai
+	for entry in [[395.0, "cargo-pile-a", 0.2], [372.0, "cargo-pile-b", 1.4], [214.0, "cargo-pile-a", 2.6]]:
+		var p := track.position_at(track.curve.get_closest_offset(Vector3(entry[0], 3.0, 1265.0)))
+		_place_model(node, "watercraft/%s.glb" % entry[1], Vector3(entry[0], p.y + 0.1, QUAY_EDGE_Z - 9.0), entry[2], 2.0)
+	# Häuserzeile auf der Landseite (rechts in Fahrtrichtung), Front zur Straße
+	var houses := ["building-type-a", "building-type-c", "building-type-g", "building-type-h", "building-type-k", "building-type-r"]
+	d = 18.0
+	i = 0
+	while d < 340.0:
+		var at := _beside_road(d, rng.randf_range(16.5, 19.0))
+		_place_model(node, "city-suburban/%s.glb" % houses[(i * 5 + 2) % houses.size()], at - Vector3(0.0, 0.3, 0.0),
+				_yaw_at(d) - PI / 2.0, rng.randf_range(8.5, 10.0))
+		var palm := _beside_road(d + 8.0, 9.0)
+		palms["tree_palmTall"].append(_scaled(palm, rng.randf_range(5.5, 7.5), rng.randf() * TAU))
+		d += rng.randf_range(15.5, 18.0)
+		i += 1
+	# Strand westlich des Kais: Ruderboote und Palmen
+	for at in [Vector3(132.0, 0.0, 1318.0), Vector3(118.0, 0.0, 1326.0), Vector3(150.0, 0.0, 1312.0)]:
+		at.y = terrain.height_at(at.x, at.z) - 0.1
+		_place_model(node, "watercraft/boat-row-small.glb", at, rng.randf() * TAU, 2.0)
+	for k in range(6):
+		var palm := _beside_road(200.0 + k * 35.0, -rng.randf_range(10.0, 24.0))
+		palms["tree_palmBend"].append(_scaled(palm, rng.randf_range(5.5, 7.0), rng.randf() * TAU))
+	for model in palms:
+		_scatter(node, model, "nature/%s.glb" % model, palms[model])
 	# Start/Ziel-Bogen über der Straße
 	var arch := Node3D.new()
 	arch.name = "StartZiel"
@@ -184,24 +265,166 @@ func _build_harbour() -> void:
 	_box(arch, "Banner", Vector3(8.5, 1.2, 0.3), Vector3(0.0, 5.0, 0.0), Color(0.95, 0.95, 0.95))
 
 
-## Küstenstraße: Felsbrocken auf der Seeseite (links in Fahrtrichtung nach Norden = Westen).
+## Küstenstraße (#15): seeseitig (links in Fahrtrichtung) eine niedrige Natursteinmauer am Straßenrand, Büsche und
+## Felsen am Hang zum Meer und Klippen an der Wasserlinie; landseitig Pinien, Büsche und Felsen.
+## Modelle: Kenney Nature Kit (CC0, siehe ASSETS.md).
 func _build_coast() -> void:
 	var node := _props_node("kueste")
 	var range_m := _station_range("kueste")
-	var rock_mesh := SphereMesh.new()
-	rock_mesh.radius = 1.0
-	rock_mesh.height = 1.4
-	rock_mesh.radial_segments = 8
-	rock_mesh.rings = 4
-	var transforms: Array[Transform3D] = []
-	var d := range_m.x + 40.0
-	while d < range_m.y - 40.0:
-		var side := -_rng.randf_range(12.0, 45.0)
-		var p := _beside_road(d, side)
-		var s := _rng.randf_range(1.5, 4.0)
-		transforms.append(Transform3D(Basis().scaled(Vector3(s, s * 0.7, s)).rotated(Vector3.UP, _rng.randf() * TAU), p))
-		d += _rng.randf_range(25.0, 50.0)
-	_multimesh(node, "Felsen", rock_mesh, Color(0.6, 0.55, 0.5), transforms)
+	# Zufallsfolge der übrigen Stationen wie vor #15 halten: dieselben Ziehungen wie die frühere Graybox-Felsenschleife
+	# aus `_rng`, ohne sie zu benutzen. Entfällt, sobald #16 die übrigen Stationen neu gestaltet.
+	var skip := range_m.x + 40.0
+	while skip < range_m.y - 40.0:
+		_rng.randf_range(12.0, 45.0)
+		_rng.randf_range(1.5, 4.0)
+		_rng.randf()
+		skip += _rng.randf_range(25.0, 50.0)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1502
+	var wall: Array[Transform3D] = []
+	var models := {}
+	var slope_rocks := {}
+	for model in COAST_CLIFFS + COAST_ROCKS + COAST_BUSHES + COAST_PINES:
+		models[model] = [] as Array[Transform3D]
+	for model in COAST_CLIFFS:
+		slope_rocks[model] = [] as Array[Transform3D]
+	var d := range_m.x + 15.0
+	while d < range_m.y - 15.0:
+		var yaw := _yaw_at(d)
+		wall.append(Transform3D(Basis(Vector3.UP, yaw), track.position_at(d) + _side_offset(d, -3.8) + Vector3(0.0, 0.3, 0.0)))
+		if int(d) % 12 < 4:
+			var water := _water_distance(d, 250.0)
+			# Seeseite: Klippen an der Wasserlinie, Felsen und Büsche am Hang
+			if water > 0.0:
+				if rng.randf() < 0.75:
+					var cliff := _beside_road(d, -(water + rng.randf_range(-4.0, 2.0)))
+					cliff.y = minf(cliff.y, 0.0) - 2.5
+					# Höhe mit der Straße: unten am Wasser flache Felsen (Meer bleibt sichtbar), oben hohe Klippen
+					var s := rng.randf_range(0.4, 0.8) * track.position_at(d).y + 2.5
+					models[COAST_CLIFFS[rng.randi() % COAST_CLIFFS.size()]].append(
+							Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s * 1.5, s, s * 1.5)), cliff))
+				# Felsküste im Blick: Felsband auf dem Hang zwischen Mauer und Meer (die Wasserlinie verdeckt die
+				# Hangkante), 4–10 m hoch, vom oberen Drittel bis kurz vor dem Wasser
+				for k in range(4):
+					var rock := _beside_road(d + rng.randf_range(-6.0, 6.0), -water * rng.randf_range(0.25, 0.85))
+					if rock.y < 0.5 or terrain.road_distance_at(rock.x, rock.z) < 9.0:
+						continue
+					var h := rng.randf_range(4.0, 10.0)
+					var w := h * rng.randf_range(1.2, 2.0)
+					slope_rocks[COAST_CLIFFS[rng.randi() % COAST_CLIFFS.size()]].append(Transform3D(
+							Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(w, h, w)), rock - Vector3(0.0, 0.8, 0.0)))
+				for k in range(2):
+					var side := rng.randf_range(9.0, maxf(water - 6.0, 10.0))
+					var at := _beside_road(d + rng.randf_range(-5.0, 5.0), -side)
+					if at.y > 0.5 and terrain.road_distance_at(at.x, at.z) > 7.0:
+						if rng.randf() < 0.35:
+							models[COAST_ROCKS[rng.randi() % COAST_ROCKS.size()]].append(_scaled(at, rng.randf_range(3.0, 6.0), rng.randf() * TAU))
+						else:
+							models[COAST_BUSHES[rng.randi() % COAST_BUSHES.size()]].append(_scaled(at, rng.randf_range(5.0, 9.0), rng.randf() * TAU))
+			# Landseite: Pinien, Büsche, vereinzelt Felsen
+			for k in range(3):
+				var at := _beside_road(d + rng.randf_range(-6.0, 6.0), rng.randf_range(10.0, 85.0))
+				if at.y < 1.0 or terrain.road_distance_at(at.x, at.z) < 8.0:
+					continue
+				var roll := rng.randf()
+				if roll < 0.45:
+					models[COAST_PINES[rng.randi() % COAST_PINES.size()]].append(_scaled(at, rng.randf_range(7.0, 11.0), rng.randf() * TAU))
+				elif roll < 0.9:
+					models[COAST_BUSHES[rng.randi() % COAST_BUSHES.size()]].append(_scaled(at, rng.randf_range(5.0, 9.0), rng.randf() * TAU))
+				else:
+					models[COAST_ROCKS[rng.randi() % COAST_ROCKS.size()]].append(_scaled(at, rng.randf_range(2.5, 5.0), rng.randf() * TAU))
+		d += 4.0
+	var wall_mesh := BoxMesh.new()
+	wall_mesh.size = Vector3(0.5, 0.6, 3.3)
+	_multimesh(node, "Mauer", wall_mesh, Color(0.76, 0.68, 0.55), wall)
+	for model in models:
+		_scatter(node, model, "nature/%s.glb" % model, models[model], not (model in COAST_BUSHES))
+	for model in slope_rocks:
+		_scatter(node, SLOPE_ROCK_PREFIX + model, "nature/%s.glb" % model, slope_rocks[model])
+
+
+## Abstand (m) von der Straßenmitte zur Wasserlinie links in Fahrtrichtung (Seeseite), -1 wenn nicht bis `limit`.
+func _water_distance(distance_m: float, limit: float) -> float:
+	var m := 8.0
+	while m <= limit:
+		if _beside_road(distance_m, -m).y < 0.0:
+			return m
+		m += 4.0
+	return -1.0
+
+
+## Modelle (Kenney, CC0) aus `assets/kenney/<Pfad>`; Instanzen derselben Datei teilen sich das importierte Mesh.
+## `_place_model` setzt eine ganze Modellszene (mehrteilig, z. B. Boot mit Segel), `_scatter` viele Instanzen des
+## Meshs als MultiMesh (Vegetation, Felsen – ein Draw-Call je Material).
+func _place_model(parent: Node3D, path: String, at: Vector3, yaw: float, factor: float) -> Node3D:
+	var instance: Node3D = load(MODEL_DIR + path).instantiate()
+	instance.name = path.get_file().get_basename().to_pascal_case() + str(parent.get_child_count())
+	instance.transform = _scaled(at, factor, yaw)
+	parent.add_child(instance)
+	return instance
+
+
+func _scatter(parent: Node3D, node_name: String, path: String, transforms: Array[Transform3D], shadows: bool = true) -> MultiMeshInstance3D:
+	var model := _model_mesh(MODEL_DIR + path)
+	var multimesh := MultiMesh.new()
+	multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	multimesh.mesh = model[0]
+	multimesh.instance_count = transforms.size()
+	for k in range(transforms.size()):
+		multimesh.set_instance_transform(k, transforms[k] * model[1])
+	var instance := MultiMeshInstance3D.new()
+	instance.name = node_name
+	instance.multimesh = multimesh
+	if not shadows:
+		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(instance)
+	return instance
+
+
+## [Mesh, Lage im Modell] des ersten MeshInstance3D einer Modellszene (gecacht). Die Nature-Kit-Dateien setzen
+## `metallicFactor` 1 (glTF-Standardwert) – ohne Spiegelungen wären sie fast schwarz, daher Metallic 0 – und
+## bekommen die Farben aus NATURE_COLORS.
+static func _model_mesh(path: String) -> Array:
+	if not _models.has(path):
+		var scene: Node = load(path).instantiate()
+		var mesh_node: MeshInstance3D = scene.find_children("*", "MeshInstance3D", true, false)[0]
+		var placement := Transform3D()
+		var node: Node = mesh_node
+		while node != scene:
+			placement = (node as Node3D).transform * placement
+			node = node.get_parent()
+		var mesh: Mesh = mesh_node.mesh.duplicate()
+		for s in range(mesh.get_surface_count()):
+			var material := mesh.surface_get_material(s) as BaseMaterial3D
+			if material != null and material.metallic > 0.0:
+				material = material.duplicate()
+				material.metallic = 0.0
+				material.albedo_color = NATURE_COLORS.get(material.resource_name, material.albedo_color)
+				mesh.surface_set_material(s, material)
+		_models[path] = [mesh, placement]
+		scene.free()
+	return _models[path]
+
+
+func _scaled(at: Vector3, factor: float, yaw: float) -> Transform3D:
+	return Transform3D(Basis(Vector3.UP, yaw).scaled(Vector3.ONE * factor), at)
+
+
+func _cylinder(radius: float, height: float) -> CylinderMesh:
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = radius
+	mesh.bottom_radius = radius
+	mesh.height = height
+	mesh.radial_segments = 8
+	return mesh
+
+
+## Leuchtfeuer am Molenkopf: weißer Turm mit farbiger Laterne.
+func _beacon(parent: Node3D, node_name: String, at: Vector3, color: Color) -> void:
+	var tower := _add_mesh(node_name, _cylinder(1.1, 7.0), _flat_material(Color(0.95, 0.95, 0.92)), parent)
+	tower.position = at + Vector3(0.0, 3.5, 0.0)
+	var lantern := _add_mesh(node_name + "Laterne", _cylinder(0.8, 1.6), _flat_material(color), parent)
+	lantern.position = at + Vector3(0.0, 7.8, 0.0)
 
 
 ## Serpentinen: Begrenzungssteine an den Kehren; Aussichtspunkt mit Plattform, Mauer und Bank.
