@@ -36,3 +36,10 @@ rauschen, aussetzen oder abreißen. Vorgabe: für den Anfang so einfach wie mög
 ## Zurückgestellt
 
 - Manuelle Gang-Eingabe zur Watt-Schätzung, Sprungerkennung, Backoff-Strategien.
+
+## Nachtrag (2026-10-07): rohe Kadenz zusätzlich auf dem Bus
+
+Für Kadenzmuster im Arcade-Modus (Antritt, Innehalten) ist die geglättete Kadenz zu träge: Ein Sprung von 25 rpm
+kommt mit ~1 s Verzögerung an. Die Bridge schickt deshalb zusätzlich `cadence_raw` (ungeglättet) in `telemetry`.
+Die Regel bleibt: **Anzeige und Fahrmodell nutzen den geglätteten Wert**; `cadence_raw` dient nur der
+Mustererkennung. Umsetzung mit Epic 4; der Bus-Vertrag wird additiv erweitert.

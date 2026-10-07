@@ -35,3 +35,10 @@ Spalte bleibt bis dahin leer.
 
 - Einfach, werkzeugneutral, keine personenbezogenen Daten im Repo.
 - Bridge muss mehrere BLE-Verbindungen parallel halten können (Rad + Puls).
+
+## Nachtrag (2026-10-07): Spielstand gehört dem Spiel
+
+„Nur die Bridge loggt“ gilt für **Telemetrie**. Spielstand ist etwas anderes und liegt beim Spiel selbst
+(`user://`): Fahrtenbuch, Bestzeiten, Ghosts (Strecke über Zeit einer Runde), Medaillen, Erfolge, Fahrerlevel und
+Arcade-Fortschritt. Das Spiel schreibt keine Rohtelemetrie; wer Kadenzverläufe braucht, liest die Session-CSV der
+Bridge.

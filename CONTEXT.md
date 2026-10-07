@@ -40,6 +40,33 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **Session** | Ein Bridge-Lauf; erzeugt `sessions/<zeit>.csv` und `sessions/<zeit>.raw.jsonl`. |
 | **HeartRateSource** | Spätere zweite Quelle: Puls per BLE Heart Rate Service `0x180D` (Brustgurt oder Garmin-Uhr mit „Herzfrequenz übertragen“). |
 
+### Spiel
+
+| Begriff | Bedeutung |
+|---|---|
+| **Runde** | Einmal den Rundkurs abfahren, in einer **Richtung** (im oder gegen den Uhrzeigersinn). |
+| **Fahrt** | Alles von Start bis Ende im Spiel: eine oder mehrere Runden, oder endlos. Nicht zu verwechseln mit der **Session** (ein Bridge-Lauf). |
+| **Bestzeit** | Schnellste Runde je Strecke und Richtung. |
+| **Ghost** | Halbtransparenter Mitfahrer, der eine frühere Runde nachfährt – standardmäßig die Bestzeit, wahlweise die letzte Fahrt. |
+| **Segment** | Fester Abschnitt des Rundkurses mit eigener Zeit, z. B. die Bergwertung in den Serpentinen. |
+| **Medaille** | Bronze/Silber/Gold für eine Runden- oder Segmentzeit nach festen Schwellen. _Vermeiden:_ Medaille für Meilensteine. |
+| **Erfolg** | Einmaliger Meilenstein, z. B. „100 km gesamt“, „Nachtfahrt“, „im Regen gefahren“. _Vermeiden:_ Achievement, Abzeichen. |
+| **Fahrerprofil** | Der eine lokale Spieler mit Fahrtenbuch, Bestzeiten, Erfolgen und Fahrerlevel. |
+| **Fahrerlevel** | Wächst mit jedem gefahrenen Kilometer in jedem Modus; schaltet nur Kosmetik frei (Trikots, Radfarben, Helme). |
+| **Jahreszeit** | Folgt wie die Tageszeit dem echten Datum auf Mallorca (Mandelblüte im Februar, trockener Sommer …), im Menü umstellbar. |
+| **Rundfahrt** | Spielmodus: Runden auf dem Rundkurs in gewählter Richtung, 1–n oder endlos; jede Runde zählt für Bestzeit und Medaille, Ghost zuschaltbar. |
+| **Training** | Spielmodus: angeleitete Einheit (z. B. Intervalle, Pyramide, Tempo-Blöcke) mit Zielkadenz und Ansagen zum Widerstandsknopf; bewertet wird, wie gut die Zielkadenz getroffen wurde. |
+| **Arcade** | Spielmodus nach dem Diablo-Kreislauf: Herausforderungen und Bosse → Beute → stärker → höhere Stufe. Seine Werte wirken nur hier (ADR-0010). |
+| **Panorama-Moment** | Kurzer Kameraschwenk mit Namenseinblendung an Sehenswürdigkeiten; nicht bei Ghost oder Training. |
+| **Herausforderung** | Arcade: Aufgabe auf der Strecke, die nur über die Kadenz gelöst wird: Zone halten, Durchbruch (Balken über einer Schwelle füllen), Takt-Tore, Jagd, Sammeln. Scheitern ist weich: weniger oder keine Beute, die Fahrt geht weiter. |
+| **Boss** | Arcade: Sagengestalt der Insel (z. B. Drac de na Coca, Tramuntana, Dimonis) an festem Ort; sein Lebensbalken sinkt, solange die Kadenz in der Zielzone liegt. |
+| **Beute** | Arcade: Ausrüstung mit Seltenheit; macht nachsichtiger, wirkungsvoller und lohnender, ersetzt aber nie das Treten. |
+| **Stufe** | Arcade: gewählter Schwierigkeitsgrad (wie Diablos Qualstufen); bestimmt Zielzonen, Dauer und Beute-Qualität. Höhere Stufen werden freigeschaltet. |
+| **Elite-Gruppe** | Arcade: zufällig auftauchende Gegnergruppe mit 1–3 **Eigenschaften** (Affixen wie „Windschnell“, „Zäh“); blau = Champions, gelb = Seltene mit Gefolge. Bessere Beute. |
+| **Kadenzmuster** | Aus dem Kadenzverlauf erkannte Geste: **Antritt** (schnell hochziehen), **Gleichmaß** (Kadenz ruhig halten), **Innehalten** (kurz nicht treten), **Rhythmus** (Takt treffen). _Vermeiden:_ „Antritt“ für die Herausforderung – die heißt **Durchbruch**. |
+| **Fähigkeit** | Arcade: Wirkung, die ein Kadenzmuster auslöst (Sprung, Fokus, Schild, Kombo); Talente und legendäre Beute verändern sie. |
+| **Empfohlene Stärke** | Arcade: Wert aus Ausrüstung und Talenten, den eine Stufe voraussetzt; höhere Stufen brauchen Fitness und Build. |
+
 ## Scope v1
 
 Siehe [ADR-0001](docs/adr/0001-scope-v1.md). Telemetrie + Simulator + genau ein Prototyp-Game.
@@ -61,5 +88,7 @@ Widerstandssteuerung: [ADR-0007](docs/adr/0007-widerstandssteuerung-esp32.md) �
 Datenspeicherung: [ADR-0008](docs/adr/0008-datenspeicherung-und-export.md) – CSV + Roh-JSONL pro Bridge-Start, FIT/Strava später.
 
 Repo & Lizenz: [ADR-0009](docs/adr/0009-repo-organisation-und-lizenz.md) – Monorepo, privat, MIT.
+
+Ehrliche Bestzeiten: [ADR-0010](docs/adr/0010-ehrliche-bestzeiten-arcade-getrennt.md) – Arcade-Werte wirken nur im Arcade-Modus.
 
 Bus-Vertrag: [docs/bus-protocol.md](docs/bus-protocol.md).
