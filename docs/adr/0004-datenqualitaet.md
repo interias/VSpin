@@ -15,7 +15,7 @@ rauschen, aussetzen oder abreißen. Vorgabe: für den Anfang so einfach wie mög
 - **Watt** werden – falls das Rad sie liefert – nur durchgereicht, geloggt und
   als `estimated` markiert (Anzeige „~142 W“). Keine Game-Mechanik hängt daran.
   Keine eigene Watt-Schätzung, keine manuelle Gang-Eingabe.
-- **Glättung:** ein einfacher EMA (~1 s) in der Bridge. Auf den Bus geht der
+- **Glättung:** ein einfacher EMA (0,3 s) in der Bridge. Auf den Bus geht der
   geglättete Wert, der Logger speichert zusätzlich den Rohwert.
 - **Kadenz 0:** Kommt 2,5 s kein neues Kurbel-Event, ist die Kadenz 0
   (verhindert „eingefrorene“ Werte, v. a. bei CSC).
@@ -36,3 +36,9 @@ rauschen, aussetzen oder abreißen. Vorgabe: für den Anfang so einfach wie mög
 ## Zurückgestellt
 
 - Manuelle Gang-Eingabe zur Watt-Schätzung, Sprungerkennung, Backoff-Strategien.
+
+## Nachtrag (2026-10-07, #19): Glättung 0,3 s statt ~1 s
+
+- Zeitkonstante des EMA von ~1 s auf **0,3 s** gesenkt (Entscheidung des Nutzers nach dem v1-Lauf).
+- Grund: Mit 1 s lief die Kadenz am Bus ca. 1 s hinter dem Treten her – unvereinbar mit dem
+  Abnahmekriterium < 200 ms Kurbel → Bildschirm (ADR-0001).

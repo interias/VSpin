@@ -128,10 +128,10 @@ Gilt für alle Quellen gleich, auch für den Simulator (ADR-0004):
 
 - **Ausreißer:** Kadenzwerte außerhalb 0–200 rpm werden verworfen (nicht begrenzt); im
   Terminal steht z. B. `Kadenz 800.0 rpm verworfen (außerhalb 0–200 rpm)`.
-- **Glättung:** EMA mit Zeitkonstante 1 s, zeitbasiert (`ema += (1 − e^(−Δt/1 s)) · (wert − ema)`),
+- **Glättung:** EMA mit Zeitkonstante 0,3 s, zeitbasiert (`ema += (1 − e^(−Δt/0,3 s)) · (wert − ema)`),
   nicht pro Sample. Auf den Bus geht der geglättete Wert (0,1 rpm), in die CSV zusätzlich der
   Rohwert (`cadence_raw`). Konstante Kadenz bleibt exakt; nach einer Änderung läuft der Wert in
-  ~1 s zu 63 % nach.
+  ~0,3 s zu 63 % nach.
 - **Kadenz 0:** kommt 2,5 s lang kein neuer Kadenzwert, obwohl Samples kommen (CSC: der
   Sensor wiederholt nur das letzte Kurbel-Event; FTMS: Notifications ohne Kadenzfeld), ist
   die Kadenz 0. FTMS-Kadenz ist ein Momentanwert – jede Notification mit Kadenzfeld ist ein

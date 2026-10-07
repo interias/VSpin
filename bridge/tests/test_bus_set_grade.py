@@ -31,7 +31,7 @@ def reply_to(client, payload, max_messages: int = 40) -> dict:
 
 
 def settled_cadence(client, max_samples: int = 40) -> float:
-    """Kadenz nach einer Änderung: Am Bus ist die Kadenz geglättet (EMA ~1 s, ADR-0004), sie
+    """Kadenz nach einer Änderung: Am Bus ist die Kadenz geglättet (EMA 0,3 s, ADR-0004), sie
     läuft also auf den neuen Wert zu. Abwarten, bis sich drei Samples um < 0,2 rpm
     unterscheiden (Restabstand zum Ziel dann < 0,5 rpm)."""
     cadences: list[float] = []

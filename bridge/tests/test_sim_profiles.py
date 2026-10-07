@@ -73,7 +73,7 @@ def test_profile_plays_deterministically(bridge_process, bus_client, tmp_path):
     ]
     # Die Quelle liefert in jedem Lauf exakt dieselbe Folge (Rohwert in der CSV) …
     assert raw_cadences(runs[0]) == raw_cadences(runs[1]) == RAMP_CADENCES
-    # … am Bus (Spalte `cadence`) geglättet (EMA ~1 s): startet beim ersten Wert und läuft
+    # … am Bus (Spalte `cadence`) geglättet (EMA 0,3 s): startet beim ersten Wert und läuft
     # dem Profil steigend hinterher.
     for run in runs:
         smoothed = cadences(run)
@@ -103,7 +103,7 @@ def test_noise_with_seed_is_reproducible(bridge_process, bus_client, tmp_path):
     noisy = raw_cadences(first)
     assert len(set(noisy)) > 3, noisy
     assert all(60 <= c <= 100 for c in noisy), noisy
-    # Die Glättung (EMA ~1 s) dämpft das Rauschen am Bus.
+    # Die Glättung (EMA 0,3 s) dämpft das Rauschen am Bus.
     smoothed = cadences(first)
     assert max(smoothed) - min(smoothed) < max(noisy) - min(noisy), (smoothed, noisy)
     # Jitter: der Abstand der Samples schwankt deutlich um den Takt von 250 ms.
