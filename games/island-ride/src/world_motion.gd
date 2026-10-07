@@ -12,6 +12,9 @@
 ## Kenney-Modelle und für die Agaven), das Meer hat Wellen, Glitzern, Flachwasser und Brandung (`sea.gdshader`,
 ## `sea_material()`). Shader laufen über TIME; alles andere ist eine reine Funktion der Zeit `time_s` (`apply(t)`),
 ## damit Tests die Bewegung ohne Echtzeit prüfen können.
+## Tag/Nacht und Wetter (G6, SkyController) stellen über kleine Setter: `set_clouds` (Bedeckung, Tönung), `set_wind`
+## (Wolkenzug, Wiegen der Vegetation, Wellen), `set_sea` (Meeresfarben), `set_beacon` (Leuchtturm nachts),
+## `set_birds_visible`, `set_road_wetness` (nasse Fahrbahn).
 ## Pausen (Verbindungsverlust, Pause-Taste) halten nur die Fahrt an, nicht den Szenenbaum: die Welt lebt als Ambiente
 ## weiter – sonst wirkte das Spiel bei einem Abbruch eingefroren.
 class_name WorldMotion
@@ -34,6 +37,11 @@ const ROCK_RAD := 0.07
 ## Wolken: Zugrichtung/-tempo (m/s) und umlaufender Bereich (x/z, m) um die Insel.
 const CLOUD_WIND := Vector3(3.5, 0.0, 1.2)
 const CLOUD_EXTENT_M := 3600.0
+## Anzahl der Wolken; davon sichtbar ist der Anteil `cloud_cover` (Wetter, G6).
+const CLOUD_COUNT := 36
+## Lichtkegel des Leuchtturms: Intensität am Tag (Uniform `intensity`) und nachts.
+const BEAM_DAY := 0.18
+const BEAM_NIGHT := 0.9
 ## Höhenkarte für das Meer: jeder SHORE_STEP-te Gitterpunkt des Geländes (10 m je Texel), Höhenbereich (m).
 const SHORE_STEP := 2
 const SHORE_MIN_M := -20.0
@@ -53,6 +61,21 @@ var sailers: Array[Dictionary] = []
 var birds: Array[Dictionary] = []
 ## Je Wolke {node, base}.
 var clouds: Array[Dictionary] = []
+## Wolkenzug (m/s, `set_wind`) und sichtbarer Anteil der Wolken 0..1 (`set_clouds`).
+var cloud_wind := CLOUD_WIND
+var cloud_cover := 0.5
+## Gemeinsames Material der Wolken (Tönung bei Regen, weniger Rim nachts).
+var cloud_material: StandardMaterial3D
+## Material der Meeresfläche (`World/Sea`).
+var sea: ShaderMaterial
+## Licht des Leuchtturms (nachts an): Spot entlang des Kegels und Glühen an der Linse.
+var beacon_lights: Array[Light3D] = []
+## Windfaktor (1 = ruhig wie G3) und Verschiebung der Wolken, damit ein Wechsel des Windes sie nicht springen lässt.
+var wind := 1.0
+var _cloud_shift := Vector3.ZERO
+
+## Alle Wind-Materialien (Vegetation, Agaven) mit Grundausschlag in Meta `base_strength` – für `set_wind`.
+static var _wind_materials: Array[ShaderMaterial] = []
 
 static var _shore_texture: ImageTexture = null
 
@@ -86,6 +109,7 @@ func setup(owner: IslandWorld) -> void:
 	_add_flock(flock, "GreifBurg", world.get_node("Landmarks/burg").position + Vector3(0.0, 70.0, 0.0), 1, Vector2(55.0, 55.0), true, rng)
 	_add_clouds(rng)
 	_add_fountain()
+	sea = world.get_node("Sea").material_override as ShaderMaterial
 	for key in ["Agaven", "AgavenBluete"]:
 		var plants := world.get_node_or_null("Details/" + key) as GeometryInstance3D
 		if plants != null:
@@ -121,7 +145,7 @@ func apply(t: float) -> void:
 	for bird in birds:
 		_place_bird(bird, t)
 	for cloud in clouds:
-		var at: Vector3 = cloud["base"] + CLOUD_WIND * t
+		var at: Vector3 = cloud["base"] + cloud_wind * t + _cloud_shift
 		at.x = wrapf(at.x, -CLOUD_EXTENT_M, CLOUD_EXTENT_M)
 		at.z = wrapf(at.z, -CLOUD_EXTENT_M, CLOUD_EXTENT_M)
 		cloud["node"].position = at
@@ -136,6 +160,8 @@ static func _wind_material(color: Color, roughness: float, height: float, streng
 	material.set_shader_parameter("height", height)
 	material.set_shader_parameter("strength", strength)
 	material.set_shader_parameter("use_vertex_color", vertex_color)
+	material.set_meta("base_strength", strength)
+	_wind_materials.append(material)
 	return material
 
 
@@ -198,6 +224,25 @@ func _add_beam(parent: Node3D) -> void:
 	# Achse lokal y → +x, oberes (schmales) Ende an der Linse
 	beam.transform = Transform3D(Basis(Vector3.BACK, PI / 2.0), Vector3(1.6 + cone.height / 2.0, 0.0, 0.0))
 	parent.add_child(beam)
+	# Nachts (G6): Spot entlang des Kegels (−z → +x) und Glühen an der Linse; tagsüber aus.
+	var spot := SpotLight3D.new()
+	spot.name = "Licht"
+	spot.light_color = Color(1.0, 0.9, 0.65)
+	spot.light_energy = 12.0
+	spot.spot_range = 320.0
+	spot.spot_angle = 5.0
+	spot.spot_attenuation = 0.6
+	spot.transform = Transform3D(Basis(Vector3.UP, -PI / 2.0), Vector3(1.6, 0.0, 0.0))
+	var glow := OmniLight3D.new()
+	glow.name = "Gluehen"
+	glow.light_color = Color(1.0, 0.85, 0.55)
+	glow.light_energy = 3.0
+	glow.omni_range = 18.0
+	for light in [spot, glow]:
+		light.visible = false
+		light.shadow_enabled = false
+		parent.add_child(light)
+		beacon_lights.append(light)
 
 
 ## Segelboot auf einer Ellipse um `centre` (Halbachsen `radii` entlang `axis` und quer dazu).
@@ -308,7 +353,8 @@ func _add_clouds(rng: RandomNumberGenerator) -> void:
 	material.roughness = 1.0
 	material.rim_enabled = true
 	material.rim = 0.4
-	for k in range(18):
+	cloud_material = material
+	for k in range(CLOUD_COUNT):
 		var parts := IslandLandmarks.Parts.new()
 		var size := rng.randf_range(50.0, 120.0)
 		for b in range(rng.randi_range(4, 7)):
@@ -326,6 +372,7 @@ func _add_clouds(rng: RandomNumberGenerator) -> void:
 		var base := Vector3(rng.randf_range(-CLOUD_EXTENT_M, CLOUD_EXTENT_M), rng.randf_range(380.0, 560.0),
 				rng.randf_range(-CLOUD_EXTENT_M, CLOUD_EXTENT_M))
 		clouds.append({"node": cloud, "base": base})
+	set_clouds(cloud_cover)
 
 
 ## Wasserstrahl aus der Brunnenmitte im Bergdorf (CPU-Partikel: auch im Web-Export).
@@ -368,3 +415,63 @@ func _add_fountain() -> void:
 	jet.scale_amount_max = 1.2
 	jet.position = Vector3(fountain.position.x, top, fountain.position.z)
 	add_child(jet)
+
+
+## Bedeckung `cover` 0..1: so viele Wolken wie der Anteil sichtbar, die Grenzwolke wächst/schrumpft (weicher
+## Übergang), bei dichter Bedeckung sind alle Wolken größer; `tint` färbt alle Wolken (grau bei Regen, dunkel nachts), `rim` hellt die Ränder auf.
+func set_clouds(cover: float, tint: Color = Color.WHITE, rim: float = 0.4) -> void:
+	cloud_cover = clampf(cover, 0.0, 1.0)
+	var shown := cloud_cover * clouds.size()
+	for k in range(clouds.size()):
+		var size := clampf(shown - k, 0.0, 1.0)
+		var node: Node3D = clouds[k]["node"]
+		node.visible = size > 0.01
+		node.scale = Vector3.ONE * maxf(size, 0.01) * lerpf(1.0, 1.8, cloud_cover * cloud_cover)
+	cloud_material.albedo_color = tint
+	cloud_material.rim = rim
+
+
+## Windfaktor (1 = ruhig): Wolkenzug, Wiegen der Vegetation und Wellenhöhe. Die Wolken ziehen ohne Sprung weiter.
+func set_wind(factor: float) -> void:
+	var next := CLOUD_WIND * factor
+	_cloud_shift += (cloud_wind - next) * time_s
+	cloud_wind = next
+	wind = factor
+	for material in _wind_materials:
+		if is_instance_valid(material):
+			material.set_shader_parameter("strength", material.get_meta("base_strength", 0.02) * lerpf(1.0, factor, 0.6))
+	if sea != null:
+		sea.set_shader_parameter("wave_scale", lerpf(1.0, factor, 0.5))
+
+
+## Meeresfarben (siehe `sea.gdshader`: tief, flach, Schaum).
+func set_sea(deep: Color, shallow: Color, foam: Color) -> void:
+	if sea == null:
+		return
+	sea.set_shader_parameter("deep_color", deep)
+	sea.set_shader_parameter("shallow_color", shallow)
+	sea.set_shader_parameter("foam_color", foam)
+
+
+## Leuchtturm: `level` 0 = Tag (schwacher Kegel, kein Licht) … 1 = Nacht (heller Kegel, Spot und Glühen an).
+func set_beacon(level: float) -> void:
+	var beam := lamp.get_node("Kegel") as MeshInstance3D
+	(beam.material_override as ShaderMaterial).set_shader_parameter("intensity", lerpf(BEAM_DAY, BEAM_NIGHT, level))
+	for light in beacon_lights:
+		light.visible = level > 0.05
+
+
+## Vögel ein-/ausblenden (nachts und bei Regen fliegen keine).
+func set_birds_visible(shown: bool) -> void:
+	get_node("Voegel").visible = shown
+
+
+## Nasse Fahrbahn 0..1: dunkler und glänzender (auf eine Tönung des Lichtprofils in Meta `profile_tint`).
+func set_road_wetness(wet: float) -> void:
+	var road := world.get_node_or_null("Road") as MeshInstance3D
+	if road == null:
+		return
+	var material := road.material_override as StandardMaterial3D
+	material.albedo_color = material.get_meta("profile_tint", Color.WHITE) * Color.WHITE.lerp(Color(0.62, 0.62, 0.66), wet)
+	material.roughness = lerpf(0.95, 0.3, wet)
+	material.metallic_specular = lerpf(0.5, 0.8, wet)

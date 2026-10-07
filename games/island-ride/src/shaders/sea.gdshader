@@ -14,6 +14,8 @@ uniform float shore_max_m = 5.0;
 uniform vec4 deep_color : source_color = vec4(0.03, 0.22, 0.42, 1.0);
 uniform vec4 shallow_color : source_color = vec4(0.12, 0.62, 0.66, 1.0);
 uniform vec4 foam_color : source_color = vec4(0.95, 0.97, 0.98, 1.0);
+// Wellenhöhe (Faktor auf alle Amplituden; Wind/Wetter, G6).
+uniform float wave_scale = 1.0;
 
 varying vec3 world_pos;
 
@@ -40,10 +42,10 @@ void fragment() {
 	float dist = length(world_pos - CAMERA_POSITION_WORLD);
 	float near = 1.0 - smoothstep(60.0, 600.0, dist);
 	float far = 1.0 - smoothstep(400.0, 2500.0, dist);
-	vec2 slope = far * (wave(p, normalize(vec2(1.0, 0.35)), 0.09, 0.35, 1.1)
+	vec2 slope = far * wave_scale * (wave(p, normalize(vec2(1.0, 0.35)), 0.09, 0.35, 1.1)
 			+ wave(p, normalize(vec2(-0.4, 1.0)), 0.13, 0.22, 1.4)
 			+ wave(p, normalize(vec2(0.8, -0.6)), 0.21, 0.12, 1.9));
-	slope += near * (wave(p, normalize(vec2(0.2, 1.0)), 0.7, 0.03, 3.1)
+	slope += near * wave_scale * (wave(p, normalize(vec2(0.2, 1.0)), 0.7, 0.03, 3.1)
 			+ wave(p, normalize(vec2(1.0, -0.3)), 1.1, 0.018, 3.9));
 	vec3 n = normalize(vec3(-slope.x, 1.0, -slope.y));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n, 0.0)).xyz);

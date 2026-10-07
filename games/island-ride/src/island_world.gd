@@ -273,6 +273,13 @@ func _build_harbour() -> void:
 		palms["tree_palmTall"].append(_scaled(palm, rng.randf_range(5.5, 7.5), rng.randf() * TAU))
 		d += rng.randf_range(15.5, 18.0)
 		i += 1
+	# Laternen landseitig an der Uferstraße (nachts beleuchtet, G6)
+	var lanterns: Array[Transform3D] = []
+	d = 8.0
+	while d < 340.0:
+		lanterns.append(_scaled(_beside_road(d, 4.8), 2.6, 0.0))
+		d += 30.0
+	_scatter(node, "Laternen", "fantasy-town/lantern.glb", lanterns)
 	# Strand westlich des Kais: Ruderboote und Palmen
 	for at in [Vector3(132.0, 0.0, 1318.0), Vector3(118.0, 0.0, 1326.0), Vector3(150.0, 0.0, 1312.0)]:
 		at.y = terrain.height_at(at.x, at.z) - 0.1
