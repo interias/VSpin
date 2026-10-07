@@ -1,8 +1,9 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scenes/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://src/track.gd" id="2_track"]
 [ext_resource type="Script" path="res://src/rider_model.gd" id="3_rider_model"]
+[ext_resource type="PackedScene" path="res://scenes/hud.tscn" id="4_hud"]
 
 [sub_resource type="Environment" id="Env"]
 background_mode = 1
@@ -40,64 +41,4 @@ top_level = true
 current = true
 far = 6000.0
 
-[node name="Hud" type="CanvasLayer" parent="."]
-
-[node name="Label" type="Label" parent="Hud"]
-offset_left = 16.0
-offset_top = 16.0
-offset_right = 420.0
-offset_bottom = 300.0
-theme_override_colors/font_color = Color(1, 1, 1, 1)
-theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
-theme_override_constants/outline_size = 6
-theme_override_font_sizes/font_size = 28
-text = "Kadenz: 0 rpm
-Tempo: 0.0 km/h
-Strecke: 0.00 km
-Zeit: 0:00
-Steigung: 0.0 %"
-
-[node name="Hint" type="Label" parent="Hud"]
-offset_left = 16.0
-offset_top = 306.0
-offset_right = 420.0
-offset_bottom = 334.0
-theme_override_colors/font_color = Color(1, 1, 1, 0.7)
-theme_override_font_sizes/font_size = 18
-
-[node name="Debug" type="Label" parent="Hud"]
-visible = false
-anchors_preset = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -420.0
-offset_top = 16.0
-offset_right = -16.0
-offset_bottom = 160.0
-grow_horizontal = 0
-theme_override_colors/font_color = Color(1, 1, 0.6, 1)
-theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
-theme_override_constants/outline_size = 4
-theme_override_font_sizes/font_size = 18
-horizontal_alignment = 2
-
-[node name="Message" type="Label" parent="Hud"]
-visible = false
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -420.0
-offset_top = -120.0
-offset_right = 420.0
-offset_bottom = 120.0
-grow_horizontal = 2
-grow_vertical = 2
-theme_override_colors/font_color = Color(1, 1, 1, 1)
-theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
-theme_override_constants/outline_size = 8
-theme_override_font_sizes/font_size = 32
-horizontal_alignment = 1
-vertical_alignment = 1
-autowrap_mode = 3
+[node name="Hud" parent="." instance=ExtResource("4_hud")]

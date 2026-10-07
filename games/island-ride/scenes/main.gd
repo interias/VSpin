@@ -4,6 +4,7 @@
 ## Die Kamera folgt dem Fahrer ruhig: Position hinter ihm auf der Strecke, Blick voraus, beides geglättet.
 ## Fahrer und Rad (`Track/Rider/Model`, RiderModel): Kurbel und Beine drehen mit der Kadenz, Räder rollen mit dem
 ## Tempo, Schräglage in Kurven, Vorbeuge bergauf; außerhalb von `riding` steht alles still.
+## HUD (`Hud`, RideHud, Szene `scenes/hud.tscn`): bekommt pro Frame die Werte, Rundenfortschritt und Position.
 ##
 ## Spielzustände (`state`):
 ##   riding             fahren – Bus verbunden, Quelle `connected` und Daten seit dem letzten Abbruch
@@ -38,11 +39,8 @@ const KEY_BINDINGS := {
 	"ride_quit": [KEY_ESCAPE],
 	"ride_debug": [KEY_F3],
 }
-## Kamera: Abstand hinter dem Fahrer (entlang der Strecke), Höhe, Blickpunkt voraus, Glättung (Zeitkonstante).
-const CAMERA_BEHIND_M := 9.0
-const CAMERA_HEIGHT_M := 3.5
-const CAMERA_LOOK_AHEAD_M := 14.0
-const CAMERA_LOOK_HEIGHT_M := 1.2
+## Kamera: Abstand hinter dem Fahrer, Höhe und Blickpunkt voraus aus der Konfiguration (`[camera]`, RideConfig);
+## Glättung (Zeitkonstante).
 const CAMERA_SMOOTHING_S := 0.45
 ## Mindesthöhe der Kamera über dem Gelände (Insel).
 const CAMERA_TERRAIN_CLEARANCE_M := 1.5
@@ -81,7 +79,7 @@ var _ever_connected := false
 @onready var track: Track = $Track
 @onready var rider: PathFollow3D = $Track/Rider
 @onready var rider_model: RiderModel = $Track/Rider/Model
-@onready var hud_label: Label = $Hud/Label
+@onready var hud: RideHud = $Hud
 @onready var message_label: Label = $Hud/Message
 @onready var hint_label: Label = $Hud/Hint
 @onready var debug_label: Label = $Hud/Debug
@@ -101,6 +99,7 @@ func _ready() -> void:
 	model = RideModel.new(config, start_distance_m)
 	var lap := track.length_m()
 	finish_distance_m = (floorf(start_distance_m / lap) + 1.0) * lap if lap > 0.0 else INF
+	hud.setup(track, world)
 	_update_view()
 	_update_camera(0.0, true)
 
@@ -155,8 +154,9 @@ func current_station() -> String:
 ## seitlich auszuschwenken), Blick auf einen Punkt voraus; beides exponentiell geglättet. `snap` springt sofort.
 func _update_camera(delta: float, snap: bool = false) -> void:
 	var d := model.distance_m
-	var target := track.to_global(track.position_at(d - CAMERA_BEHIND_M)) + Vector3.UP * CAMERA_HEIGHT_M
-	var look := track.to_global(track.position_at(d + CAMERA_LOOK_AHEAD_M)) + Vector3.UP * CAMERA_LOOK_HEIGHT_M
+	var up := Vector3.UP
+	var target := track.to_global(track.position_at(d - config.camera_behind_m)) + up * config.camera_height_m
+	var look := track.to_global(track.position_at(d + config.camera_look_ahead_m)) + up * config.camera_look_height_m
 	if world != null:
 		target.y = maxf(target.y, world.terrain.height_at(target.x, target.z) + CAMERA_TERRAIN_CLEARANCE_M)
 	var follow := 1.0 if snap else 1.0 - exp(-delta / CAMERA_SMOOTHING_S)
@@ -354,20 +354,10 @@ func _update_rider(delta: float) -> void:
 
 func _update_view() -> void:
 	rider.progress = track.wrap_distance(model.distance_m)
-	var lines := [
-		"Kadenz: %d rpm" % roundi(bus.cadence),
-		"Tempo: %.1f km/h" % model.speed_kmh(),
-		"Strecke: %.2f km" % (stats.distance_m / 1000.0),
-		"Zeit: %s" % format_time(lap_time_s()),
-		"Steigung: %s" % format_grade(current_grade()),
-	]
-	var station := current_station()
-	if not station.is_empty():
-		lines.append("Abschnitt: %s" % station)
-	var power := format_power(bus.power_w(), bus.power_estimated())
-	if not power.is_empty():
-		lines.append("Leistung: %s" % power)
-	hud_label.text = "\n".join(lines)
+	var grade := current_grade()
+	hud.show_ride(bus.cadence, model.speed_kmh(), stats.distance_m, format_time(lap_time_s()), grade,
+			format_grade(grade), current_station(), format_power(bus.power_w(), bus.power_estimated()))
+	hud.show_lap(model.distance_m, start_distance_m, finish_distance_m, rider.progress)
 	if debug_label.visible:
 		debug_label.text = debug_text()
 	hint_label.text = resistance_hint

@@ -2,10 +2,12 @@
 ## an Streckenpositionen und speichert je ein Viewport-Bild; optional fährt sie einen Abschnitt mit festem Tempo ab
 ## und misst die Bildrate.
 ##   godot --path games/island-ride -s res://tools/view_probe.gd -- --out=C:/tmp/shots [--shots=0,200,450]
-##         [--fps-from=0 --fps-to=2310 --speed-kmh=50] [--size=1920x1080] [--cadence=85] [--close] [--pair]
+##         [--fps-from=0 --fps-to=2310 --speed-kmh=50] [--size=1920x1080] [--cadence=85] [--close] [--pair] [--hud]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
-## (ohne Bridge stünde dort die Verbindungsmeldung). VSync wie im Projekt (Standard: an).
+## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
+## `--cadence`, Tempo des Fahrmodells, Steigung und Abschnitt der Strecke, Strecke/Zeit bis zur Position, „~142 W“),
+## die Verbindungsmeldung ist unsichtbar. VSync wie im Projekt (Standard: an).
 ## Fahrer und Rad treten mit `--cadence` (rpm, 0 = Stillstand): die Hauptszene füttert ohne Bus nur eine Attrappe
 ## (sie steht in der Verbindungspause), die Probe bewegt das echte Modell. Vor jedem Screenshot 1 s Tritt.
 ## `--close`: zusätzlich Nahaufnahmen je Position (`close_<m>_side.png`, `close_<m>_rear.png`, Kamera nur hier
@@ -16,6 +18,8 @@ var _ride: Node3D
 ## Echtes Fahrer-/Radmodell in der Szene und Kadenz, mit der es tritt.
 var _model: RiderModel
 var _cadence := 85.0
+## HUD mit Beispielwerten zeigen (`--hud`).
+var _hud := false
 
 
 func _initialize() -> void:
@@ -48,15 +52,22 @@ func _initialize() -> void:
 			close = true
 		elif arg == "--pair":
 			pair = true
+		elif arg == "--hud":
+			_hud = true
 	DisplayServer.window_set_size(size)
 	var config := RideConfig.load_file()
 	config.track = RideConfig.TRACK_ISLAND
 	_ride = load("res://scenes/main.tscn").instantiate()
 	_ride.config = config
 	root.add_child(_ride)
-	_ride.get_node("Hud").visible = false
+	_ride.get_node("Hud").visible = _hud
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	await _frames(10)
+	if _hud:
+		# Beispielwerte: die Hauptszene zeigt Kadenz und Watt des (ohne Bridge nicht verbundenen) Bus-Clients an.
+		_ride.get_node("Hud/Message").modulate = Color.TRANSPARENT
+		_ride.bus.cadence = _cadence
+		_ride.bus.last_telemetry = {"cadence": _cadence, "power_w": 142.0}
 	_model = _ride.rider_model  # erst nach `_ready` der Hauptszene gesetzt
 	var dummy := RiderModel.new()
 	_ride.rider_model = dummy
@@ -110,9 +121,14 @@ func _close_ups(out_dir: String, d: float) -> void:
 	_place(d)
 
 
-## Fahrer an Position `d`, Kamera sofort dahinter.
+## Fahrer an Position `d`, Kamera sofort dahinter. Mit `--hud`: Tempo des Fahrmodells, Strecke und Zeit bis hier
+## (Beispiel: Ø 22 km/h).
 func _place(d: float) -> void:
 	_ride.model.distance_m = d
+	if _hud:
+		_ride.model.speed_mps = _ride.model.target_speed_mps(_cadence, _ride.current_grade())
+		_ride.stats.distance_m = d
+		_ride.stats.ride_time_s = d / (22.0 / 3.6)
 	_ride._update_view()
 	_ride._update_camera(0.0, true)
 

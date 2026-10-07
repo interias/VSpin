@@ -74,6 +74,6 @@ func test_rider_follows_the_path_and_hud_shows_values() -> void:
 	var rider: PathFollow3D = ride.get_node("Track/Rider")
 	assert_almost_eq(rider.progress, ride.track.wrap_distance(ride.model.distance_m), 0.01)
 	assert_gt(rider.progress, FLAT_M)
-	var hud: String = ride.get_node("Hud/Label").text
+	var hud: String = ride.get_node("Hud").readout()
 	assert_string_contains(hud, "Kadenz: 90 rpm")
 	assert_string_contains(hud, "%.1f km/h" % ride.model.speed_kmh())

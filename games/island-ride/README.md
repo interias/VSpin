@@ -72,9 +72,10 @@ verfügbar, daher nur Godot-Bordmittel:
   - Modelle: Kenney Watercraft Kit, City Kit (Suburban), Nature Kit, Fantasy Town Kit (CC0) unter `assets/kenney/`,
     nur die benutzten `.glb` (~1,4 MB) – Nachweis in `ASSETS.md`. Wiederholte Modelle (Bäume, Büsche, Felsen,
     Mauern, Hausmodule) als `MultiMeshInstance3D`. Sichtprüfung/fps: `tools/view_probe.gd` (Screenshots an Streckenpositionen, fps-Fahrt).
-- Kamera (`scenes/main.gd`): sitzt 9 m hinter dem Fahrer **auf der Strecke** (schwenkt in Kehren nicht seitlich
-  aus), blickt 14 m voraus, beides exponentiell geglättet (0,45 s), mindestens 1,5 m über dem Gelände.
-- HUD zeigt zusätzlich den aktuellen Abschnitt („Abschnitt: Serpentinen“).
+- Kamera (`scenes/main.gd`): sitzt 5,5 m hinter dem Fahrer **auf der Strecke** (schwenkt in Kehren nicht seitlich
+  aus), 2,4 m hoch, blickt 10 m voraus, beides exponentiell geglättet (0,45 s), mindestens 1,5 m über dem Gelände.
+  Abstand, Höhe und Vorausblick in `config.cfg` (`[camera]`, siehe Konfiguration); vor G5 9 m / 3,5 m / 14 m.
+- HUD zeigt zusätzlich den aktuellen Abschnitt, Höhenprofil und Minikarte der Insel (siehe HUD).
 
 Erzeugung beim Start ca. 2 s (Gelände wird einmal pro Prozess erzeugt und gecacht).
 
@@ -88,6 +89,10 @@ Mittel 59,9 fps, 1-%-Tief 54,8 fps, 107 von 29 692 Frames < 50 fps – vor #16 a
 
 **Sichtprüfung G2 (Sehenswürdigkeiten):** fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070): Mittel
 59,9 fps, 1-%-Tief 55,4 fps, 83 von 39 677 Frames < 50 fps – vorher auf derselben Fahrt 59,9 / 54,3 / 180 (Streuung).
+
+**Sichtprüfung G5 (HUD und Kamera):** fps-Fahrt 0–2310 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070), HUD sichtbar
+(`--hud`): Mittel 60,0 fps, 1-%-Tief 55,2 fps, 14 von 9 911 Frames < 50 fps – vorher (alte Kamera, HUD aus)
+59,8 / 54,1 / 33.
 
 ## Fahrer und Rad
 
@@ -143,15 +148,32 @@ Die Verbindungspause hat Vorrang; eine manuelle Pause bleibt über einen Abbruch
 
 ### HUD
 
-Oben links: Kadenz (rpm, gerundet), Tempo (km/h), Strecke (km seit Start), Zeit (Fahrzeit, ohne Pausen),
-Abschnitt (Station des Insel-Rundkurses; nicht bei der Graybox),
-Steigung (%) und – **nur wenn die Quelle Watt liefert** – Leistung. Geschätzte Watt (`power_estimated`
-nicht ausdrücklich `false`) immer mit „~“, z. B. „~142 W“ (ADR-0004); gemessene ohne. Darunter dezent der
-`set_grade`-Hinweis, in der Mitte groß Pause-/Verbindungs-/Ziel-Meldungen.
+Eigene Szene `scenes/hud.tscn` (`src/ride_hud.gd`, RideHud); die Hauptszene übergibt pro Frame die Werte.
+Schlicht, halbtransparente Panels, Standardschrift der Engine:
+
+- **Oben links – Werte:** Abschnitt (Station des Insel-Rundkurses; nicht bei der Graybox), **Kadenz** groß mit
+  Bogenanzeige bis 120 rpm (Wohlfühlbereich 80–100 rpm grün markiert, darunter blau, darüber orange), **Tempo**
+  (km/h), **Steigung** (% mit Vorzeichen; Keil und Farbe: bergauf orange, ab 6 % rot, bergab blau, flach weiß),
+  **Strecke** (km seit Start), **Zeit** (Fahrzeit, ohne Pausen) und – **nur wenn die Quelle Watt liefert** –
+  **Leistung**. Geschätzte Watt (`power_estimated` nicht ausdrücklich `false`) immer mit „~“, z. B. „~142 W“
+  (ADR-0004); gemessene ohne.
+- **Oben rechts – Minikarte** (`src/hud_minimap.gd`): Insel von oben (Norden oben, aus dem Gelände), Strecke,
+  Start/Ziel, Landmarken als gelbe Rauten, Fahrer als Pfeil in Fahrtrichtung.
+- **Unten – Runde und Höhenprofil** (`src/hud_profile.gd`): Fortschrittsbalken mit Prozent und Restdistanz, darunter
+  das Höhenprofil des Rundkurses mit Abschnittsgrenzen und -namen (Name nur, wenn er in den Abschnitt passt),
+  höchstem Punkt und Marker an der Fahrerposition; der gefahrene Teil ist hinterlegt.
+- Über dem unteren Panel dezent der `set_grade`-Hinweis, in der Mitte groß Pause-/Verbindungs-/Ziel-Meldungen.
+
+Layout nur über Anker und Container: passt im schmalen Halbbild-Fenster (960 × 1040) wie in 1920 × 1080 und
+1600 × 900, mit und ohne `display/window/stretch/mode="canvas_items"` (geprüft in `tests/test_hud.gd`). Profil und
+Karte werden nur beim Start und bei Größenänderung gezeichnet (Inselbild einmal berechnet); pro Frame bewegen sich
+nur die Marker. `RideHud.readout()` liefert die sichtbaren Werte als Textzeilen („Kadenz: 90 rpm“, …) für Tests.
+Sichtprüfung mit HUD: `view_probe.gd -- --hud` (Beispielwerte: Kadenz 85, Tempo/Steigung/Abschnitt der Strecke,
+„~142 W“).
 
 ### Debug-Anzeige (`F3`)
 
-Oben rechts, zum Prüfen der Latenz (< 200 ms, ADR-0005): **Kadenz roh** (Feld `cadence` der letzten
+Links unter den Werten, zum Prüfen der Latenz (< 200 ms, ADR-0005): **Kadenz roh** (Feld `cadence` der letzten
 Telemetrie, wie empfangen – ungerundet), **t_ms** (Bridge-Zeitstempel der letzten Telemetrie), **Alter**
 der letzten Telemetrie in ms (seit Empfang im Spiel; bei 4 Hz Bridge-Takt pendelt es zwischen 0 und ~250 ms
 – dauerhaft mehr heißt: Daten stocken), dazu Bus-Verbindung, Status und Quelle. Prüfen: Kadenz in der
@@ -195,6 +217,10 @@ Kadenz; die Steigung steht in der Session-CSV der Bridge (Spalte `grade`).
 | `[ride] downhill_boost` | `2.0` | bergab: `v_ziel · (1 + downhill_boost · \|Gefälle\|)` |
 | `[ride] inertia_s` | `1.5` | Trägheit: Zeitkonstante (s) der Annäherung an `v_ziel`; 0 = sofort |
 | `[world] track` | `island` | Strecke: `island` = Insel-Rundkurs, `graybox` = kurze Graybox-Teststrecke (~900 m); Unbekanntes → `island` |
+| `[camera] behind_m` | `5.5` | Kamera: Abstand hinter dem Fahrer entlang der Strecke (m) – kleiner = Fahrer größer im Bild |
+| `[camera] height_m` | `2.4` | Kamerahöhe über der Strecke (m); mindestens 1,5 m über dem Gelände |
+| `[camera] look_ahead_m` | `10.0` | Blickpunkt so viele Meter voraus auf der Strecke |
+| `[camera] look_height_m` | `1.2` | Höhe des Blickpunkts über der Strecke (m) |
 
 Steigung als Anteil (0.06 = 6 %, wie `set_grade`). Fehlende Schlüssel → Standardwerte aus `src/ride_config.gd`.
 
@@ -275,8 +301,13 @@ Bridge-Terminal `set_grade … -> not_supported`, Kadenz sinkt bergauf, in der S
 ## Aufbau
 
 ```
-config.cfg              Bus-Adresse, Fahrmodell-Parameter, Strecke
+config.cfg              Bus-Adresse, Fahrmodell-Parameter, Strecke, Kamera
 scenes/main.tscn/.gd    Hauptszene: Strecke laut Konfiguration, Bus-Client → Fahrmodell → Fahrer auf dem Pfad, Kamera, Spielzustände, Tasten, HUD
+scenes/hud.tscn         HUD-Szene (RideHud): Werte-Panel, Minikarte, Rundenfortschritt, Höhenprofil, Meldungen
+src/ride_hud.gd         RideHud: Anzeige der Werte, Rundenfortschritt, readout(); Layout von Hinweis/Debug
+src/hud_gauge.gd        HudGauge: Kadenz-Bogen · src/hud_grade_icon.gd HudGradeIcon: Steigungskeil
+src/hud_profile.gd      HudProfile: Höhenprofil mit Marker (profile_point() als reine Rechnung)
+src/hud_minimap.gd      HudMinimap: Inselkarte mit Strecke, Landmarken, Fahrer-Pfeil (map_point() als reine Rechnung)
 src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeout), status/telemetry parsen, send_message
 src/ride_stats.gd       RideStats: Fahrzeit, Strecke, Ø Kadenz, Ø Tempo (ohne Pausen) – reine Logik
 src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik
