@@ -35,6 +35,8 @@ Container gedacht (`docker-compose.yml`, siehe [Anleitung](../docs/anleitung.md)
 Clients können `set_grade` senden (virtuelle Steigung, ADR-0007). Die Bridge antwortet dem
 Absender mit `ack` (bis zur Widerstandssteuerung `ok: false, reason: "not_supported"`) und
 schreibt eine Zeile ins Terminal, z. B. `set_grade +0.070 (+7.0 %) -> not_supported`.
+Scheitert die Quelle mit einem anderen Fehler, lautet die Antwort `reason: "source_error"`
+(der Fehler steht im Terminal); die Verbindung bleibt offen.
 Der Simulator senkt bergauf die Kadenz (um 2 × Steigung, höchstens auf die Hälfte);
 bei Steigung 0 oder bergab gilt wieder die per Tastatur eingestellte Kadenz.
 Kaputte oder unbekannte Nachrichten werden mit `error` beantwortet (docs/bus-protocol.md).
@@ -128,10 +130,10 @@ Gilt für alle Quellen gleich, auch für den Simulator (ADR-0004):
 
 - **Ausreißer:** Kadenzwerte außerhalb 0–200 rpm werden verworfen (nicht begrenzt); im
   Terminal steht z. B. `Kadenz 800.0 rpm verworfen (außerhalb 0–200 rpm)`.
-- **Glättung:** EMA mit Zeitkonstante 1 s, zeitbasiert (`ema += (1 − e^(−Δt/1 s)) · (wert − ema)`),
+- **Glättung:** EMA mit Zeitkonstante 0,3 s, zeitbasiert (`ema += (1 − e^(−Δt/0,3 s)) · (wert − ema)`),
   nicht pro Sample. Auf den Bus geht der geglättete Wert (0,1 rpm), in die CSV zusätzlich der
   Rohwert (`cadence_raw`). Konstante Kadenz bleibt exakt; nach einer Änderung läuft der Wert in
-  ~1 s zu 63 % nach.
+  ~0,3 s zu 63 % nach.
 - **Kadenz 0:** kommt 2,5 s lang kein neuer Kadenzwert, obwohl Samples kommen (CSC: der
   Sensor wiederholt nur das letzte Kurbel-Event; FTMS: Notifications ohne Kadenzfeld), ist
   die Kadenz 0. FTMS-Kadenz ist ein Momentanwert – jede Notification mit Kadenzfeld ist ein
@@ -145,8 +147,9 @@ Gilt für alle Quellen gleich, auch für den Simulator (ADR-0004):
 Gerechnet wird auf der Zeitachse der Quelle – beim Replay der Aufnahme. Ein Replay liefert
 daher bei jedem `--speed` dieselben Werte; am Bus steht trotzdem die Bridge-Zeit.
 
-Hinweis Simulator: er liefert explizite Werte, auch Kadenz 0. Die geglättete Kadenz fällt
-dann über einige Sekunden gegen 0 (EMA), statt nach 2,5 s auf 0 zu springen.
+Meldet die Quelle ausdrücklich Kadenz 0 (Simulator, FTMS), fällt die geglättete Kadenz
+(EMA) und ist 0, sobald sie unter 1 rpm liegt – von 80 rpm nach ~1,3 s, statt 0 nur
+asymptotisch zu erreichen.
 
 ## Rauschen
 
@@ -186,8 +189,9 @@ Arbeitsverzeichnis, anderer Ort mit `--sessions-dir DIR`. Die Pfade stehen beim 
   Session immer aus beiden Dateien besteht.
 
 Ist einer der beiden Namen schon belegt, bekommen beide `_2`, `_3`, … angehängt. Jede Zeile wird
-sofort geflusht, auch nach Strg+C oder Absturz bleiben lesbare Dateien. `sessions/` ist in
-`.gitignore`.
+sofort geflusht, auch nach Strg+C oder Absturz bleiben lesbare Dateien. Scheitert das Schreiben
+mitten im Lauf (z. B. Platte voll), meldet die Bridge das im Terminal, schreibt für diese Session
+nichts mehr und läuft weiter. `sessions/` ist in `.gitignore`.
 
 ## Testen
 

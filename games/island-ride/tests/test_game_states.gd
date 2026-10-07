@@ -1,5 +1,5 @@
 ## Spielzustände gegen den Fake-Bus: Verbindungsverlust pausiert (keine Kadenz 0), Rückkehr fährt
-## automatisch weiter, Bridge fehlt → Hinweis und neuer Versuch, Pause/Beenden per Taste.
+## automatisch weiter, Bridge fehlt → Hinweis und neuer Versuch, Pause per Taste, Esc öffnet das Menü.
 extends "res://tests/support/bus_test.gd"
 
 const FLAT_M := 20.0
@@ -40,6 +40,27 @@ func test_stale_pauses_and_connected_resumes() -> void:
 	await run_for(0.5)
 	assert_gt(ride.model.distance_m, distance, "fährt wieder")
 	assert_eq(_message(ride), "")
+
+
+func test_silent_bridge_pauses_and_next_message_resumes() -> void:
+	# Bridge hängt bei offenem WebSocket: keine Telemetrie, kein `stale` – das Spiel pausiert selbst.
+	var steps := [FakeBusServer.status()] + FakeBusServer.steady_cadence(90.0, 0.0, 1.5) \
+			+ FakeBusServer.steady_cadence(90.0, 4.0, 7.0)
+	var ride := spawn_ride(start_fake_bus(steps), FLAT_M)
+	ride.bus.silence_timeout_s = 0.8
+	assert_true(await run_until(func(): return ride.state == RIDING, 3.0))
+	assert_true(await run_until(func(): return ride.state == PAUSED_CONNECTION, 3.0), "Schweigen → Pause")
+	assert_true(ride.bus.bus_connected, "WebSocket bleibt offen")
+	assert_string_contains(_message(ride), "Verbindung verloren")
+	var speed: float = ride.model.speed_kmh()
+	var distance: float = ride.model.distance_m
+	assert_gt(speed, 5.0)
+	await run_for(0.5)
+	assert_eq(ride.model.distance_m, distance, "steht während der Pause")
+	assert_eq(ride.model.speed_kmh(), speed, "Schweigen ist keine Kadenz 0 (ADR-0004): kein Ausrollen")
+	assert_true(await run_until(func(): return ride.state == RIDING, 4.0), "neue Telemetrie → fährt weiter")
+	await run_for(0.3)
+	assert_gt(ride.model.distance_m, distance)
 
 
 func test_waits_for_data_after_connected_again() -> void:
@@ -122,8 +143,9 @@ func test_manual_pause_survives_connection_loss() -> void:
 	assert_eq(ride.state, PAUSED_MANUAL, "kein automatisches Weiterfahren aus manueller Pause")
 
 
-func test_escape_requests_quit() -> void:
+func test_escape_opens_menu_instead_of_quitting() -> void:
 	var ride := spawn_ride(start_fake_bus([FakeBusServer.status()]), FLAT_M)
 	watch_signals(ride)
 	await press_key(KEY_ESCAPE)
-	assert_signal_emitted(ride, "quit_requested")
+	assert_signal_not_emitted(ride, "quit_requested", "Esc beendet nicht mehr")
+	assert_true(ride.settings_menu.is_open(), "Esc öffnet das Menü (Beenden dort)")

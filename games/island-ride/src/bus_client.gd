@@ -1,6 +1,11 @@
 ## Client am Bus (docs/bus-protocol.md, ADR-0002): verbindet sich mit der Bridge,
 ## reconnectet nach Abbruch, parst `status`/`telemetry` und stellt den Zustand bereit.
 ##
+## Schweigen: Hängt die Bridge bei offenem WebSocket, kommt kein `stale` mehr von ihr. Kommt bei `connected`
+## länger als `silence_timeout_s` weder `status` noch `telemetry`, gilt die Quelle als `stale` (`silent` = true);
+## die nächste Telemetrie setzt wieder `connected`. Antworten (`ack`/`error`) zählen nicht – sie belegen nur,
+## dass die Bridge auf eigene Nachrichten reagiert, nicht dass Daten fließen.
+##
 ## Kein Node: der Besitzer ruft `poll(delta)` regelmäßig auf (z. B. in `_process`).
 ## Senden an die Bridge (z. B. `set_grade`) läuft über `send_message`; Antworten kommen als `ack_received`.
 class_name BusClient
@@ -19,11 +24,19 @@ const PROTOCOL_VERSION := 0
 const STATE_CONNECTED := "connected"
 const STATE_STALE := "stale"
 const STATE_DISCONNECTED := "disconnected"
+## Schweigen bei `connected`, ab dem das Spiel selbst `stale` annimmt (Sekunden). Die Bridge meldet `stale` per
+## Timer genau 3 s nach dem letzten Sample (ADR-0004); 1 s Reserve, damit ihr `stale` bei laufender Bridge immer
+## zuerst ankommt und nur eine hängende Bridge hier greift.
+const SILENCE_TIMEOUT_S := 4.0
 
 var url: String
 var reconnect_s: float
 ## Höchstdauer eines Verbindungsaufbaus (Sekunden); hängt er länger in CONNECTING, wird neu verbunden.
 var connect_timeout_s: float
+## Schweigen (Sekunden), nach dem eine `connected` gemeldete Quelle als `stale` gilt (siehe SILENCE_TIMEOUT_S).
+var silence_timeout_s := SILENCE_TIMEOUT_S
+## Gilt die Quelle wegen Schweigens als `stale` (nicht von der Bridge gemeldet)?
+var silent := false
 
 ## Letzte gemeldete Kadenz in rpm. Bleibt bei Abbruch stehen – ein Abbruch ist keine
 ## Kadenz 0 (ADR-0004); ob gefahren wird, entscheidet der Besitzer anhand von `status`.
@@ -46,6 +59,7 @@ var bus_connected := false
 var _peer: WebSocketPeer = null
 var _retry_in_s := 0.0
 var _connecting_s := 0.0
+var _silent_s := 0.0
 
 
 func _init(bus_url: String, reconnect_interval_s: float = 2.0, connect_timeout: float = 5.0) -> void:
@@ -99,8 +113,13 @@ func poll(delta_s: float) -> void:
 			if not bus_connected:
 				bus_connected = true
 				bus_connection_changed.emit(true)
+			_silent_s += delta_s
 			while _peer.get_available_packet_count() > 0:
 				_handle(_peer.get_packet().get_string_from_utf8())
+			if status == STATE_CONNECTED and _silent_s > silence_timeout_s:
+				push_warning("BusClient: seit %.1f s keine Daten vom Bus, behandle Quelle als stale" % _silent_s)
+				silent = true
+				_set_status(STATE_STALE)
 		WebSocketPeer.STATE_CLOSED:
 			_lost()
 
@@ -126,6 +145,7 @@ func close() -> void:
 func _open() -> void:
 	_peer = WebSocketPeer.new()
 	_connecting_s = 0.0
+	_silent_s = 0.0
 	var err := _peer.connect_to_url(url)
 	if err != OK:
 		push_warning("BusClient: Verbindung zu %s nicht möglich (Fehler %d)" % [url, err])
@@ -144,6 +164,7 @@ func _set_bus_connected(connected: bool) -> void:
 		bus_connected = connected
 		bus_connection_changed.emit(connected)
 	if not connected:
+		silent = false
 		_set_status(STATE_DISCONNECTED)
 
 
@@ -160,12 +181,18 @@ func _handle(text: String) -> void:
 		return
 	match message.get("type"):
 		"status":
+			_silent_s = 0.0
+			silent = false
 			var src = message.get("source")
 			source = src if src is String else ""
 			var caps = message.get("capabilities")
 			capabilities = PackedStringArray(caps) if caps is Array else PackedStringArray()
 			_set_status(str(message.get("state", STATE_DISCONNECTED)))
 		"telemetry":
+			_silent_s = 0.0
+			if silent:  # Telemetrie gibt es nur bei `connected` (docs/bus-protocol.md)
+				silent = false
+				_set_status(STATE_CONNECTED)
 			var value = message.get("cadence")
 			if value is float:
 				cadence = value

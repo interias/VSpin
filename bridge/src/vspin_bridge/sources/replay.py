@@ -53,7 +53,7 @@ class ReplaySource:
                 await asyncio.sleep(delay)
             yield notification
 
-    async def set_resistance(self, level: float) -> None:
+    async def set_grade(self, grade: float) -> None:
         raise NotSupportedError("Replay hat keine Capability RESISTANCE_CONTROL")
 
 

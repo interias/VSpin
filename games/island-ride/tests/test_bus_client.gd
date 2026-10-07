@@ -31,6 +31,22 @@ func test_follows_status_changes() -> void:
 	assert_signal_emitted_with_parameters(client, "status_changed", ["stale"], 1)
 
 
+func test_silent_bus_counts_as_stale_until_next_message() -> void:
+	# Bridge hängt bei offenem WebSocket: nach 0,5 s kommt nichts mehr – kein `stale` von der Bridge.
+	var bus := start_fake_bus([FakeBusServer.status()] + FakeBusServer.steady_cadence(80.0, 0.0, 0.5)
+			+ [FakeBusServer.telemetry(82.0, 2.5)])
+	var client := connect_client(bus)
+	client.silence_timeout_s = 0.8
+	assert_true(await run_until(func(): return client.cadence == 80.0, 3.0))
+	assert_true(await run_until(func(): return client.status == "stale", 2.0), "Schweigen → wie stale")
+	assert_true(client.silent)
+	assert_true(client.bus_connected, "WebSocket bleibt offen")
+	assert_eq(client.cadence, 80.0, "Schweigen ist keine Kadenz 0 (ADR-0004)")
+	assert_true(await run_until(func(): return client.cadence == 82.0, 3.0))
+	assert_eq(client.status, "connected", "neue Nachricht → wieder connected")
+	assert_false(client.silent)
+
+
 func test_telemetry_without_cadence_keeps_last_value() -> void:
 	var gap := FakeBusServer.telemetry(0.0, 0.3)
 	gap["send"]["cadence"] = null

@@ -20,7 +20,7 @@ Datenaufbereitung (ADR-0004, für alle Quellen gleich):
 
 | Feld | Bedeutung |
 |---|---|
-| `cadence` | rpm, geglättet (EMA, Zeitkonstante 1 s, auf 0,1 gerundet). `null`, solange die Quelle noch keinen Wert hatte (CSC: erst ab dem zweiten Kurbel-Event). `0`, wenn 2,5 s lang kein neuer Wert kam, obwohl Daten kommen (CSC: kein neues Kurbel-Event; FTMS: kein Kadenzfeld). Liefert die Quelle gar keine Kadenz, bleibt sie `null`. Werte außerhalb 0–200 rpm verwirft die Bridge (sie werden nicht begrenzt). |
+| `cadence` | rpm, geglättet (EMA, Zeitkonstante 0,3 s, auf 0,1 gerundet). `null`, solange die Quelle noch keinen Wert hatte (CSC: erst ab dem zweiten Kurbel-Event). `0`, wenn 2,5 s lang kein neuer Wert kam, obwohl Daten kommen (CSC: kein neues Kurbel-Event; FTMS: kein Kadenzfeld). Meldet die Quelle ausdrücklich 0, ist sie `0`, sobald der geglättete Wert unter 1 rpm fällt. Liefert die Quelle gar keine Kadenz, bleibt sie `null`. Werte außerhalb 0–200 rpm verwirft die Bridge (sie werden nicht begrenzt). |
 | `speed_kmh` | km/h, ungeglättet; `null`, wenn die Quelle keine liefert (Simulator, CSC – Radumfang unbekannt). |
 | `power_w` | Watt, ungeglättet; `null` ohne Wert. |
 | `power_estimated` | `true` = geschätzt, `false` = gemessen, `null` ohne `power_w`. Watt vom JC312 (FTMS) sind immer geschätzt. |
@@ -76,6 +76,11 @@ Broadcast. Die Verbindung bleibt danach offen; andere Clients merken nichts davo
 `RESISTANCE_CONTROL` hat, ist die Antwort auf `set_grade` immer
 `ok: false, reason: "not_supported"`. Der Simulator wertet die Steigung trotzdem aus
 (bergauf sinkt die simulierte Kadenz).
+
+| `reason` | Ursache |
+|---|---|
+| `not_supported` | Quelle ohne Capability `RESISTANCE_CONTROL` |
+| `source_error` | Quelle hat den Befehl mit einem Fehler abgelehnt (Details im Bridge-Terminal); die Verbindung bleibt offen |
 
 ### `error`
 

@@ -76,6 +76,7 @@ class DeviceSource(Protocol):
         der Quelle (Simulator: Bridge-Zeit, Replay: Zeit der Aufnahme)."""
         ...
 
-    async def set_resistance(self, level: float) -> None:
-        """Wirft `NotSupportedError` ohne Capability `RESISTANCE_CONTROL`."""
+    async def set_grade(self, grade: float) -> None:
+        """Virtuelle Steigung als Anteil (0.07 = 7 %, Bus `set_grade`, ADR-0007).
+        Wirft `NotSupportedError` ohne Capability `RESISTANCE_CONTROL`."""
         ...

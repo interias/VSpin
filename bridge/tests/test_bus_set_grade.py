@@ -4,6 +4,7 @@ import json
 
 import pytest
 from bridge_harness import receive_json
+from vspin_bridge.sources.sim import SimulatorSource
 
 ACK_FIELDS = {"v", "type", "for", "ok", "reason"}
 ERROR_FIELDS = {"v", "type", "reason", "detail"}
@@ -31,7 +32,7 @@ def reply_to(client, payload, max_messages: int = 40) -> dict:
 
 
 def settled_cadence(client, max_samples: int = 40) -> float:
-    """Kadenz nach einer Änderung: Am Bus ist die Kadenz geglättet (EMA ~1 s, ADR-0004), sie
+    """Kadenz nach einer Änderung: Am Bus ist die Kadenz geglättet (EMA 0,3 s, ADR-0004), sie
     läuft also auf den neuen Wert zu. Abwarten, bis sich drei Samples um < 0,2 rpm
     unterscheiden (Restabstand zum Ziel dann < 0,5 rpm)."""
     cadences: list[float] = []
@@ -129,3 +130,27 @@ def test_bridge_keeps_running_after_broken_messages(bridge_process, bus_client):
     newcomer = connect(bus_client)  # neuer Client: Bus läuft weiter
     assert receive_json(newcomer)["type"] == "telemetry"
     assert bridge.stop() == 0
+
+
+class FailingGradeSource(SimulatorSource):
+    """Simulator, dessen `set_grade` mit einem anderen Fehler als `NotSupportedError` scheitert
+    (z. B. später ein Gerät, das den Befehl nicht annimmt)."""
+
+    async def set_grade(self, grade: float) -> None:
+        raise RuntimeError("Gerät antwortet nicht")
+
+
+def test_source_failure_on_set_grade_is_acked_and_connection_stays_open(in_process_bridge, bus_client):
+    bridge = in_process_bridge(FailingGradeSource(cadence=80))
+    sender, other = connect(bus_client), connect(bus_client)
+
+    ack = reply_to(sender, {"v": 0, "type": "set_grade", "grade": 0.07})
+    assert set(ack) == ACK_FIELDS
+    assert ack == {"v": 0, "type": "ack", "for": "set_grade", "ok": False, "reason": "source_error"}
+    # Verbindung offen: das nächste set_grade wird wieder beantwortet, Telemetrie läuft weiter.
+    assert reply_to(sender, {"v": 0, "type": "set_grade", "grade": 0.03})["reason"] == "source_error"
+    assert receive_json(sender)["type"] == "telemetry"
+    assert {receive_json(other)["type"] for _ in range(4)} == {"telemetry"}  # andere merken nichts
+
+    assert bridge.stop() is None
+    assert "set_grade +0.070 (+7.0 %) -> source_error (Gerät antwortet nicht)" in bridge.log()
