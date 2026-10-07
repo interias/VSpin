@@ -2,6 +2,8 @@
 ## Kadenz vom Bus → Fahrmodell (mit Steigung der Strecke) → Fahrer folgt dem Path3D. Kein Lenken.
 ## Strecke laut Konfiguration (`[world] track`): Insel-Rundkurs mit Insel-Welt (Standard, #14) oder Graybox.
 ## Die Kamera folgt dem Fahrer ruhig: Position hinter ihm auf der Strecke, Blick voraus, beides geglättet.
+## Fahrer und Rad (`Track/Rider/Model`, RiderModel): Kurbel und Beine drehen mit der Kadenz, Räder rollen mit dem
+## Tempo, Schräglage in Kurven, Vorbeuge bergauf; außerhalb von `riding` steht alles still.
 ##
 ## Spielzustände (`state`):
 ##   riding             fahren – Bus verbunden, Quelle `connected` und Daten seit dem letzten Abbruch
@@ -78,6 +80,7 @@ var _ever_connected := false
 
 @onready var track: Track = $Track
 @onready var rider: PathFollow3D = $Track/Rider
+@onready var rider_model: RiderModel = $Track/Rider/Model
 @onready var hud_label: Label = $Hud/Label
 @onready var message_label: Label = $Hud/Message
 @onready var hint_label: Label = $Hud/Hint
@@ -109,6 +112,7 @@ func _process(delta: float) -> void:
 		_ride(delta)
 	_report_grade(delta)
 	_update_view()
+	_update_rider(delta)
 	_update_camera(delta)
 
 
@@ -193,6 +197,13 @@ func lap_time_s() -> float:
 ## Aktuelle Steigung an der Position des Fahrers (Anteil).
 func current_grade() -> float:
 	return track.grade_at(model.distance_m)
+
+
+## Krümmung der Strecke an der Position des Fahrers (1/m, positiv = Linkskurve).
+func current_curvature() -> float:
+	var d := model.distance_m
+	return RiderMotion.signed_curvature(track.position_at(d - RiderMotion.CURVE_SAMPLE_M), track.position_at(d),
+			track.position_at(d + RiderMotion.CURVE_SAMPLE_M))
 
 
 ## Steigung (Anteil) für die Anzeige, z. B. 0.06 → "+6.0 %", flach → "0.0 %".
@@ -334,6 +345,11 @@ func _register_key_bindings() -> void:
 			var event := InputEventKey.new()
 			event.physical_keycode = key
 			InputMap.action_add_event(action, event)
+
+
+## Pose von Fahrer und Rad: Kadenz und Tempo wie gefahren, Pause in jedem Zustand außer `riding`.
+func _update_rider(delta: float) -> void:
+	rider_model.update(bus.cadence, model.speed_mps, current_grade(), current_curvature(), state != STATE_RIDING, delta)
 
 
 func _update_view() -> void:
