@@ -28,8 +28,9 @@ Im Bridge-Terminal: Pfeil hoch/runter = Kadenz ±5, `q` = beenden. Profile liege
 Das echte Rad (`--source ble`) folgt mit #9.
 
 **3. Spiel starten:** Godot öffnen → `games/island-ride/project.godot` importieren → F5,
-oder `godot --path games/island-ride`. Tasten: `P`/Leertaste Pause, `F3` Debug-Anzeige, `F2` Grafik und Fenster
-(Kantenglättung, Auflösung, Fenster auf linke/rechte Bildschirmhälfte), `F11` Vollbild, `Esc` Ende.
+oder `godot --path games/island-ride`. Tasten: `P`/Leertaste Pause, `F3` Debug-Anzeige, `Esc` oder `F2` Menü
+(Kantenglättung, Auflösung, Fenster auf linke/rechte Bildschirmhälfte, Tageszeit, Wetter; Knopf „Beenden“ zum
+Beenden), `F11` Vollbild.
 Reihenfolge egal – das Spiel verbindet sich, sobald die Bridge läuft.
 
 **4. Protokoll des Rads herausfinden** (sobald das JC312 da ist): siehe [`tools/README.md`](../tools/README.md).
@@ -85,9 +86,10 @@ startet die Container-Bridge mit und belegt Port 8765).
 
 ## Latenz prüfen (Abnahme < 200 ms)
 
-Die Debug-Anzeige (`F3`) zeigt Roh-Kadenz, Bridge-Zeitstempel und das Alter der letzten Nachricht im Spiel –
-das ist nur der Anteil Bus → Spiel. Die Gesamtlatenz Kurbel → Bild misst man am einfachsten mit einer
+Die Debug-Anzeige (`F3`) zeigt Roh-Kadenz, Bridge-Zeitstempel und „Letzte Telemetrie vor … ms“ – die Zeit, seit
+die letzte Nachricht im Spiel angekommen ist. Sie zeigt nur, ob Daten vom Bus stocken (Anteil Bus → Spiel), nicht
+die Latenz Kurbel → Bild. Die Gesamtlatenz Kurbel → Bild misst man am einfachsten mit einer
 Zeitlupen-Aufnahme (Handy, 240 fps): Kurbel und Bildschirm gleichzeitig filmen, aus dem Stand kräftig antreten
 und die Frames zwischen erster Kurbelbewegung und erster Reaktion im HUD zählen (1 Frame ≈ 4 ms).
-Hinweis: Das Rad selbst sendet typischerweise nur ca. 1–4 Mal pro Sekunde, und die Glättung (1 s) verzögert
+Hinweis: Das Rad selbst sendet typischerweise nur ca. 1–4 Mal pro Sekunde, und die Glättung (0,3 s) verzögert
 zusätzlich – das Ergebnis zeigt, ob Glättung oder Senderate angepasst werden müssen.

@@ -143,7 +143,7 @@ func _layout_in(viewport_size: Vector2i, canvas_size: Vector2i = Vector2i.ZERO) 
 	hud.show_lap(4000.0, 0.0, 9210.0, 4000.0)
 	(hud.get_node("Hint") as Label).text = "Widerstand: nicht unterstützt"
 	(hud.get_node("Debug") as Label).text = \
-			"DEBUG\nKadenz roh: 72.5\nt_ms: 123456\nAlter: 120 ms\nBus: verbunden · Quelle: connected (sim)"
+			"DEBUG\nKadenz roh: 72.5\nt_ms: 123456\nLetzte Telemetrie vor: 120 ms\nBus: verbunden · Quelle: connected (sim)"
 	hud.get_node("Debug").visible = true
 	(hud.get_node("Message") as Label).text = LONG_MESSAGE
 	hud.get_node("Message").visible = true

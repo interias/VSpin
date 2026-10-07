@@ -1,4 +1,4 @@
-## Menü „Grafik und Fenster“: F2 öffnet/schließt in der Hauptszene, Esc schließt erst das Menü, Auswahl wirkt
+## Menü „Grafik und Fenster“: F2 und Esc öffnen/schließen es in der Hauptszene, Beenden nur über den Knopf, Auswahl wirkt
 ## sofort und wird gespeichert, im Browser keine Fensteroptionen.
 extends "res://tests/support/bus_test.gd"
 
@@ -32,15 +32,32 @@ func test_f2_opens_and_closes_menu() -> void:
 	assert_false(ride.settings_menu.is_open(), "F2 schließt")
 
 
-func test_escape_closes_menu_before_quitting() -> void:
+func test_escape_opens_and_closes_menu_without_quitting() -> void:
 	var ride := spawn_ride(start_fake_bus([FakeBusServer.status()]))
 	watch_signals(ride)
-	await press_key(KEY_F2)
+	await run_for(0.1)
 	await press_key(KEY_ESCAPE)
-	assert_false(ride.settings_menu.is_open(), "Esc schließt das Menü")
+	assert_true(ride.settings_menu.is_open(), "Esc öffnet das Menü")
 	assert_signal_not_emitted(ride, "quit_requested", "… und beendet nicht")
 	await press_key(KEY_ESCAPE)
-	assert_signal_emitted(ride, "quit_requested")
+	assert_false(ride.settings_menu.is_open(), "Esc schließt das Menü")
+	await press_key(KEY_F2)
+	await press_key(KEY_ESCAPE)
+	assert_false(ride.settings_menu.is_open(), "mit F2 geöffnet, mit Esc geschlossen")
+	assert_signal_not_emitted(ride, "quit_requested", "Esc beendet nie")
+
+
+func test_quit_button_requests_quit() -> void:
+	var ride := spawn_ride(start_fake_bus([FakeBusServer.status()]))
+	watch_signals(ride)
+	await press_key(KEY_ESCAPE)
+	var quit: Button = ride.settings_menu.find_child("Quit", true, false)
+	assert_not_null(quit, "Knopf „Beenden“ im Menü")
+	assert_eq(quit.text, "Beenden")
+	assert_true(quit.is_visible_in_tree())
+	assert_eq(quit.focus_mode, Control.FOCUS_NONE, "Beenden nur per Klick, nie per Leertaste/Enter")
+	quit.pressed.emit()
+	assert_signal_emitted(ride, "quit_requested", "Beenden über den Knopf")
 
 
 func test_pause_message_mentions_menu() -> void:
@@ -84,6 +101,7 @@ func test_web_hides_window_options() -> void:
 	assert_false(menu.options["upscaler"].visible, "kein FSR im Compatibility-Renderer")
 	assert_true(menu.options["render_scale"].visible, "Render-Auflösung bleibt")
 	assert_eq(menu.options["aa"].item_count, GraphicsSettings.AA_MODES_COMPATIBILITY.size(), "nur MSAA")
+	assert_false(menu.find_child("Quit", true, false).visible, "Beenden gibt es im Browser nicht")
 
 
 ## Hauptszene mit eigener Einstellungsdatei; `config.cfg [sky]` hier: feste 13 Uhr, klar.

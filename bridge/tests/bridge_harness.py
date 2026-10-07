@@ -3,16 +3,21 @@
 Die Bridge läuft als echter Prozess (`python -m vspin_bridge ...`), Tests hängen
 Test-Clients an den Bus und prüfen nur das dort beobachtbare Verhalten.
 Spätere Pakete übernehmen `bridge_process` bzw. `BridgeProcess` für andere Quellen.
+Nur wo eine Quelle oder das Dateisystem gezielt Fehler werfen muss, läuft die Bridge im
+Testprozess (`InProcessBridge`) – geprüft wird auch dann nur am Bus und im Terminal.
 """
 
+import asyncio
 import contextlib
 import csv
+import io
 import json
 import os
 import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -159,6 +164,60 @@ class BridgeProcess:
 
     def log(self) -> str:
         return self.log_path.read_text(encoding="utf-8", errors="replace")
+
+
+class InProcessBridge:
+    """Bridge im Testprozess (eigener Thread mit Event-Loop) mit einer vom Test gebauten Quelle,
+    z. B. einer, die bei `set_grade` einen Fehler wirft. Terminal-Ausgabe in `log()`; `stop()`
+    liefert die Ausnahme, mit der `Bridge.run` endete (`None` = sauber beendet)."""
+
+    def __init__(self, source, sessions_dir: Path) -> None:
+        self.source = source
+        self.sessions_dir = sessions_dir
+        self.error: BaseException | None = None
+        self._output = io.StringIO()
+        self._thread: threading.Thread | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._stop: asyncio.Event | None = None
+
+    def start(self) -> None:
+        wait_until(lambda: not port_open(), STOP_TIMEOUT_S, f"Port {PORT} wird frei")
+        self._thread = threading.Thread(target=self._main, daemon=True)
+        self._thread.start()
+
+        def ready() -> bool:
+            if not self._thread.is_alive():
+                raise RuntimeError(f"Bridge vorzeitig beendet ({self.error!r}):\n{self.log()}")
+            return port_open()
+
+        wait_until(ready, START_TIMEOUT_S, f"Bus auf {BUS_URL}")
+
+    def _main(self) -> None:
+        from vspin_bridge.app import Bridge
+        from vspin_bridge.console import Console
+
+        async def main() -> None:
+            self._loop, self._stop = asyncio.get_running_loop(), asyncio.Event()
+            await Bridge(self.source, Console(self._output), self.sessions_dir).run(self._stop)
+
+        try:
+            asyncio.run(main())
+        except BaseException as exc:  # Ergebnis für `stop()` – der Test prüft es
+            self.error = exc
+
+    def stop(self) -> BaseException | None:
+        if self._thread is None:
+            return self.error
+        if self._thread.is_alive() and self._loop is not None:
+            self._loop.call_soon_threadsafe(self._stop.set)
+        self._thread.join(STOP_TIMEOUT_S)
+        assert not self._thread.is_alive(), "Bridge im Testprozess endet nicht"
+        self._thread = None
+        wait_until(lambda: not port_open(), STOP_TIMEOUT_S, f"Port {PORT} nach Stopp frei")
+        return self.error
+
+    def log(self) -> str:
+        return self._output.getvalue()
 
 
 def receive_json(client: ClientConnection, timeout_s: float = 3.0) -> dict:
