@@ -4,6 +4,7 @@
 ## Die Kamera folgt dem Fahrer ruhig: Position hinter ihm auf der Strecke, Blick voraus, beides geglättet.
 ## Fahrer und Rad (`Track/Rider/Model`, RiderModel): Kurbel und Beine drehen mit der Kadenz, Räder rollen mit dem
 ## Tempo, Schräglage in Kurven, Vorbeuge bergauf; außerhalb von `riding` steht alles still.
+## Grafik und Fenster: eigenes Menü (`settings_menu`, F2/F11), hier nur eingehängt.
 ##
 ## Spielzustände (`state`):
 ##   riding             fahren – Bus verbunden, Quelle `connected` und Daten seit dem letzten Abbruch
@@ -37,7 +38,11 @@ const KEY_BINDINGS := {
 	"ride_pause": [KEY_P, KEY_SPACE],
 	"ride_quit": [KEY_ESCAPE],
 	"ride_debug": [KEY_F3],
+	"ride_settings": [KEY_F2],
+	"ride_fullscreen": [KEY_F11],
 }
+## Menü „Grafik und Fenster“ (F2, F11; siehe `scenes/settings_menu.gd`).
+const SETTINGS_MENU := preload("res://scenes/settings_menu.tscn")
 ## Kamera: Abstand hinter dem Fahrer (entlang der Strecke), Höhe, Blickpunkt voraus, Glättung (Zeitkonstante).
 const CAMERA_BEHIND_M := 9.0
 const CAMERA_HEIGHT_M := 3.5
@@ -56,6 +61,9 @@ var config: RideConfig = null
 @export var start_distance_m := 0.0
 ## Beendet das Spiel bei `ride_quit`; Tests schalten das ab und beobachten `quit_requested`.
 @export var quit_on_request := true
+## Grafik-/Fenstereinstellungen; "" = Standardwerte, nichts speichern, Fenster unberührt (Tests, Probe).
+var settings_path := GraphicsSettings.DEFAULT_PATH
+var settings_menu: CanvasLayer
 
 var bus: BusClient
 var model: RideModel
@@ -92,6 +100,9 @@ func _ready() -> void:
 	if config == null:
 		config = RideConfig.load_file()
 	_register_key_bindings()
+	settings_menu = SETTINGS_MENU.instantiate()
+	settings_menu.settings_path = settings_path
+	add_child(settings_menu)
 	_setup_track()
 	bus = BusClient.from_config(config)
 	bus.telemetry_received.connect(_on_telemetry)
@@ -237,7 +248,7 @@ func status_message() -> String:
 			return "Ziel erreicht!\nZeit: %s\nØ Kadenz: %d rpm\nØ Tempo: %.1f km/h\nEsc: beenden" % [
 					format_time(lap_time_s(), true), roundi(stats.avg_cadence()), stats.avg_speed_kmh()]
 		STATE_PAUSED_MANUAL:
-			return "Pause\nP / Leertaste: weiter · Esc: beenden"
+			return "Pause\nP / Leertaste: weiter · Esc: beenden\nF2: Grafik und Fenster"
 		STATE_PAUSED_CONNECTION:
 			var text: String
 			if not bus.bus_connected:

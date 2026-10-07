@@ -33,7 +33,8 @@ Im Bridge-Terminal: Pfeil hoch/runter = Kadenz ±5, `q` = beenden. Profile liege
 Das echte Rad (`--source ble`) folgt mit #9.
 
 **3. Spiel starten:** Godot öffnen → `games/island-ride/project.godot` importieren → F5,
-oder `godot --path games/island-ride`. Tasten: `P`/Leertaste Pause, `F3` Debug-Anzeige, `Esc` Ende.
+oder `godot --path games/island-ride`. Tasten: `P`/Leertaste Pause, `F3` Debug-Anzeige, `F2` Grafik und Fenster
+(Kantenglättung, Auflösung, Fenster auf linke/rechte Bildschirmhälfte), `F11` Vollbild, `Esc` Ende.
 Reihenfolge egal – das Spiel verbindet sich, sobald die Bridge läuft.
 
 **4. Protokoll des Rads herausfinden** (sobald das JC312 da ist): siehe [`tools/README.md`](tools/README.md).

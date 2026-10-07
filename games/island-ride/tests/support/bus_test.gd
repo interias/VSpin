@@ -57,6 +57,7 @@ func spawn_ride(bus: FakeBusServer, start_m: float = 0.0, config: RideConfig = n
 	ride.config = config if config != null else config_for(bus)
 	ride.start_distance_m = start_m
 	ride.quit_on_request = false
+	ride.settings_path = ""  # nie die echten Grafikeinstellungen lesen/schreiben
 	add_child_autofree(ride)
 	return ride
 

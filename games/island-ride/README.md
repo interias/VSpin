@@ -122,6 +122,8 @@ Reihenfolge egal: Startet das Spiel zuerst, zeigt es „Bridge nicht erreichbar 
 | `P` oder Leertaste | Pause an/aus (jederzeit) |
 | `Esc` | Spiel beenden (jederzeit) |
 | `F3` | Debug-Anzeige an/aus |
+| `F2` | Menü „Grafik und Fenster“ auf/zu (auch aus der Pause; `Esc` schließt es zuerst) |
+| `F11` | Vollbild an/aus (nicht im Browser) |
 
 Physische Tastenposition (gleich auf QWERTZ/QWERTY); definiert in `scenes/main.gd` (`KEY_BINDINGS`).
 
@@ -156,6 +158,37 @@ Telemetrie, wie empfangen – ungerundet), **t_ms** (Bridge-Zeitstempel der letz
 der letzten Telemetrie in ms (seit Empfang im Spiel; bei 4 Hz Bridge-Takt pendelt es zwischen 0 und ~250 ms
 – dauerhaft mehr heißt: Daten stocken), dazu Bus-Verbindung, Status und Quelle. Prüfen: Kadenz in der
 Bridge ändern und schauen, wann „Kadenz roh“ und `t_ms` nachziehen.
+
+### Grafik und Fenster (`F2`)
+
+Das Menü wirkt sofort und speichert jede Änderung in `user://settings.cfg` – unter Windows
+`%APPDATA%\Godot\app_userdata\Inselfahrt\settings.cfg` (getrennt von `config.cfg`; Datei löschen = Standardwerte).
+Das Spiel läuft weiter, solange das Menü offen ist.
+
+| Option | Auswahl | Standard |
+|---|---|---|
+| Kantenglättung | Aus, FXAA, MSAA 2×/4×/8×, TAA | MSAA 4× – glättet die Kanten der Low-Poly-Welt scharf und ohne Nachziehen; FXAA macht weich, TAA verschmiert bei Kamerafahrt leicht |
+| Render-Auflösung | 50–200 % der Fenstergröße (3D; HUD bleibt scharf) | 100 % |
+| Skalierung | Bilinear, AMD FSR 1, AMD FSR 2 (FSR 2 glättet selbst, TAA entfällt dann) | Bilinear |
+| VSync | An, Aus | An |
+| fps-Limit | Ohne, 30, 60, 120, 144 | Ohne |
+| Schatten | Niedrig/Mittel/Hoch (Schattenatlas 2048/4096/8192, Weichzeichnung) | Mittel (wie bisher) |
+| Fenstermodus | Fenster (mit Rahmen, frei skalierbar), Randloses Fenster, Vollbild | Fenster 1600 × 900, mittig |
+| Fenstergröße | 960 × 1040, 1280 × 720, 1600 × 900, 1920 × 1080, 2560 × 1440 (im Vollbild: Bildschirmauflösung) | 1600 × 900 |
+
+„Vollbild“ ist randloses Vollbild über den ganzen Bildschirm, kein exklusiver Modus: Alt+Tab zu einer anderen App
+geht ohne Umschalten des Bildschirmmodus. Modus, Größe und Position des Fensters werden beim Beenden gemerkt – auch
+wenn es von Hand gezogen oder per Windows-Snap verschoben wurde (liegt die Position auf keinem Bildschirm mehr,
+startet es mittig).
+
+**Neben einer anderen App (z. B. Musik):** im Menü „Rechte Hälfte“ bzw. „Linke Hälfte“ – das Fenster füllt
+diese Hälfte der Arbeitsfläche (ohne Taskleiste) des aktuellen Bildschirms, Rahmen eingerechnet; aus dem Vollbild
+geht es dabei zurück ins Fenster. Alternativ wie gewohnt Win+←/→. HUD, Meldungen und Debug-Anzeige bleiben im
+schmalen Hochformat lesbar (die Mittelmeldung bricht um), die 3D-Sicht wird nicht verzerrt (vertikaler Blickwinkel
+fest, seitlich sieht man entsprechend weniger). Ohne Fokus läuft das Spiel mit voller Bildrate weiter.
+
+Im Browser (Web-Export) gibt es keine Fensteroptionen und kein VSync (steuert der Browser); der Compatibility-
+Renderer kann nur MSAA und bilineare Skalierung, das Menü bietet dort nur diese an.
 
 ### Runde und Ziel
 
@@ -284,6 +317,8 @@ src/ride_model.gd       RideModel: reine Logik (Kadenz, Steigung, Δt, Konfig �
 src/rider_motion.gd     RiderMotion: Kurbel-/Radwinkel, Schräglage, Vorbeuge, Glieder-IK – reine Logik
 src/rider_model.gd      RiderModel: Fahrer und Rennrad aus Grundkörpern, Pose aus RiderMotion
 src/ride_config.gd      RideConfig: liest config.cfg
+src/graphics_settings.gd GraphicsSettings: Grafik-/Fenstereinstellungen (user://settings.cfg), Anwenden, Fensterhälften
+scenes/settings_menu.*  Menü „Grafik und Fenster“ (F2, F11), von der Hauptszene eingehängt
 src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz), stations, station_at(), road_mesh()
 src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil, Stationen (reine Daten/Logik)
 src/island_terrain.gd   IslandTerrain: Höhenfeld (prozedural oder Höhenkarte), unter die Straße geformt, Mesh
@@ -291,7 +326,7 @@ src/island_world.gd     IslandWorld: Gelände, Meer, Fahrbahn, Stationsmarker, D
 src/island_landmarks.gd IslandLandmarks: Sehenswürdigkeiten und Kleindetails (G2), Platzierungsdaten für Tests
 src/graybox_track.gd    GrayboxTrack: Rundkurs ~900 m, flach → +6 % → Kuppe → −6 % → flach (`[world] track="graybox"`)
 tests/                  GUT-Tests, support/ (Fake-Bus, Basisklasse, Hook), fixtures/
-tools/                  E2E-Prüfhilfe gegen die echte Bridge, Sichtprüfung/fps (view_probe.gd)
+tools/                  E2E-Prüfhilfe gegen die echte Bridge, Sichtprüfung/fps (view_probe.gd), Fenstermodi (window_probe.gd)
 addons/gut/             GUT 9.4.0 (MIT, Lizenz in addons/gut/LICENSE.md)
 assets/kenney/          Low-Poly-Modelle (CC0) für alle Stationen
 ASSETS.md               Asset-Nachweis und Lizenzregel
