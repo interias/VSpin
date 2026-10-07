@@ -12,6 +12,8 @@
 ##   Props     je Station ein Node3D (Name = id) mit der Deko
 ##   Segments  je Segment ein Torbogen am Start (Name = id, #33)
 ##   Landmarks Sehenswürdigkeiten (Leuchtturm, Talaia, Ermita, …), Details Kleindetails – siehe IslandLandmarks (G2)
+##   Vegetation Gras, Unterholz und Sträucher je Station; Gelände und Fahrbahn mit Detailtextur – siehe
+##             IslandVegetation (#38)
 ##   Motion    bewegte Szenen und Effekte (Windmühlen, Leuchtturm, Boote, Vögel, Wolken) – siehe WorldMotion (G3);
 ##             Meer und Vegetation bekommen dort ihre Shader (Wellen/Brandung, Wind)
 class_name IslandWorld
@@ -66,8 +68,12 @@ const CYPRESS_COLORS := {
 var terrain: IslandTerrain
 var track: Track
 var landmarks: IslandLandmarks
+## Gras, Unterholz und Sträucher entlang der Strecke (#38), Kind `Vegetation`.
+var vegetation: IslandVegetation
 ## Bewegte Szenen und Effekte (G3), Kind `Motion`.
 var motion: WorldMotion
+## Compatibility-Renderer (Web)? Dann wird die Vegetation abgespeckt (#38); vor `build()` injizierbar (Tests).
+var compatibility := SkyController.is_compatibility_renderer()
 
 static var _terrain_mesh: ArrayMesh = null
 static var _models := {}
@@ -80,16 +86,19 @@ func build(course_track: Track) -> void:
 	terrain = IslandTerrain.for_course()
 	if _terrain_mesh == null:
 		_terrain_mesh = terrain.build_mesh()
-	_add_mesh("Terrain", _terrain_mesh, _vertex_color_material())
+	var ground := _add_mesh("Terrain", _terrain_mesh, _vertex_color_material())
 	var sea := PlaneMesh.new()
 	sea.size = Vector2(SEA_SIZE_M, SEA_SIZE_M)
 	_add_mesh("Sea", sea, WorldMotion.sea_material(terrain))
-	_add_mesh("Road", track.road_mesh(), _vertex_color_material())
+	var road := _add_mesh("Road", track.road_mesh(), _vertex_color_material())
+	IslandVegetation.texture_ground(ground.material_override, road.material_override)
 	_build_stations()
 	_build_props()
 	_build_segment_gates()
 	landmarks = IslandLandmarks.new(self)
 	landmarks.build()
+	vegetation = IslandVegetation.new(self)
+	vegetation.build()
 	motion = WorldMotion.new()
 	add_child(motion)
 	motion.setup(self)
