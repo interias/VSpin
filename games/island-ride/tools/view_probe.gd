@@ -4,9 +4,13 @@
 ##   godot --path games/island-ride -s res://tools/view_probe.gd -- --out=C:/tmp/shots [--shots=0,200,450]
 ##         [--fps-from=0 --fps-to=2310 --speed-kmh=50] [--size=1920x1080] [--cadence=85] [--close] [--pair]
 ##         [--advance=1.5]
+##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--menu] [--crop=x,y,w,h]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
-## (ohne Bridge stünde dort die Verbindungsmeldung). VSync wie im Projekt (Standard: an).
+## (ohne Bridge stünde dort die Verbindungsmeldung), außer mit `--hud` (dann samt Debug-Anzeige); `--menu` öffnet
+## das Grafikmenü. Grafik wie bei einem frischen Start (GraphicsSettings-Standard, `user://settings.cfg` bleibt
+## unberührt); `--aa`/`--scale`/`--upscaler`/`--vsync=off` überschreiben. `--crop`: zusätzlich Bildausschnitt
+## `crop_<m>.png` (z. B. für den AA-Vergleich).
 ## Fahrer und Rad treten mit `--cadence` (rpm, 0 = Stillstand): die Hauptszene füttert ohne Bus nur eine Attrappe
 ## (sie steht in der Verbindungspause), die Probe bewegt das echte Modell. Vor jedem Screenshot 1 s Tritt.
 ## `--close`: zusätzlich Nahaufnahmen je Position (`close_<m>_side.png`, `close_<m>_rear.png`, Kamera nur hier
@@ -19,6 +23,8 @@ var _ride: Node3D
 ## Echtes Fahrer-/Radmodell in der Szene und Kadenz, mit der es tritt.
 var _model: RiderModel
 var _cadence := 85.0
+## Bildausschnitt für `crop_<m>.png` (leer = keiner).
+var _crop := Rect2i()
 
 
 func _initialize() -> void:
@@ -31,6 +37,9 @@ func _initialize() -> void:
 	var close := false
 	var pair := false
 	var advance := 0.0
+	var hud := false
+	var menu := false
+	var graphics := GraphicsSettings.new()
 	for arg in OS.get_cmdline_user_args():
 		var value := arg.get_slice("=", 1)
 		if arg.begins_with("--out="):
@@ -54,15 +63,36 @@ func _initialize() -> void:
 			pair = true
 		elif arg.begins_with("--advance="):
 			advance = float(value)
+		elif arg.begins_with("--aa="):
+			graphics.aa = value
+		elif arg.begins_with("--scale="):
+			graphics.render_scale = float(value)
+		elif arg.begins_with("--upscaler="):
+			graphics.upscaler = value
+		elif arg == "--vsync=off":
+			graphics.vsync = false
+		elif arg == "--hud":
+			hud = true
+		elif arg == "--menu":
+			menu = true
+		elif arg.begins_with("--crop="):
+			var p := value.split(",")
+			_crop = Rect2i(int(p[0]), int(p[1]), int(p[2]), int(p[3]))
 	DisplayServer.window_set_size(size)
 	var config := RideConfig.load_file()
 	config.track = RideConfig.TRACK_ISLAND
 	_ride = load("res://scenes/main.tscn").instantiate()
 	_ride.config = config
+	_ride.settings_path = ""
 	root.add_child(_ride)
-	_ride.get_node("Hud").visible = false
+	_ride.get_node("Hud").visible = hud
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	await _frames(10)
+	_ride.settings_menu.settings = graphics  # erst nach `_ready` der Hauptszene vorhanden
+	_ride.settings_menu.apply()
+	_ride.debug_label.visible = hud
+	if menu:
+		_ride.settings_menu.open()
 	_model = _ride.rider_model  # erst nach `_ready` der Hauptszene gesetzt
 	var dummy := RiderModel.new()
 	_ride.rider_model = dummy
@@ -87,7 +117,10 @@ func _initialize() -> void:
 
 
 func _save(path: String) -> void:
-	root.get_texture().get_image().save_png(path)
+	var image := root.get_texture().get_image()
+	image.save_png(path)
+	if _crop.has_area() and path.get_file().begins_with("shot_"):
+		image.get_region(_crop).save_png(path.get_base_dir().path_join(path.get_file().replace("shot_", "crop_")))
 	print("SHOT %s station=%s crank=%.0f° lean=%.1f° bend=%.1f°" % [path, _ride.current_station(),
 		rad_to_deg(_model.motion.crank_angle), rad_to_deg(_model.motion.lean), rad_to_deg(_model.motion.bend)])
 
