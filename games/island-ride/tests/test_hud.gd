@@ -253,3 +253,38 @@ func test_segment_live_time_fits_between_panels() -> void:
 		for other in ["%Stats", "%Bottom", "Hint"]:
 			assert_false(rect.intersects((hud.get_node(other) as Control).get_global_rect()), "%s: frei von %s" % [size, other])
 		assert_false(rect.intersects(hud.get_node("%Minimap").get_parent().get_global_rect()), "%s: frei von der Karte" % size)
+
+
+## Training (#37): Zeile mit Phase, Zielkadenz, Restzeit und nächster Phase im unteren Panel, die Ansage groß darüber.
+func test_training_line_and_announcement_fit() -> void:
+	for size in [Vector2i(960, 1040), Vector2i(1920, 1080), Vector2i(1600, 900), Vector2i(1152, 648)]:
+		var hud := await _layout_in(size)
+		hud.get_node("Message").hide()
+		hud.show_segment("", "")  # im Training keine Segmente
+		hud.show_ghost("", false)
+		hud.show_training("Tempo-Block 3/3", "85–90 rpm", "12:34", "Erholung 2/2 · 75–85 rpm")
+		hud.show_announcement("In 10 s: Widerstand 2 Stufen hoch, 85–90 rpm halten")
+		await wait_process_frames(2)
+		var readout := hud.readout()
+		for line in ["Phase: Tempo-Block 3/3", "Zielkadenz: 85–90 rpm", "Restzeit: 12:34", "Danach: Erholung 2/2 · 75–85 rpm",
+				"Ansage: In 10 s: Widerstand 2 Stufen hoch, 85–90 rpm halten"]:
+			assert_string_contains(readout, line)
+		var screen: Rect2 = hud.get_node("Layout").get_viewport_rect()
+		var announcement: Rect2 = (hud.get_node("%Announcement") as Control).get_global_rect()
+		var training: Rect2 = (hud.get_node("%Training") as Control).get_global_rect()
+		assert_true(screen.encloses(announcement), "%s: Ansage im Fenster" % size)
+		assert_true(hud.get_node("%Bottom").get_global_rect().encloses(training), "%s: Zeile im unteren Panel" % size)
+		for label in ["%PhaseValue", "%TargetValue", "%RemainingValue", "%NextValue"]:
+			var rect: Rect2 = (hud.get_node(label) as Control).get_global_rect()
+			assert_true(training.grow(0.5).encloses(rect), "%s: %s in der Zeile" % [size, label])
+		if size.y >= 900:  # 1152×648: zwischen den Panels sind nur ~100 px frei (wie beim Ergebnis, siehe #33)
+			_assert_inside(hud, "%s Training" % size)
+			for other in ["%Stats", "%Bottom", "%Celebration"]:
+				var rect: Rect2 = (hud.get_node(other) as Control).get_global_rect()
+				assert_false(announcement.intersects(rect), "%s: Ansage frei von %s" % [size, other])
+			assert_false(announcement.intersects(hud.get_node("%Minimap").get_parent().get_global_rect()),
+					"%s: Ansage frei von der Karte" % size)
+		hud.show_training("", "", "", "")
+		hud.show_announcement("")
+		await wait_process_frames(1)
+		assert_false(hud.readout().contains("Phase:") or hud.readout().contains("Ansage:"), "%s: ausgeblendet" % size)

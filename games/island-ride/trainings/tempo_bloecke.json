@@ -1,0 +1,20 @@
+{
+	"name": "Tempo-Blöcke",
+	"description": "3 × 8 min bei 85–90 rpm",
+	"phases": [
+		{"name": "Aufwärmen", "kind": "warmup", "duration_s": 360, "cadence_rpm": [80, 90],
+			"announcement": "Widerstand leicht, bei 85 rpm einrollen"},
+		{"name": "Tempo-Block 1/3", "kind": "work", "duration_s": 480, "cadence_rpm": [85, 90],
+			"announcement": "Widerstand 2 Stufen hoch, 85–90 rpm halten"},
+		{"name": "Erholung 1/2", "kind": "recovery", "duration_s": 180, "cadence_rpm": [75, 85],
+			"announcement": "Widerstand 2 Stufen runter, locker 80 rpm"},
+		{"name": "Tempo-Block 2/3", "kind": "work", "duration_s": 480, "cadence_rpm": [85, 90],
+			"announcement": "Widerstand 2 Stufen hoch, 85–90 rpm halten"},
+		{"name": "Erholung 2/2", "kind": "recovery", "duration_s": 180, "cadence_rpm": [75, 85],
+			"announcement": "Widerstand 2 Stufen runter, locker 80 rpm"},
+		{"name": "Tempo-Block 3/3", "kind": "work", "duration_s": 480, "cadence_rpm": [85, 90],
+			"announcement": "Widerstand 2 Stufen hoch, 85–90 rpm halten"},
+		{"name": "Ausrollen", "kind": "cooldown", "duration_s": 240, "cadence_rpm": [70, 80],
+			"announcement": "Widerstand ganz runter, bei 75 rpm ausrollen"}
+	]
+}

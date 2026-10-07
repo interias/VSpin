@@ -55,6 +55,14 @@
 ## Am Fahrtende werden Strecke und Runden gesamt noch einmal geprüft (ein älterer Spielstand zieht so nach); das Ergebnis
 ## nennt die neuen Erfolge und das neue Level. Das Level schaltet nur Kosmetik frei (ADR-0010) und wirkt nicht auf die
 ## Fahrt. Das Fahrtenbuch (`scenes/logbook.gd`) öffnet aus dem Startmenü.
+##
+## Training (#37): „Fahren → Training“ startet eine Einheit (Training, aus `res://trainings`) als eigenen Modus
+## (SaveGame.MODE_TRAINING). Die Insel läuft endlos (Rundenwertung mit 0 Runden); das HUD zeigt Phase, Zielkadenz,
+## Restzeit und nächste Phase, dazu rechtzeitig die Ansage zum Widerstandsknopf. Die Einheit wertet nur die Kadenz
+## (ADR-0010). Nach dem Ausrollen endet die Fahrt mit der Bewertung je Phase und gesamt; „Fahrt beenden“ vorher zeigt die
+## Teilbewertung der gefahrenen Phasen. Runden im Training zählen nicht für Bestzeit, Medaillen, Segmente und Ghost –
+## die Vorgabe wechselt, die Runden wären nicht vergleichbar. Ein zu Ende gefahrenes Training meldet `training_finished`
+## an die Erfolge; Name und Gesamtbewertung der Einheit stehen im Fahrteintrag.
 extends Node3D
 
 ## Neuer Spielzustand (siehe STATE_*).
@@ -129,6 +137,8 @@ var ghost: Ghost = null
 ## In dieser Fahrt neu freigeschaltete Erfolge (Einträge aus Achievements.LIST) und das Fahrerlevel jetzt.
 var ride_achievements: Array = []
 var ride_level := 1
+## Trainingseinheit der laufenden Fahrt (null = kein Training).
+var training: Training = null
 ## Mitfahrer des Ghosts auf der Strecke und sein halbtransparentes Fahrermodell.
 var ghost_rider: PathFollow3D
 var ghost_model: RiderModel
@@ -336,9 +346,15 @@ func _aim_camera(target: Vector3, look: Vector3, follow: float) -> void:
 
 ## „Losfahren“: neue Fahrt ab `start_distance_m` über `lap_count` Runden (0 = endlos) mit Ghost `ghost_kind`
 ## (Ghost.BEST/LAST, "" = aus; ohne Aufzeichnung aus) – Fahrmodell, Statistik, Rundenwertung und Pausen
-## zurückgesetzt; gefahren wird, sobald das Rad Daten liefert (wie bisher beim Start).
-func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, ghost_kind: String = "") -> void:
+## zurückgesetzt; gefahren wird, sobald das Rad Daten liefert (wie bisher beim Start). Mit `training_unit` (wie
+## Training.load_file) ein Training: endlos, ohne Ghost.
+func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, ghost_kind: String = "",
+		training_unit: Dictionary = {}) -> void:
 	ride_mode = mode
+	training = Training.new(training_unit) if not training_unit.is_empty() else null
+	if training != null:
+		lap_count = 0
+		ghost_kind = ""
 	laps = lap_count
 	ghost = save_game.ghost(config.track, LapTiming.DIRECTION_CW, ghost_kind) if not ghost_kind.is_empty() else null
 	model = RideModel.new(config, start_distance_m)
@@ -365,15 +381,22 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 ## gewählten Ghost losfahren.
 func _on_ride_requested(mode: String) -> void:
 	settings_menu.select_time(start_menu.time_index())
+	if mode == SaveGame.MODE_TRAINING:
+		start_ride(mode, 0, "", start_menu.training_unit())
+		return
 	start_ride(mode, start_menu.round_trip_laps(), start_menu.ghost_choice())
 
 
 ## Neue Rundenwertung ab `start_distance_m` mit `laps` Runden, den Segmenten der Strecke und den gespeicherten
-## Bestzeiten; dazu die Medaillen-Schwellen (beim ersten Mal berechnet, danach zwischengespeichert).
+## Bestzeiten; dazu die Medaillen-Schwellen (beim ersten Mal berechnet, danach zwischengespeichert). Im Training ohne
+## Segmente und Bestzeiten: dort zählen Runden nicht.
 func _new_lap_timing() -> void:
-	lap_timing = LapTiming.new(track.length_m(), start_distance_m, laps,
-			save_game.best_time_s(config.track, LapTiming.DIRECTION_CW), track.segments,
-			save_game.segment_best_times(config.track, LapTiming.DIRECTION_CW))
+	if training != null:
+		lap_timing = LapTiming.new(track.length_m(), start_distance_m, laps)
+	else:
+		lap_timing = LapTiming.new(track.length_m(), start_distance_m, laps,
+				save_game.best_time_s(config.track, LapTiming.DIRECTION_CW), track.segments,
+				save_game.segment_best_times(config.track, LapTiming.DIRECTION_CW))
 	finish_distance_m = lap_timing.finish_m()
 	medal_limits = Medals.thresholds(track, config)
 
@@ -448,11 +471,13 @@ func _update_round_trip_menu() -> void:
 
 
 ## Fahrt beenden (Ziel oder Abbruch) und zurück ins Startmenü; das Spiel läuft weiter. Die Fahrt kommt in den
-## Spielstand, sofern nicht schon geschehen. Mit mindestens einer vollen Runde (z. B. endlos) erst das Ergebnis.
+## Spielstand, sofern nicht schon geschehen. Mit mindestens einer vollen Runde (z. B. endlos) erst das Ergebnis, im
+## Training nach gefahrener Zeit die Teilbewertung.
 func return_to_menu() -> void:
 	if state == STATE_MENU:
 		return
-	if state != STATE_FINISHED and not lap_timing.lap_times.is_empty():
+	var has_result := training.elapsed_s > 0.0 if training != null else not lap_timing.lap_times.is_empty()
+	if state != STATE_FINISHED and has_result:
 		_finish_ride()
 		return
 	_save_ride()
@@ -474,29 +499,36 @@ func _enter_menu() -> void:
 	_fly_title(0.0, true)
 
 
-## Ergebnis: Zustand `finished`, Fahrt in den Spielstand.
+## Ergebnis: Zustand `finished`, Fahrt in den Spielstand. Ein zu Ende gefahrenes Training meldet sich vorher bei den
+## Erfolgen (ohne Einblendung – die neuen Erfolge stehen im Ergebnis).
 func _finish_ride() -> void:
 	state = STATE_FINISHED
 	hud.end_celebration()  # „neu!“ steht im Ergebnis; die Einblendung stünde dahinter
+	if training != null and training.finished() and not _ride_saved:
+		_achievement_event({"type": Achievements.EVENT_TRAINING,
+				"total_trainings": save_game.finished_trainings() + 1, "score": training.total_score()}, false)
 	_save_ride()
 	state_changed.emit(state)
 
 
 ## Die laufende Fahrt als Zusammenfassung in den Spielstand (einmal je Fahrt), mit den Zeiten der vollen Runden und
 ## einer neuen Bestzeit samt ihrer Runde als Ghost; die letzte volle Runde wird der Ghost „letzte Fahrt“. Eine
-## abgebrochene Fahrt nur, wenn gefahren wurde.
+## abgebrochene Fahrt nur, wenn gefahren wurde. Ein Training trägt Einheit und Gesamtbewertung ein, aber keine
+## Bestzeit, Medaille, Segmentzeit oder Ghost.
 func _save_ride() -> void:
 	if state == STATE_MENU or _ride_saved or (state != STATE_FINISHED and stats.ride_time_s <= 0.0):
 		return
 	_ride_saved = true
-	save_game.add_ride(SaveGame.ride_entry(ride_mode, config.track, lap_timing.finished(), lap_timing.lap_times.size(),
-			stats, SaveGame.utc_now(), lap_timing.lap_times))
-	var best_ghost := lap_timing.best_ghost
-	if save_game.record_best_time(config.track, LapTiming.DIRECTION_CW, lap_timing.ride_best_s()) \
-			and best_ghost != null and is_equal_approx(best_ghost.time_s, lap_timing.ride_best_s()):
-		save_game.record_ghost(config.track, LapTiming.DIRECTION_CW, Ghost.BEST, best_ghost)
-	if lap_timing.last_ghost != null:
-		save_game.record_ghost(config.track, LapTiming.DIRECTION_CW, Ghost.LAST, lap_timing.last_ghost)
+	var entry := SaveGame.ride_entry(ride_mode, config.track,
+			training.finished() if training != null else lap_timing.finished(), lap_timing.lap_times.size(), stats,
+			SaveGame.utc_now(), lap_timing.lap_times)
+	if training != null:
+		var score := training.total_score()
+		entry["training"] = training.unit["name"]
+		entry["training_score"] = snappedf(score, 0.001) if not is_nan(score) else 0.0
+	save_game.add_ride(entry)
+	if training == null:
+		_record_round_trip()
 	# Gesamtstand mit dieser Fahrt: holt auch nach, was ein älterer Spielstand schon erfüllt (ohne Einblendung – im
 	# Ergebnis stehen die neuen Erfolge und das Level).
 	_achievement_event({"type": Achievements.EVENT_DISTANCE, "total_km": save_game.total_km(),
@@ -504,13 +536,23 @@ func _save_ride() -> void:
 	_achievement_event({"type": Achievements.EVENT_LAP, "total_laps": save_game.total_laps(),
 			"ride_laps": lap_timing.lap_times.size()}, false)
 	_check_level(false)
+	if not save_path.is_empty():
+		save_game.save_file(save_path)
+
+
+## Rundfahrt: neue Bestzeit samt Ghost, letzte Runde als Ghost, Medaillen und Segmentzeiten in den Spielstand.
+func _record_round_trip() -> void:
+	var best_ghost := lap_timing.best_ghost
+	if save_game.record_best_time(config.track, LapTiming.DIRECTION_CW, lap_timing.ride_best_s()) \
+			and best_ghost != null and is_equal_approx(best_ghost.time_s, lap_timing.ride_best_s()):
+		save_game.record_ghost(config.track, LapTiming.DIRECTION_CW, Ghost.BEST, best_ghost)
+	if lap_timing.last_ghost != null:
+		save_game.record_ghost(config.track, LapTiming.DIRECTION_CW, Ghost.LAST, lap_timing.last_ghost)
 	for i in range(lap_timing.lap_times.size()):
 		save_game.record_medal(config.track, LapTiming.DIRECTION_CW, Medals.LAP, lap_medal(i))
 	for result in lap_timing.segments.results:
 		save_game.record_segment_time(config.track, LapTiming.DIRECTION_CW, result["id"], result["time_s"])
 		save_game.record_medal(config.track, LapTiming.DIRECTION_CW, result["id"], segment_medal(result))
-	if not save_path.is_empty():
-		save_game.save_file(save_path)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -573,6 +615,11 @@ func ghost_active() -> bool:
 	return ghost != null and state != STATE_MENU
 
 
+## Läuft ein Training? (Abfrage für spätere Pakete, z. B. keine Panorama-Momente im Training, #43.)
+func training_active() -> bool:
+	return training != null and state != STATE_MENU
+
+
 ## Streckenposition des Ghosts (wie `model.distance_m`): Beginn der laufenden Runde plus seine Position zur Rundenzeit.
 func ghost_distance_m() -> float:
 	return lap_timing.lap_start_m() + ghost.position_at(lap_timing.lap_time_s)
@@ -619,6 +666,8 @@ static func format_power(watts: float, estimated: bool) -> String:
 func status_message() -> String:
 	match state:
 		STATE_FINISHED:
+			if training != null:
+				return training_result()
 			var rewards := rewards_result()  # in der Kopfzeile: als eigene Zeile passten 20 Runden nicht mehr in 1152×648
 			return "%s%s\nZeit: %s\n%s\nØ Kadenz: %d rpm\nØ Tempo: %.1f km/h\nEnter: zurück ins Menü · Esc: Einstellungen" % [
 					"Ziel erreicht!" if lap_timing.finished() else "Fahrt beendet",
@@ -667,6 +716,18 @@ func lap_result() -> String:
 	if not segments.is_empty():
 		text += "\nSegmente: " + " · ".join(segments)
 	return text
+
+
+## Ergebnis eines Trainings: Einheit, Zeit, Treffer der Zielkadenz gesamt und je gefahrener Phase, z. B.
+## „Training beendet! · Neuer Erfolg: Erste Einheit\nPyramide · Zeit: 34:00.0\nZielkadenz getroffen: 87 %\nJe Phase:
+## Aufwärmen 100 % · 70 rpm 80 % · …“. Abgebrochen: die Teilbewertung der gefahrenen Phasen.
+func training_result() -> String:
+	var rewards := rewards_result()
+	return "%s%s\n%s · Zeit: %s\nZielkadenz getroffen: %s\nJe Phase: %s\nØ Kadenz: %d rpm · Ø Tempo: %.1f km/h\n%s" % [
+			"Training beendet!" if training.finished() else "Training abgebrochen",
+			" · " + rewards if not rewards.is_empty() else "", training.unit["name"], format_time(lap_time_s(), true),
+			Training.percent_text(training.total_score()), training.phase_summary(), roundi(stats.avg_cadence()),
+			stats.avg_speed_kmh(), "Enter: zurück ins Menü · Esc: Einstellungen"]
 
 
 ## Neue Erfolge und Levelaufstieg dieser Fahrt fürs Ergebnis in einer Zeile, z. B. „Neuer Erfolg: Erste Runde ·
@@ -723,8 +784,9 @@ func _update_state() -> void:
 		state_changed.emit(state)
 
 
-## Ein Zeitschritt Fahrt: Fahrmodell, Statistik, Rundenwertung und Ziel. Den Schritt über die Ziellinie zählen
-## Statistik und Rundenwertung nur anteilig bis zur Linie, damit Rundenzeiten und Durchschnitte genau sind.
+## Ein Zeitschritt Fahrt: Fahrmodell, Statistik, Rundenwertung, Training und Ziel. Den Schritt über die Ziellinie
+## (bzw. über das Ende der Einheit) zählen Statistik und Rundenwertung nur anteilig, damit Zeiten und Durchschnitte
+## genau sind.
 func _ride(delta: float) -> void:
 	var before := model.distance_m
 	model.step(bus.cadence, current_grade(), delta)
@@ -733,10 +795,15 @@ func _ride(delta: float) -> void:
 	if model.distance_m >= finish_distance_m:
 		used = delta * ((finish_distance_m - before) / moved if moved > 0.0 else 1.0)
 		model.distance_m = finish_distance_m
+	if training != null and training.remaining_total_s() < used:
+		model.distance_m = before + moved * training.remaining_total_s() / delta
+		used = training.remaining_total_s()
 	stats.add(used, bus.cadence, model.distance_m - before)
+	if training != null:
+		training.advance(bus.cadence, used)
 	var segments_before := lap_timing.segments.results.size()
 	var laps_done := lap_timing.advance(model.distance_m, used)
-	if laps_done > 0 and lap_timing.last_lap_is_new_best():
+	if laps_done > 0 and training == null and lap_timing.last_lap_is_new_best():
 		hud.celebrate("Neue Bestzeit!  %s" % format_time(lap_timing.lap_times[-1], true))
 	for i in range(segments_before, lap_timing.segments.results.size()):
 		hud.celebrate(segment_result_text(lap_timing.segments.results[i]))
@@ -748,7 +815,7 @@ func _ride(delta: float) -> void:
 		for event in _km_events():
 			_achievement_event(event)
 		_check_level()
-	if lap_timing.finished():
+	if lap_timing.finished() or (training != null and training.finished()):
 		_finish_ride()
 
 
@@ -828,6 +895,19 @@ func _update_rider(delta: float) -> void:
 			delta)
 
 
+## Trainingszeile und Ansage im HUD (ausgeblendet ohne Training und im Ergebnis).
+func _show_training() -> void:
+	if training == null or state == STATE_FINISHED:
+		hud.show_training("", "", "", "")
+		hud.show_announcement("")
+		return
+	var phase := training.phase()
+	var next := training.next_phase()
+	hud.show_training(phase["name"], Training.target_text(phase), format_time(ceilf(training.remaining_s())),
+			"%s · %s" % [next["name"], Training.target_text(next)] if not next.is_empty() else "Ende der Einheit")
+	hud.show_announcement(training.announcement())
+
+
 func _update_view() -> void:
 	rider.progress = track.wrap_distance(model.distance_m)
 	var grade := current_grade()
@@ -841,6 +921,7 @@ func _update_view() -> void:
 		hud.show_ghost(format_gap(gap), gap > 0.0)
 	else:
 		hud.show_ghost("", false)
+	_show_training()
 	var segment := lap_timing.segments.current()
 	hud.show_segment(segment.get("name", ""), format_time(segment["time_s"], true) if not segment.is_empty() else "")
 	if debug_label.visible:

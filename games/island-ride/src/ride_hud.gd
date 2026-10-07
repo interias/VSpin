@@ -12,6 +12,9 @@
 ##                mehrere zugleich laufen nacheinander
 ##   Segment      im Segment an derselben Stelle dessen Name und Live-Zeit („Bergwertung  3:12.4“, #33); eine
 ##                Einblendung hat Vorrang
+##   Training   (#37) im unteren Panel über der Runde: Phase, Zielkadenz, Restzeit der Phase und die nächste Phase;
+##                die Ansage zum Widerstandsknopf („In 8 s: Widerstand 2 Stufen hoch, 100 rpm halten“) steht groß über
+##                der Einblendung
 ##   Message/Hint/Debug  Zustandsmeldung (mittig zwischen oben und unten), `set_grade`-Hinweis (über dem unteren
 ##                Panel), Debug-Anzeige F3 (unter dem Werte-Panel) – Inhalte setzt die Hauptszene.
 ## Layout nur über Anker und Container (kein fester Bildschirmort): passt in 960×1040 wie in 1920×1080, mit und
@@ -57,6 +60,12 @@ const COLOR_AHEAD := Color(0.5, 0.92, 0.55)
 @onready var _power_value: Label = %PowerValue
 @onready var _lap_caption: Label = %LapCaption
 @onready var _celebration: Label = %Celebration
+@onready var _training: Control = %Training
+@onready var _phase_value: Label = %PhaseValue
+@onready var _target_value: Label = %TargetValue
+@onready var _remaining_value: Label = %RemainingValue
+@onready var _next_value: Label = %NextValue
+@onready var _announcement: Label = %Announcement
 @onready var _lap_bar: ProgressBar = %LapBar
 @onready var _lap_percent: Label = %LapPercent
 @onready var _lap_remaining: Label = %LapRemaining
@@ -76,7 +85,7 @@ var _celebration_queue: Array = []
 
 func _ready() -> void:
 	_top.resized.connect(_place_overlays)
-	_bottom.resized.connect(_place_overlays)
+	_bottom.item_rect_changed.connect(_place_overlays)  # mit der Lage: wächst das Panel (#37), kam `resized` zu früh
 	_stats.resized.connect(_place_overlays)
 	(_celebration.get_parent() as Control).resized.connect(_place_overlays)
 	_place_overlays()
@@ -142,6 +151,22 @@ func show_ghost(gap_text: String, behind: bool) -> void:
 	var color := COLOR_BEHIND if behind else COLOR_AHEAD
 	if _ghost_value.get_theme_color("font_color") != color:
 		_ghost_value.add_theme_color_override("font_color", color)
+
+
+## Training (#37): Phase, Zielkadenz, Restzeit der Phase und nächste Phase als fertige Anzeigetexte; "" als Phase
+## blendet die Zeile aus.
+func show_training(phase_text: String, target_text: String, remaining_text: String, next_text: String) -> void:
+	_training.visible = not phase_text.is_empty()
+	_phase_value.text = phase_text
+	_target_value.text = target_text
+	_remaining_value.text = remaining_text
+	_next_value.text = next_text
+
+
+## Ansage zum Widerstandsknopf ("" = keine).
+func show_announcement(text: String) -> void:
+	_announcement.visible = not text.is_empty()
+	_announcement.text = text
 
 
 ## Beschriftung des Rundenfortschritts: „Runde“ bei einer Runde, „Runde 2 / 3“, endlos „Runde 2“.
@@ -227,7 +252,8 @@ static func grade_direction(grade: float) -> int:
 
 ## Die sichtbaren Werte als Textzeilen „Name: Wert Einheit“, genau wie angezeigt (Tests, Logs), z. B.
 ## "Kadenz: 90 rpm", "Steigung: +6.0 %", "Leistung: ~142 W", "Rundenzeit: 3:05", "Ghost: +1.4 s", "Bergwertung: 1:12.4",
-## "Runde 2 / 3: 34 % (noch 6.08 km)".
+## "Runde 2 / 3: 34 % (noch 6.08 km)"; im Training "Phase: Hart 3/10", "Zielkadenz: 95–105 rpm", "Restzeit: 0:23",
+## "Danach: Locker 3/10 · 80–90 rpm", "Ansage: In 8 s: …".
 func readout() -> String:
 	var lines := []
 	for field in [%Cadence, %Speed, %Distance, %Time, %LapTime, %Grade, _section, _power, _ghost]:
@@ -242,6 +268,13 @@ func readout() -> String:
 		lines.append(text)
 	if _segment.is_visible_in_tree():
 		lines.append(_segment_line)
+	if _training.is_visible_in_tree():
+		lines.append("Phase: %s" % _phase_value.text)
+		lines.append("Zielkadenz: %s" % _target_value.text)
+		lines.append("Restzeit: %s" % _remaining_value.text)
+		lines.append("Danach: %s" % _next_value.text)
+	if _announcement.is_visible_in_tree():
+		lines.append("Ansage: %s" % _announcement.text)
 	lines.append("%s: %s (%s)" % [_lap_caption.text, _lap_percent.text, _lap_remaining.text])
 	return "\n".join(lines)
 

@@ -1,0 +1,12 @@
+{
+	"name": "Kurztest",
+	"description": "Testeinheit: je 20 s Aufwärmen, hart, Ausrollen",
+	"phases": [
+		{"name": "Aufwärmen", "kind": "warmup", "duration_s": 20, "cadence_rpm": [80, 100],
+			"announcement": "Widerstand leicht, locker einrollen"},
+		{"name": "Hart", "kind": "work", "duration_s": 20, "cadence_rpm": [95, 105],
+			"announcement": "Widerstand 2 Stufen hoch, 100 rpm halten"},
+		{"name": "Ausrollen", "kind": "cooldown", "duration_s": 20, "cadence_rpm": [70, 95],
+			"announcement": "Widerstand ganz runter, ausrollen"}
+	]
+}
