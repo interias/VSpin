@@ -5,12 +5,14 @@ Aufnahme, daher unabhängig von `--speed`):
 
 - **Plausibilität:** ein neuer Kadenzwert außerhalb 0–200 rpm wird verworfen (nicht
   begrenzt) – als wäre er nicht gekommen.
-- **Glättung:** EMA mit Zeitkonstante 1 s, zeitbasiert:
-  `ema += (1 − exp(−Δt / 1 s)) · (wert − ema)`, Δt = Abstand zum vorigen Wert.
+- **Glättung:** EMA mit Zeitkonstante 0,3 s, zeitbasiert:
+  `ema += (1 − exp(−Δt / 0,3 s)) · (wert − ema)`, Δt = Abstand zum vorigen Wert.
   Der erste Wert (und der erste nach ≥ 2,5 s ohne Wert) startet die Glättung neu.
 - **Kadenz 0:** kommt 2,5 s lang kein neuer Kadenzwert (CSC: kein neues Kurbel-Event;
   FTMS: Notifications ohne Kadenzfeld), obwohl Samples kommen, ist die Kadenz 0. Kommen gar keine Samples, greift stattdessen
   `stale` (ADR-0004) – die Bridge erfindet keine Samples.
+  Meldet die Quelle ausdrücklich 0, ist die Kadenz 0, sobald der geglättete Wert unter
+  1 rpm fällt (statt ihm asymptotisch zu folgen; von 80 rpm nach ~1,3 s statt ~2,2 s).
 
 Auf den Bus geht der geglättete Wert (auf 0,1 rpm gerundet), die CSV bekommt zusätzlich
 den Rohwert des Samples (`cadence_raw`, auch verworfene Ausreißer; leer ohne neuen Wert).
@@ -24,8 +26,9 @@ from .sources.base import TelemetrySample
 
 CADENCE_MIN = 0.0
 CADENCE_MAX = 200.0  # harte Plausibilitätsgrenze (ADR-0004)
-SMOOTHING_TAU_MS = 1000.0  # Zeitkonstante des EMA (~1 s)
+SMOOTHING_TAU_MS = 300.0  # Zeitkonstante des EMA (0,3 s)
 ZERO_AFTER_MS = 2500  # so lange kein neuer Kadenzwert → Kadenz 0
+ZERO_BELOW_RPM = 1.0  # gemeldete Kadenz 0 und geglättet darunter → Kadenz 0
 ROUND_DIGITS = 1
 
 
@@ -69,4 +72,6 @@ class CadenceProcessor:
         else:
             alpha = 1.0 - math.exp(-max(0, t - self._ema_t) / SMOOTHING_TAU_MS)
             self._ema += alpha * (value - self._ema)
+            if value == 0 and self._ema < ZERO_BELOW_RPM:
+                self._ema = 0.0
         self._ema_t = self._last_value_t = t

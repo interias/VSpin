@@ -42,7 +42,7 @@ def crank_fields(hex_: str) -> tuple[int, int]:
 
 
 def reference_cadence(times: list[int], raw: list[float | None]) -> list[float | None]:
-    """ADR-0004 als Referenz: verwerfen außerhalb 0–200, EMA mit τ = 1 s (zeitbasiert),
+    """ADR-0004 als Referenz: verwerfen außerhalb 0–200, EMA mit τ = 0,3 s (zeitbasiert),
     Neustart nach ≥ 2,5 s ohne Wert, Kadenz 0 nach 2,5 s ohne neuen Wert."""
     ema = ema_t = last = None
     out = []
@@ -53,7 +53,7 @@ def reference_cadence(times: list[int], raw: list[float | None]) -> list[float |
             if ema is None or t - last >= 2500:
                 ema = value
             else:
-                ema += (1 - math.exp(-(t - ema_t) / 1000)) * (value - ema)
+                ema += (1 - math.exp(-(t - ema_t) / 300)) * (value - ema)
             ema_t = last = t
         elif ema is not None and t - last >= 2500:
             ema, ema_t = 0.0, t
@@ -122,7 +122,7 @@ def test_counter_overflow_keeps_cadence_correct(bridge_process, bus_client, tmp_
     assert_bus_matches_csv(run)
 
 
-def test_cadence_is_smoothed_with_one_second_time_constant(bridge_process, bus_client, tmp_path):
+def test_cadence_is_smoothed_with_0_3_second_time_constant(bridge_process, bus_client, tmp_path):
     name = "csc_step.raw.jsonl"
     run = replay_to_end(bridge_process, bus_client, fixture(name), tmp_path, *FAST)
     times = relative(name)
@@ -137,10 +137,11 @@ def test_cadence_is_smoothed_with_one_second_time_constant(bridge_process, bus_c
     by_time = dict(zip(times, bus))
     assert by_time[4000] == 60.0
     # Sprung auf 120 ab 4,5 s: geglättet statt sprunghaft – der erste Wert holt bei 500 ms
-    # Abstand 1 − e^(−0,5) ≈ 39 % des Sprungs auf, nach 3,5 s ist er fast ganz oben.
-    assert 60 < by_time[4500] < 90
-    assert 95 < by_time[5500] < 108
-    assert by_time[8000] > 117
+    # Abstand 1 − e^(−0,5/0,3) ≈ 81 % des Sprungs auf, nach 1 s ist er fast ganz oben.
+    assert 100 < by_time[4500] < 115
+    assert 117 < by_time[5000] < 119
+    assert 119 < by_time[5500] < 120
+    assert by_time[8000] > 119.5
     assert bus[4:] == sorted(bus[4:])  # ab dem ersten Wert nur steigend
     assert_bus_matches_csv(run)
 
@@ -167,7 +168,7 @@ def test_cadence_drops_to_zero_after_two_and_a_half_seconds_without_crank_event(
     # Wieder treten: Glättung startet neu beim ersten Wert und steigt Richtung 80.
     assert bus[7750] == round(60_000 / 4750, 1)
     rising = [bus[t] for t in times if t >= 7750]
-    assert rising == sorted(rising) and 60 < rising[-1] < 80, rising
+    assert rising == sorted(rising) and 60 < rising[-1] <= 80, rising
     assert_close([m["cadence"] for m in run.telemetry], reference_cadence(times, expected_raw))
     # Status bleibt connected – Kadenz 0 mit weiterlaufenden Daten ist kein Ausfall.
     assert run.states == ["disconnected", "connected", "disconnected"]

@@ -77,7 +77,12 @@ verfügbar, daher nur Godot-Bordmittel:
   Abstand, Höhe und Vorausblick in `config.cfg` (`[camera]`, siehe Konfiguration); vor G5 9 m / 3,5 m / 14 m.
 - HUD zeigt zusätzlich den aktuellen Abschnitt, Höhenprofil und Minikarte der Insel (siehe HUD).
 
-Erzeugung beim Start ca. 2 s (Gelände wird einmal pro Prozess erzeugt und gecacht).
+Weltaufbau beim Start ca. 0,6 s, beim allerersten Start (oder nach Änderung an Gelände/Rundkurs) ca. 1,8 s
+(headless gemessen, #19). Das Gelände (Höhen, Straßenabstand) liegt als Cache in `user://terrain_cache.bin`
+(~1 MB; unter Windows `%APPDATA%\Godot\app_userdata\Inselfahrt\`); Schlüssel ist ein SHA-256 über den Quelltext von
+`src/island_terrain.gd` und `src/island_course.gd` und die Engine-Version – jede Änderung daran erzeugt neu. Datei
+löschen ist gefahrlos. Im Export ohne lesbaren Quelltext (z. B. Web) wird wie bisher bei jedem Start erzeugt. Das
+Mesh (~0,4 s) wird weiter jedes Mal gebaut (als Cache 6–9 MB für ~0,3 s Gewinn – lohnt nicht).
 
 **Sichtprüfung am Windows-PC (#15, Hafen + Küstenstraße):** Screenshots mit `tools/view_probe.gd`; fps-Fahrt
 0–2310 m mit 50 km/h, 1920 × 1080, VSync an (RTX 4070): Mittel 60,0 fps; ~1 % der Frames < 50 fps, genauso wie
@@ -182,7 +187,7 @@ einfarbige Flächen) ×0,78, Sonne/Mond ×0,8, Belichtung ×0,92, Umgebungslicht
 `MODE_FIXED`, `MODE_TIMELAPSE` (Stunde = Ortszeit 0–24) und `sky.set_weather_mode(mode, state = "")` mit
 `Weather.MODE_CHANGING`/`MODE_FIXED` und `Weather.CLEAR`, `LIGHT_CLOUDS`, `OVERCAST`, `RAIN`. Lesen: `sky.clock`
 (`local_hour()`, `timelapse_day_min`), `sky.weather.state`, `sky.sun_angles`. `set_compatibility(bool)` schaltet das
-Lichtprofil (Tests, Vergleich). Im Grafikmenü (`F2`, G8) lassen sich Tageszeit und Wetter umstellen; die Auswahl
+Lichtprofil (Tests, Vergleich). Im Grafikmenü (`Esc`/`F2`, G8) lassen sich Tageszeit und Wetter umstellen; die Auswahl
 liegt in `user://settings.cfg [sky]` über `config.cfg [sky]` (siehe „Grafik und Fenster“).
 
 **Sichtprüfung:** `view_probe.gd -- --time=21:30 --date=2026-06-21 --weather=rain` (feste Ortszeit/Datum/Wetter
@@ -223,9 +228,8 @@ Reihenfolge egal: Startet das Spiel zuerst, zeigt es „Bridge nicht erreichbar 
 | Taste | Wirkung |
 |---|---|
 | `P` oder Leertaste | Pause an/aus (jederzeit) |
-| `Esc` | Spiel beenden (jederzeit) |
+| `Esc` oder `F2` | Menü „Grafik und Fenster“ auf/zu (jederzeit, auch aus der Pause); **Beenden** über den Knopf „Beenden“ im Menü (nicht im Browser) |
 | `F3` | Debug-Anzeige an/aus |
-| `F2` | Menü „Grafik und Fenster“ auf/zu (auch aus der Pause; `Esc` schließt es zuerst) |
 | `F11` | Vollbild an/aus (nicht im Browser) |
 
 Physische Tastenposition (gleich auf QWERTZ/QWERTY); definiert in `scenes/main.gd` (`KEY_BINDINGS`).
@@ -236,7 +240,7 @@ Physische Tastenposition (gleich auf QWERTZ/QWERTY); definiert in `scenes/main.g
 |---|---|---|
 | `riding` – fahren | Bus verbunden, Quelle `connected` und seit dem letzten Abbruch Telemetrie empfangen | – |
 | `paused_manual` – pausiert (manuell) | `P`/Leertaste | „Pause“ |
-| `paused_connection` – pausiert (Verbindung) | Bridge nicht erreichbar, Quelle `stale`/`disconnected` oder noch keine Daten | „Bridge nicht erreichbar … Bridge starten“ bzw. „Verbindung verloren (Rad: stale)“ |
+| `paused_connection` – pausiert (Verbindung) | Bridge nicht erreichbar, Quelle `stale`/`disconnected`, noch keine Daten oder Bridge schweigt bei offenem Bus | „Bridge nicht erreichbar … Bridge starten“ bzw. „Verbindung verloren (Rad: stale)“ / „(Bridge sendet seit 4 s nichts)“ |
 | `finished` – Ziel erreicht | Ziellinie überfahren (Endzustand, Pause-Taste wirkungslos) | „Ziel erreicht!“ mit Zeit, Ø Kadenz, Ø Tempo |
 
 In jeder Pause steht das Fahrmodell still: Position und Geschwindigkeit bleiben, wie sie waren. Ein
@@ -244,7 +248,10 @@ Verbindungsabbruch ist **keine Kadenz 0** (ADR-0004) – der Fahrer rollt nicht 
 verbunden ist, die Quelle `connected` meldet und Telemetrie ankommt, fährt das Spiel von selbst weiter.
 Die Verbindungspause hat Vorrang; eine manuelle Pause bleibt über einen Abbruch hinweg bestehen
 (kein automatisches Weiterfahren aus der manuellen Pause). Hängt ein Verbindungsaufbau länger als
-`connect_timeout_s`, bricht der Bus-Client ihn ab und versucht es neu.
+`connect_timeout_s`, bricht der Bus-Client ihn ab und versucht es neu. Hängt die Bridge bei offenem
+WebSocket (kein `stale` mehr von ihr), sichert das Spiel selbst ab: kommt bei `connected` länger als 4 s weder
+`status` noch `telemetry` (`BusClient.SILENCE_TIMEOUT_S`; die Bridge meldet `stale` nach 3 s, 1 s Reserve), gilt
+die Quelle als `stale` – Pause, keine Kadenz 0; die nächste Telemetrie setzt die Fahrt fort.
 
 ### HUD
 
@@ -274,16 +281,18 @@ Sichtprüfung mit HUD: `view_probe.gd -- --hud` (Beispielwerte: Kadenz 85, Tempo
 ### Debug-Anzeige (`F3`)
 
 Links unter den Werten, zum Prüfen der Latenz (< 200 ms, ADR-0005): **Kadenz roh** (Feld `cadence` der letzten
-Telemetrie, wie empfangen – ungerundet), **t_ms** (Bridge-Zeitstempel der letzten Telemetrie), **Alter**
-der letzten Telemetrie in ms (seit Empfang im Spiel; bei 4 Hz Bridge-Takt pendelt es zwischen 0 und ~250 ms
-– dauerhaft mehr heißt: Daten stocken), dazu Bus-Verbindung, Status und Quelle. Prüfen: Kadenz in der
+Telemetrie, wie empfangen – ungerundet), **t_ms** (Bridge-Zeitstempel der letzten Telemetrie), **Letzte
+Telemetrie vor** … ms (Zeit seit Empfang der letzten Telemetrie im Spiel; bei 4 Hz Bridge-Takt pendelt sie zwischen 0
+und ~250 ms – dauerhaft mehr heißt: Daten stocken; das ist **nicht** die Latenz Kurbel → Bild, die misst man per
+Zeitlupe, siehe `docs/anleitung.md`), dazu Bus-Verbindung, Status und Quelle. Prüfen: Kadenz in der
 Bridge ändern und schauen, wann „Kadenz roh“ und `t_ms` nachziehen.
 
-### Grafik und Fenster (`F2`)
+### Grafik und Fenster (`Esc` / `F2`)
 
 Das Menü wirkt sofort und speichert jede Änderung in `user://settings.cfg` – unter Windows
 `%APPDATA%\Godot\app_userdata\Inselfahrt\settings.cfg` (getrennt von `config.cfg`; Datei löschen = Standardwerte).
-Das Spiel läuft weiter, solange das Menü offen ist.
+Das Spiel läuft weiter, solange das Menü offen ist. Unten „Schließen“ und „Beenden“ (beendet das Spiel; im Browser
+ausgeblendet) – `Esc` beendet nicht mehr direkt (#19).
 
 | Option | Auswahl | Standard |
 |---|---|---|
@@ -332,6 +341,9 @@ Das Spiel meldet die Steigung an der Fahrerposition per `{"v": 0, "type": "set_g
 - gleich nach dem Verbinden (sobald gefahren wird) den aktuellen Wert,
 - danach nur bei Änderung um mindestens 0,5 Prozentpunkte (0.005) und höchstens 2-mal pro Sekunde –
   eine gedrosselte Änderung wird mit dem dann aktuellen Wert nachgeholt,
+- Endwert: weicht der gemeldete Wert (unter der Schwelle) ab und hat sich die Steigung 1 s lang nicht um
+  0,5 Prozentpunkte bewegt, wird der aktuelle Wert einmal nachgesendet (danach erst wieder nach einer neuen
+  Bewegung über die Schwelle) – so bleibt am Ende einer Rampe nicht ein bis zu 0,5 Prozentpunkte alter Wert stehen,
 - nicht in der Verbindungspause (sinnlos); nach der Rückkehr wird der aktuelle Wert erneut gemeldet,
   auch wenn er sich nicht geändert hat.
 
@@ -397,7 +409,7 @@ Ein guter Test prüft von außen: Drehbuch rein → beobachtbares Spielverhalten
   Steigungen an festen Positionen; Insel-Tests übergeben `RideConfig.TRACK_ISLAND`),
   `connect_client(bus)` (nackter `BusClient`), `run_for(s)`, `run_until(cond, timeout_s)`,
   `press_key(KEY_P)` (Taste wie ein Spieler drücken); räumt nach jedem Test auf. `spawn_ride` setzt
-  `quit_on_request = false` – `Esc` meldet dann nur `quit_requested`, statt den Testlauf zu beenden.
+  `quit_on_request = false` – „Beenden“ im Menü meldet dann nur `quit_requested`, statt den Testlauf zu beenden.
 
 Drehbuch = Array von Schritten, `at` = Sekunden ab Verbindungsaufbau des Clients; jede Verbindung
 spielt von vorn (so lässt sich auch Reconnect prüfen):

@@ -70,8 +70,8 @@ func test_debug_overlay_toggles_and_shows_raw_values() -> void:
 	assert_string_contains(overlay.text, "Kadenz roh: 72.5", "Rohwert wie empfangen (HUD rundet auf 73)")
 	assert_string_contains(_hud(ride), "Kadenz: 73 rpm")
 	assert_string_contains(overlay.text, "t_ms: %d" % ride.bus.last_telemetry_t_ms)
-	var age := RegEx.create_from_string("Alter: (\\d+) ms").search(overlay.text)
-	assert_not_null(age, "Alter der letzten Nachricht in ms")
+	var age := RegEx.create_from_string("Letzte Telemetrie vor: (\\d+) ms").search(overlay.text)
+	assert_not_null(age, "Zeit seit Empfang der letzten Telemetrie in ms")
 	if age != null:
 		assert_between(int(age.get_string(1)), 0, 1000)
 	await run_for(0.6)

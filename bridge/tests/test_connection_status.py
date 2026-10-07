@@ -114,7 +114,7 @@ def test_cadence_zero_with_data_is_not_stale(bridge_process, bus_client, tmp_pat
     zero_rows = [r for r in rows if r["cadence_raw"] and float(r["cadence_raw"]) == 0]
     zeros = [int(r["t_ms"]) for r in zero_rows]
     assert zeros and zeros[-1] - zeros[0] > STALE_AFTER_MS + 500
-    # … am Bus fällt die geglättete Kadenz (EMA ~1 s) dabei stetig gegen 0, ohne Lücke.
+    # … am Bus fällt die geglättete Kadenz (EMA 0,3 s) dabei stetig gegen 0, ohne Lücke.
     on_bus = {m["t_ms"]: m["cadence"] for m in seen if m["type"] == "telemetry"}
     falling = [on_bus[t] for t in zeros if t in on_bus]
     assert len(falling) >= 12, falling

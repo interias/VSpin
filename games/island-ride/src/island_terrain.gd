@@ -12,6 +12,7 @@
 ##   height_at(x, z)        Geländehöhe (bilinear) an einer Weltposition
 ##   road_distance_at(x, z) Abstand zur Straßenmitte (für Bepflanzung/Deko), INF außerhalb der Straßennähe
 ##   build_mesh()           ArrayMesh mit Normalen und Vertex-Farben (Sand, Fels, trockenes Gras, Oliv)
+##   for_course()           Gelände des Rundkurses, über Starts hinweg aus `cache_path` (siehe `cached_generate()`)
 class_name IslandTerrain
 extends RefCounted
 
@@ -52,6 +53,9 @@ var heights := PackedFloat32Array()
 ## Abstand jedes Gitterpunkts zur Straßenmitte (INF = weiter als ROAD_BLEND_M).
 var road_distance := PackedFloat32Array()
 
+## Cache-Datei des Rundkurs-Geländes (Höhen und Straßenabstand, ~1 MB); "" = ohne Cache.
+static var cache_path := "user://terrain_cache.bin"
+
 static var _noise: FastNoiseLite = null
 static var _cached: IslandTerrain = null
 ## Superellipsen-Maß der Küstenstraße je Grad Polarwinkel (360 Werte), siehe `_coast_road_e()`.
@@ -66,11 +70,91 @@ func _init() -> void:
 	road_distance.fill(INF)
 
 
-## Gelände des Insel-Rundkurses (gecacht – die Erzeugung dauert ein paar Sekunden).
+## Gelände des Insel-Rundkurses – einmal pro Prozess, über Starts hinweg aus `cache_path` (die Erzeugung dauert
+## ~1,2 s, das Laden ~5 ms).
 static func for_course() -> IslandTerrain:
 	if _cached == null:
-		_cached = generate(IslandCourse.samples())
+		_cached = cached_generate(IslandCourse.samples(), course_cache_key(), cache_path)
 	return _cached
+
+
+## Wie `generate(road)`, aber über eine Cache-Datei: passt deren Schlüssel zu `key`, werden Höhen und
+## Straßenabstand gelesen, sonst wird erzeugt und die Datei neu geschrieben. `key` muss alles abdecken, wovon das
+## Ergebnis abhängt (siehe `course_cache_key()`); leerer Schlüssel oder Pfad → ohne Cache.
+static func cached_generate(road: PackedVector3Array, key: String, path: String) -> IslandTerrain:
+	if key.is_empty() or path.is_empty():
+		return generate(road)
+	var terrain := _load_cache(key, path)
+	if terrain != null:
+		return terrain
+	terrain = generate(road)
+	_save_cache(terrain, key, path)
+	return terrain
+
+
+## Cache-Schlüssel des Rundkurs-Geländes: Quelltext von Gelände und Rundkurs (Algorithmus, Konstanten, Rauschen,
+## Wegpunkte, Stationen) und Engine-Version (FastNoiseLite). Ohne lesbaren Quelltext (Export mit kompilierten
+## Skripten) leer – dann wird jedes Mal erzeugt.
+static func course_cache_key() -> String:
+	return cache_key([_source("res://src/island_terrain.gd"), _source("res://src/island_course.gd"),
+			Engine.get_version_info().string])
+
+
+## SHA-256 über `sources` (mit Längen, damit Grenzen zählen); "" wenn eine Quelle leer ist oder keine da ist.
+static func cache_key(sources: Array) -> String:
+	if sources.is_empty():
+		return ""
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_SHA256)
+	for source in sources:
+		if str(source).is_empty():
+			return ""
+		var bytes := str(source).to_utf8_buffer()
+		ctx.update(("%d:" % bytes.size()).to_utf8_buffer())
+		ctx.update(bytes)
+	return ctx.finish().hex_encode()
+
+
+static func _source(script_path: String) -> String:
+	var script := load(script_path) as GDScript
+	return script.source_code if script != null else ""
+
+
+static func _load_cache(key: String, path: String) -> IslandTerrain:
+	if not FileAccess.file_exists(path):
+		return null
+	var file := FileAccess.open_compressed(path, FileAccess.READ, FileAccess.COMPRESSION_ZSTD)
+	if file == null:
+		return null
+	var terrain := IslandTerrain.new()
+	var stored_key = file.get_var()
+	var heights_data = file.get_var() if stored_key == key else null
+	var distance_data = file.get_var() if heights_data is PackedFloat32Array else null
+	file.close()
+	if not (distance_data is PackedFloat32Array) or heights_data.size() != terrain.heights.size() \
+			or distance_data.size() != terrain.road_distance.size():
+		return null
+	terrain.heights = heights_data
+	terrain.road_distance = distance_data
+	return terrain
+
+
+## Schreibt erst eine Zwischendatei und benennt sie dann um – ein parallel startendes Spiel liest nie eine halbe Datei.
+static func _save_cache(terrain: IslandTerrain, key: String, path: String) -> void:
+	var tmp := path + ".tmp"
+	var file := FileAccess.open_compressed(tmp, FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
+	if file == null:
+		push_warning("IslandTerrain: Cache %s nicht schreibbar (Fehler %d)" % [path, FileAccess.get_open_error()])
+		return
+	file.store_var(key)
+	file.store_var(terrain.heights)
+	file.store_var(terrain.road_distance)
+	file.close()
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(path)
+	var err := DirAccess.rename_absolute(tmp, path)
+	if err != OK:
+		push_warning("IslandTerrain: Cache %s nicht gespeichert (Fehler %d)" % [path, err])
 
 
 ## Prozedurales Gelände, unter die Straße `road` (Punkte x, Höhe, z) geformt.

@@ -3,6 +3,7 @@ Statuszeile im Terminal, Tastatur für den Simulator."""
 
 import asyncio
 import contextlib
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
@@ -156,7 +157,7 @@ class Bridge:
 
     def _on_raw(self, raw: RawNotification) -> None:
         """Rohe Notification: in die Session-Rohdatei, dann durch die Parser."""
-        self._session.raw.write(raw)
+        self._log_session(lambda session: session.raw.write(raw))
         char = raw.char.lower()
         try:
             sample = self._decoder.decode(raw)
@@ -188,8 +189,27 @@ class Bridge:
         self._cadence = published.cadence
         self._bus.publish(telemetry_message(published))
         # Eine CSV-Zeile pro Sample am Bus – ohne `await` dazwischen, also nie nur eins von beiden.
-        self._session.csv.write(published, processed.cadence_raw, self._grade, self._state)
+        self._log_session(
+            lambda session: session.csv.write(published, processed.cadence_raw, self._grade, self._state)
+        )
         self._render()
+
+    def _log_session(self, write: Callable[[Session], None]) -> None:
+        """Schreibt in die Session-Dateien. Scheitert das (z. B. Platte voll), endet das Logging
+        dieser Session mit einer Meldung; Bridge und Bus laufen weiter. Was bis dahin
+        geschrieben war, bleibt lesbar (jede Zeile ist geflusht)."""
+        if self._session is None:
+            return
+        try:
+            write(self._session)
+        except OSError as exc:
+            session, self._session = self._session, None
+            with contextlib.suppress(OSError):
+                session.close()
+            self._console.info(
+                f"Session-Logging beendet – Schreibfehler: {exc.strerror or exc} "
+                f"({session.csv.path}). Bridge läuft weiter, ohne Session-Dateien."
+            )
 
     def _arm_stale_timer(self) -> None:
         """(Neu) starten: kommt STALE_AFTER_S lang kein Sample, wird der Status `stale`.
@@ -223,17 +243,19 @@ class Bridge:
 
     async def _set_grade(self, message: SetGrade) -> str:
         self._grade = message.grade
-        if isinstance(self._source, SimulatorSource):
-            self._source.set_grade(message.grade)  # virtuelle Steigung im Simulator (ADR-0007)
         # Andockpunkt Widerstandssteuerung: eine Quelle mit RESISTANCE_CONTROL setzt die
-        # Steigung um, alle anderen werfen NotSupportedError (ADR-0003, ADR-0007).
+        # Steigung um, alle anderen werfen NotSupportedError (ADR-0003, ADR-0007) – der
+        # Simulator wertet sie vorher trotzdem aus.
+        detail = ""
         try:
-            await self._source.set_resistance(message.grade)
+            await self._source.set_grade(message.grade)
         except NotSupportedError:
             ok, reason = False, "not_supported"
+        except Exception as exc:  # Quelle scheitert anders: Absender bekommt ack, Verbindung bleibt
+            ok, reason, detail = False, "source_error", f" ({exc})"
         else:
             ok, reason = True, None
-        result = "ok" if ok else reason
+        result = ("ok" if ok else reason) + detail
         self._console.info(f"set_grade {message.grade:+.3f} ({message.grade * 100:+.1f} %) -> {result}")
         self._render()
         return ack_message(SET_GRADE, ok, reason)

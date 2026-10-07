@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from contextlib import ExitStack
 
 import pytest
-from bridge_harness import BUS_URL, BridgeProcess, port_lock
+from bridge_harness import BUS_URL, BridgeProcess, InProcessBridge, port_lock
 from websockets.sync.client import ClientConnection, connect
 
 
@@ -33,6 +33,23 @@ def bridge_process(request, tmp_path) -> Iterator:
 
     def start(*args: str) -> BridgeProcess:
         bridge = BridgeProcess(list(args), tmp_path / f"bridge-{len(started)}.log")
+        started.append(bridge)
+        bridge.start()
+        return bridge
+
+    yield start
+    for bridge in started:
+        bridge.stop()
+
+
+@pytest.fixture
+def in_process_bridge(tmp_path) -> Iterator:
+    """Fabrik: `in_process_bridge(source)` startet die Bridge im Testprozess (`InProcessBridge`);
+    Stopp nach dem Test."""
+    started: list[InProcessBridge] = []
+
+    def start(source, sessions_dir=None) -> InProcessBridge:
+        bridge = InProcessBridge(source, sessions_dir or tmp_path / "sessions")
         started.append(bridge)
         bridge.start()
         return bridge
