@@ -187,7 +187,7 @@ einfarbige Flächen) ×0,78, Sonne/Mond ×0,8, Belichtung ×0,92, Umgebungslicht
 `MODE_FIXED`, `MODE_TIMELAPSE` (Stunde = Ortszeit 0–24) und `sky.set_weather_mode(mode, state = "")` mit
 `Weather.MODE_CHANGING`/`MODE_FIXED` und `Weather.CLEAR`, `LIGHT_CLOUDS`, `OVERCAST`, `RAIN`. Lesen: `sky.clock`
 (`local_hour()`, `timelapse_day_min`), `sky.weather.state`, `sky.sun_angles`. `set_compatibility(bool)` schaltet das
-Lichtprofil (Tests, Vergleich). Im Grafikmenü (`F2`, G8) lassen sich Tageszeit und Wetter umstellen; die Auswahl
+Lichtprofil (Tests, Vergleich). Im Grafikmenü (`Esc`/`F2`, G8) lassen sich Tageszeit und Wetter umstellen; die Auswahl
 liegt in `user://settings.cfg [sky]` über `config.cfg [sky]` (siehe „Grafik und Fenster“).
 
 **Sichtprüfung:** `view_probe.gd -- --time=21:30 --date=2026-06-21 --weather=rain` (feste Ortszeit/Datum/Wetter
@@ -228,9 +228,8 @@ Reihenfolge egal: Startet das Spiel zuerst, zeigt es „Bridge nicht erreichbar 
 | Taste | Wirkung |
 |---|---|
 | `P` oder Leertaste | Pause an/aus (jederzeit) |
-| `Esc` | Spiel beenden (jederzeit) |
+| `Esc` oder `F2` | Menü „Grafik und Fenster“ auf/zu (jederzeit, auch aus der Pause); **Beenden** über den Knopf „Beenden“ im Menü (nicht im Browser) |
 | `F3` | Debug-Anzeige an/aus |
-| `F2` | Menü „Grafik und Fenster“ auf/zu (auch aus der Pause; `Esc` schließt es zuerst) |
 | `F11` | Vollbild an/aus (nicht im Browser) |
 
 Physische Tastenposition (gleich auf QWERTZ/QWERTY); definiert in `scenes/main.gd` (`KEY_BINDINGS`).
@@ -288,11 +287,12 @@ und ~250 ms – dauerhaft mehr heißt: Daten stocken; das ist **nicht** die Late
 Zeitlupe, siehe `docs/anleitung.md`), dazu Bus-Verbindung, Status und Quelle. Prüfen: Kadenz in der
 Bridge ändern und schauen, wann „Kadenz roh“ und `t_ms` nachziehen.
 
-### Grafik und Fenster (`F2`)
+### Grafik und Fenster (`Esc` / `F2`)
 
 Das Menü wirkt sofort und speichert jede Änderung in `user://settings.cfg` – unter Windows
 `%APPDATA%\Godot\app_userdata\Inselfahrt\settings.cfg` (getrennt von `config.cfg`; Datei löschen = Standardwerte).
-Das Spiel läuft weiter, solange das Menü offen ist.
+Das Spiel läuft weiter, solange das Menü offen ist. Unten „Schließen“ und „Beenden“ (beendet das Spiel; im Browser
+ausgeblendet) – `Esc` beendet nicht mehr direkt (#19).
 
 | Option | Auswahl | Standard |
 |---|---|---|
@@ -409,7 +409,7 @@ Ein guter Test prüft von außen: Drehbuch rein → beobachtbares Spielverhalten
   Steigungen an festen Positionen; Insel-Tests übergeben `RideConfig.TRACK_ISLAND`),
   `connect_client(bus)` (nackter `BusClient`), `run_for(s)`, `run_until(cond, timeout_s)`,
   `press_key(KEY_P)` (Taste wie ein Spieler drücken); räumt nach jedem Test auf. `spawn_ride` setzt
-  `quit_on_request = false` – `Esc` meldet dann nur `quit_requested`, statt den Testlauf zu beenden.
+  `quit_on_request = false` – „Beenden“ im Menü meldet dann nur `quit_requested`, statt den Testlauf zu beenden.
 
 Drehbuch = Array von Schritten, `at` = Sekunden ab Verbindungsaufbau des Clients; jede Verbindung
 spielt von vorn (so lässt sich auch Reconnect prüfen):

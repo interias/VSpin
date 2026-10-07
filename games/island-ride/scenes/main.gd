@@ -4,7 +4,7 @@
 ## Die Kamera folgt dem Fahrer ruhig: Position hinter ihm auf der Strecke, Blick voraus, beides geglättet.
 ## Fahrer und Rad (`Track/Rider/Model`, RiderModel): Kurbel und Beine drehen mit der Kadenz, Räder rollen mit dem
 ## Tempo, Schräglage in Kurven, Vorbeuge bergauf; außerhalb von `riding` steht alles still.
-## Grafik und Fenster: eigenes Menü (`settings_menu`, F2/F11), hier nur eingehängt.
+## Grafik und Fenster: eigenes Menü (`settings_menu`, Esc/F2, F11), hier nur eingehängt; dort auch „Beenden“.
 ## HUD (`Hud`, RideHud, Szene `scenes/hud.tscn`): bekommt pro Frame die Werte, Rundenfortschritt und Position.
 ##
 ## Spielzustände (`state`):
@@ -27,7 +27,7 @@ extends Node3D
 
 ## Neuer Spielzustand (siehe STATE_*).
 signal state_changed(state: String)
-## Beenden per Taste angefordert (vor dem Beenden, siehe `quit_on_request`).
+## Beenden angefordert – Knopf „Beenden“ im Menü (vor dem Beenden, siehe `quit_on_request`).
 signal quit_requested
 
 const STATE_RIDING := "riding"
@@ -38,12 +38,11 @@ const STATE_FINISHED := "finished"
 ## Tastenbelegung: Aktion → Tasten (physische Tastenposition, unabhängig vom Layout).
 const KEY_BINDINGS := {
 	"ride_pause": [KEY_P, KEY_SPACE],
-	"ride_quit": [KEY_ESCAPE],
 	"ride_debug": [KEY_F3],
-	"ride_settings": [KEY_F2],
+	"ride_settings": [KEY_ESCAPE, KEY_F2],
 	"ride_fullscreen": [KEY_F11],
 }
-## Menü „Grafik und Fenster“ (F2, F11; siehe `scenes/settings_menu.gd`).
+## Menü „Grafik und Fenster“ (Esc/F2, F11, Beenden; siehe `scenes/settings_menu.gd`).
 const SETTINGS_MENU := preload("res://scenes/settings_menu.tscn")
 ## Kamera: Abstand hinter dem Fahrer, Höhe und Blickpunkt voraus aus der Konfiguration (`[camera]`, RideConfig);
 ## Glättung (Zeitkonstante).
@@ -58,7 +57,7 @@ const RESISTANCE_NOT_SUPPORTED := "Widerstand: nicht unterstützt"
 var config: RideConfig = null
 ## Startposition auf der Strecke in Metern (Standard: Start/Ziel).
 @export var start_distance_m := 0.0
-## Beendet das Spiel bei `ride_quit`; Tests schalten das ab und beobachten `quit_requested`.
+## Beendet das Spiel bei „Beenden“ im Menü; Tests schalten das ab und beobachten `quit_requested`.
 @export var quit_on_request := true
 ## Grafik-/Fenstereinstellungen; "" = Standardwerte, nichts speichern, Fenster unberührt (Tests, Probe).
 var settings_path := GraphicsSettings.DEFAULT_PATH
@@ -103,6 +102,7 @@ func _ready() -> void:
 	_register_key_bindings()
 	settings_menu = SETTINGS_MENU.instantiate()
 	settings_menu.settings_path = settings_path
+	settings_menu.quit_requested.connect(_on_quit_requested)
 	add_child(settings_menu)
 	_setup_track()
 	sky = SkyController.new()
@@ -211,11 +211,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		_update_state()
 		_update_view()
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("ride_quit"):
-		get_viewport().set_input_as_handled()
-		quit_requested.emit()
-		if quit_on_request:
-			get_tree().quit()
+
+
+func _on_quit_requested() -> void:
+	quit_requested.emit()
+	if quit_on_request:
+		get_tree().quit()
 
 
 func _exit_tree() -> void:
@@ -268,10 +269,10 @@ static func format_power(watts: float, estimated: bool) -> String:
 func status_message() -> String:
 	match state:
 		STATE_FINISHED:
-			return "Ziel erreicht!\nZeit: %s\nØ Kadenz: %d rpm\nØ Tempo: %.1f km/h\nEsc: beenden" % [
+			return "Ziel erreicht!\nZeit: %s\nØ Kadenz: %d rpm\nØ Tempo: %.1f km/h\nEsc: Menü (Beenden)" % [
 					format_time(lap_time_s(), true), roundi(stats.avg_cadence()), stats.avg_speed_kmh()]
 		STATE_PAUSED_MANUAL:
-			return "Pause\nP / Leertaste: weiter · Esc: beenden\nF2: Grafik und Fenster"
+			return "Pause\nP / Leertaste: weiter\nEsc / F2: Menü (Grafik und Fenster, Beenden)"
 		STATE_PAUSED_CONNECTION:
 			var text: String
 			if not bus.bus_connected:

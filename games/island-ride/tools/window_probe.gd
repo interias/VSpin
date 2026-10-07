@@ -11,7 +11,7 @@ var _menu: CanvasLayer
 
 func _initialize() -> void:
 	var path := OS.get_environment("TEMP").path_join("vspin_window_probe.cfg")
-	for action in ["ride_settings", "ride_fullscreen", "ride_quit"]:
+	for action in ["ride_settings", "ride_fullscreen"]:
 		InputMap.add_action(action)  # Tasten selbst sind hier egal (sonst registriert sie die Hauptszene)
 	_menu = load("res://scenes/settings_menu.tscn").instantiate()
 	_menu.settings_path = path

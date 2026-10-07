@@ -1,4 +1,5 @@
-## Menü „Grafik und Fenster“ (G4): `F2` öffnet/schließt (auch aus der Pause), `F11` schaltet Vollbild um.
+## Menü „Grafik und Fenster“ (G4): `Esc` oder `F2` öffnet/schließt (auch aus der Pause), `F11` schaltet Vollbild um.
+## Beenden nur über den Knopf „Beenden“ (Signal `quit_requested`; nicht im Browser).
 ## Jede Änderung wirkt sofort und wird in `settings_path` gespeichert (GraphicsSettings, `user://settings.cfg`).
 ## Beim Start wendet das Menü die gespeicherten Einstellungen an; die Fenstergeometrie (auch nach Ziehen oder
 ## Windows-Snap) wird beim Beenden gemerkt. Das Spiel läuft weiter, solange das Menü offen ist.
@@ -10,6 +11,8 @@ extends CanvasLayer
 
 ## Eine Einstellung wurde im Menü gewählt (Schlüssel wie in `options`).
 signal settings_changed(key: String)
+## Knopf „Beenden“ gedrückt (die Hauptszene beendet das Spiel).
+signal quit_requested
 
 const AA_LABELS := {"off": "Aus", "fxaa": "FXAA", "msaa_2x": "MSAA 2×", "msaa_4x": "MSAA 4×", "msaa_8x": "MSAA 8×",
 		"taa": "TAA"}
@@ -51,8 +54,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		toggle()
 	elif event.is_action_pressed("ride_fullscreen") and _manages_window():
 		toggle_fullscreen()
-	elif visible and event.is_action_pressed("ride_quit"):
-		close()  # Esc schließt erst das Menü, beendet nicht das Spiel
 	else:
 		return
 	get_viewport().set_input_as_handled()
@@ -201,11 +202,17 @@ func _build() -> void:
 	_add_button(_window_buttons, "Linke Hälfte", place_half.bind(false))
 	_add_button(_window_buttons, "Rechte Hälfte", place_half.bind(true))
 	var hint := Label.new()
-	hint.text = "F2 / Esc: schließen · F11: Vollbild\nWin+←/→: Fenster an den Rand"
+	hint.text = "Esc / F2: schließen · F11: Vollbild\nWin+←/→: Fenster an den Rand"
 	hint.add_theme_font_size_override("font_size", 16)
 	hint.add_theme_color_override("font_color", Color(1, 1, 1, 0.7))
 	box.add_child(hint)
-	_add_button(box, "Schließen", close)
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override("separation", 8)
+	box.add_child(actions)
+	_add_button(actions, "Schließen", close)
+	var quit := _add_button(actions, "Beenden", quit_requested.emit)
+	quit.name = "Quit"
+	quit.visible = not web  # im Browser lässt sich das Spiel nicht beenden
 	for key in ["vsync", "window_mode", "window_size"]:
 		for control in _rows[key]:
 			control.visible = not web
@@ -213,7 +220,7 @@ func _build() -> void:
 	for control in _rows["upscaler"]:
 		control.visible = not compatibility
 	if web:
-		hint.text = "F2 / Esc: schließen"
+		hint.text = "Esc / F2: schließen"
 	_refresh()
 
 
@@ -233,11 +240,12 @@ func _add_row(grid: GridContainer, key: String, text: String, labels: Array, val
 	_rows[key] = [label, option]
 
 
-func _add_button(parent: Container, text: String, action: Callable) -> void:
+func _add_button(parent: Container, text: String, action: Callable) -> Button:
 	var button := Button.new()
 	button.text = text
 	button.pressed.connect(action)
 	parent.add_child(button)
+	return button
 
 
 ## Auswahl in einem Feld: Wert setzen; Grafik sofort anwenden und speichern (Fenster über eigene Setter).

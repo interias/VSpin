@@ -1,5 +1,5 @@
 ## Spielzustände gegen den Fake-Bus: Verbindungsverlust pausiert (keine Kadenz 0), Rückkehr fährt
-## automatisch weiter, Bridge fehlt → Hinweis und neuer Versuch, Pause/Beenden per Taste.
+## automatisch weiter, Bridge fehlt → Hinweis und neuer Versuch, Pause per Taste, Esc öffnet das Menü.
 extends "res://tests/support/bus_test.gd"
 
 const FLAT_M := 20.0
@@ -143,8 +143,9 @@ func test_manual_pause_survives_connection_loss() -> void:
 	assert_eq(ride.state, PAUSED_MANUAL, "kein automatisches Weiterfahren aus manueller Pause")
 
 
-func test_escape_requests_quit() -> void:
+func test_escape_opens_menu_instead_of_quitting() -> void:
 	var ride := spawn_ride(start_fake_bus([FakeBusServer.status()]), FLAT_M)
 	watch_signals(ride)
 	await press_key(KEY_ESCAPE)
-	assert_signal_emitted(ride, "quit_requested")
+	assert_signal_not_emitted(ride, "quit_requested", "Esc beendet nicht mehr")
+	assert_true(ride.settings_menu.is_open(), "Esc öffnet das Menü (Beenden dort)")
