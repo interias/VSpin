@@ -77,7 +77,12 @@ verfügbar, daher nur Godot-Bordmittel:
   Abstand, Höhe und Vorausblick in `config.cfg` (`[camera]`, siehe Konfiguration); vor G5 9 m / 3,5 m / 14 m.
 - HUD zeigt zusätzlich den aktuellen Abschnitt, Höhenprofil und Minikarte der Insel (siehe HUD).
 
-Erzeugung beim Start ca. 2 s (Gelände wird einmal pro Prozess erzeugt und gecacht).
+Weltaufbau beim Start ca. 0,6 s, beim allerersten Start (oder nach Änderung an Gelände/Rundkurs) ca. 1,8 s
+(headless gemessen, #19). Das Gelände (Höhen, Straßenabstand) liegt als Cache in `user://terrain_cache.bin`
+(~1 MB; unter Windows `%APPDATA%\Godot\app_userdata\Inselfahrt\`); Schlüssel ist ein SHA-256 über den Quelltext von
+`src/island_terrain.gd` und `src/island_course.gd` und die Engine-Version – jede Änderung daran erzeugt neu. Datei
+löschen ist gefahrlos. Im Export ohne lesbaren Quelltext (z. B. Web) wird wie bisher bei jedem Start erzeugt. Das
+Mesh (~0,4 s) wird weiter jedes Mal gebaut (als Cache 6–9 MB für ~0,3 s Gewinn – lohnt nicht).
 
 **Sichtprüfung am Windows-PC (#15, Hafen + Küstenstraße):** Screenshots mit `tools/view_probe.gd`; fps-Fahrt
 0–2310 m mit 50 km/h, 1920 × 1080, VSync an (RTX 4070): Mittel 60,0 fps; ~1 % der Frames < 50 fps, genauso wie
