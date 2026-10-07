@@ -84,3 +84,68 @@ func test_web_hides_window_options() -> void:
 	assert_false(menu.options["upscaler"].visible, "kein FSR im Compatibility-Renderer")
 	assert_true(menu.options["render_scale"].visible, "Render-Auflösung bleibt")
 	assert_eq(menu.options["aa"].item_count, GraphicsSettings.AA_MODES_COMPATIBILITY.size(), "nur MSAA")
+
+
+## Hauptszene mit eigener Einstellungsdatei; `config.cfg [sky]` hier: feste 13 Uhr, klar.
+func _spawn_ride_with_settings() -> Node:
+	var config := config_for(start_fake_bus([FakeBusServer.status()]))
+	config.sky_time_mode = DayNight.MODE_FIXED
+	config.sky_fixed_hour = 13.0
+	config.sky_weather_mode = Weather.MODE_FIXED
+	config.sky_weather = Weather.CLEAR
+	var ride := MAIN_SCENE.instantiate()
+	ride.config = config
+	ride.quit_on_request = false
+	ride.settings_path = TEMP_PATH
+	add_child_autofree(ride)
+	return ride
+
+
+func _choose(menu: CanvasLayer, key: String, value) -> void:
+	var option: OptionButton = menu.options[key]
+	option.select(option.get_meta("values").find(value))
+	option.item_selected.emit(option.selected)
+
+
+func test_sky_selection_applies_at_once_and_survives_restart() -> void:
+	var ride := _spawn_ride_with_settings()
+	_choose(ride.settings_menu, "time", [DayNight.MODE_FIXED, 20.5])
+	_choose(ride.settings_menu, "weather", [Weather.MODE_FIXED, Weather.RAIN])
+	assert_eq(ride.sky.clock.mode, DayNight.MODE_FIXED, "wirkt sofort")
+	assert_eq(ride.sky.clock.fixed_hour, 20.5)
+	assert_almost_eq(ride.sky.clock.local_hour(), 20.5, 0.01)
+	assert_eq(ride.sky.weather.state, Weather.RAIN)
+	assert_false(ride.sky.weather.changing(), "ohne Überblendung")
+	assert_eq(ride.sky.current["rain"], 1.0, "Regen sofort sichtbar")
+	_choose(ride.settings_menu, "time", [DayNight.MODE_TIMELAPSE, 48.0])
+	assert_eq(ride.sky.clock.mode, DayNight.MODE_TIMELAPSE)
+	assert_eq(ride.sky.clock.timelapse_day_min, 48.0)
+	remove_child(ride)
+	ride.free()
+	var again := _spawn_ride_with_settings()
+	assert_eq(again.sky.clock.mode, DayNight.MODE_TIMELAPSE, "nach Neustart gespeicherter Wert statt config.cfg")
+	assert_eq(again.sky.clock.timelapse_day_min, 48.0)
+	assert_eq(again.sky.weather.mode, Weather.MODE_FIXED)
+	assert_eq(again.sky.weather.state, Weather.RAIN)
+	_choose(again.settings_menu, "weather", [Weather.MODE_CHANGING, ""])
+	assert_eq(again.sky.weather.mode, Weather.MODE_CHANGING)
+
+
+func test_config_sky_applies_without_saved_section() -> void:
+	var settings := GraphicsSettings.new()
+	settings.aa = GraphicsSettings.AA_MSAA_4X
+	settings.save_file(TEMP_PATH)  # nur [graphics]/[window]
+	var ride := _spawn_ride_with_settings()
+	assert_eq(ride.sky.clock.mode, DayNight.MODE_FIXED, "config.cfg gilt")
+	assert_eq(ride.sky.clock.fixed_hour, 13.0)
+	ride.settings_menu.open()
+	var time: OptionButton = ride.settings_menu.options["time"]
+	assert_eq(time.get_item_text(time.selected), "13:00 Uhr", "Menü zeigt den Stand aus config.cfg")
+	var weather: OptionButton = ride.settings_menu.options["weather"]
+	assert_eq(weather.get_item_text(weather.selected), "Klar")
+
+
+func test_web_shows_sky_options() -> void:
+	var menu := _spawn_menu(true, true)
+	assert_true(menu.options["time"].visible)
+	assert_true(menu.options["weather"].visible)

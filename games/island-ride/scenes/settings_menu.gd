@@ -2,15 +2,21 @@
 ## Jede Änderung wirkt sofort und wird in `settings_path` gespeichert (GraphicsSettings, `user://settings.cfg`).
 ## Beim Start wendet das Menü die gespeicherten Einstellungen an; die Fenstergeometrie (auch nach Ziehen oder
 ## Windows-Snap) wird beim Beenden gemerkt. Das Spiel läuft weiter, solange das Menü offen ist.
+## Tageszeit und Wetter (G8) stehen in denselben Einstellungen (`[sky]`); auf die Welt wirken sie über
+## `settings_changed`, das die Hauptszene an den SkyController weitergibt.
 ## Im Browser (`web`) gibt es keine Fenstermodi/-größen und kein VSync; im Compatibility-Renderer nur MSAA und
 ## bilineare Skalierung.
 extends CanvasLayer
+
+## Eine Einstellung wurde im Menü gewählt (Schlüssel wie in `options`).
+signal settings_changed(key: String)
 
 const AA_LABELS := {"off": "Aus", "fxaa": "FXAA", "msaa_2x": "MSAA 2×", "msaa_4x": "MSAA 4×", "msaa_8x": "MSAA 8×",
 		"taa": "TAA"}
 const UPSCALER_LABELS := {"bilinear": "Bilinear", "fsr": "AMD FSR 1", "fsr2": "AMD FSR 2"}
 const SHADOW_LABELS := {"low": "Niedrig", "medium": "Mittel", "high": "Hoch"}
 const WINDOW_LABELS := {"windowed": "Fenster", "borderless": "Randloses Fenster", "fullscreen": "Vollbild"}
+const WEATHER_LABELS := {"clear": "Klar", "light_clouds": "Leicht bewölkt", "overcast": "Bewölkt", "rain": "Regen"}
 
 ## Einstellungsdatei; "" = Standardwerte, nichts laden/speichern, Fenster bleibt unberührt (Tests, Probe).
 var settings_path := GraphicsSettings.DEFAULT_PATH
@@ -178,6 +184,14 @@ func _build() -> void:
 			GraphicsSettings.MAX_FPS_CHOICES, func(v): settings.max_fps = v)
 	_add_row(grid, "shadows", "Schatten", GraphicsSettings.SHADOW_QUALITIES.map(func(s): return SHADOW_LABELS[s]),
 			GraphicsSettings.SHADOW_QUALITIES, func(v): settings.shadows = v)
+	var times: Array = [_time_value(DayNight.MODE_REALTIME, 0.0)]
+	times.append_array(GraphicsSettings.FIXED_HOURS.map(func(h): return _time_value(DayNight.MODE_FIXED, h)))
+	times.append_array(GraphicsSettings.TIMELAPSE_DAY_MINS.map(
+			func(m): return _time_value(DayNight.MODE_TIMELAPSE, m)))
+	_add_row(grid, "time", "Tageszeit", times.map(_time_label), times, _on_time)
+	var weathers: Array = [_weather_value(Weather.MODE_CHANGING, "")]
+	weathers.append_array(Weather.STATES.keys().map(func(w): return _weather_value(Weather.MODE_FIXED, w)))
+	_add_row(grid, "weather", "Wetter", weathers.map(_weather_label), weathers, _on_weather)
 	_add_row(grid, "window_mode", "Fenstermodus", GraphicsSettings.WINDOW_MODES.map(func(m): return WINDOW_LABELS[m]),
 			GraphicsSettings.WINDOW_MODES, _on_window_mode)
 	_add_row(grid, "window_size", "Fenstergröße", [], [], _on_window_size)
@@ -232,6 +246,46 @@ func _on_selected(index: int, option: OptionButton, key: String, setter: Callabl
 	if key not in ["window_mode", "window_size"]:
 		apply()
 		_save()
+	settings_changed.emit(key)
+
+
+## Tageszeit als Menüwert: [Modus, Zahl] – feste Stunde bzw. Minuten je Tag im Zeitraffer, Echtzeit 0.
+static func _time_value(mode: String, number: float) -> Array:
+	return [mode, number]
+
+
+static func _time_label(value: Array) -> String:
+	match value[0]:
+		DayNight.MODE_FIXED:
+			return "%d:%02d Uhr" % [floori(value[1]), roundi(fmod(value[1], 1.0) * 60.0)]
+		DayNight.MODE_TIMELAPSE:
+			return "Zeitraffer %d min/Tag" % roundi(value[1])
+	return "Echtzeit (Mallorca)"
+
+
+## Wetter als Menüwert: [Modus, Zustand] – wechselnd ohne Zustand.
+static func _weather_value(mode: String, state: String) -> Array:
+	return [mode, state]
+
+
+static func _weather_label(value: Array) -> String:
+	return WEATHER_LABELS.get(value[1], "Wechselnd") if value[0] == Weather.MODE_FIXED else "Wechselnd"
+
+
+func _on_time(value: Array) -> void:
+	settings.sky_saved = true
+	settings.time_mode = value[0]
+	if value[0] == DayNight.MODE_FIXED:
+		settings.fixed_hour = value[1]
+	elif value[0] == DayNight.MODE_TIMELAPSE:
+		settings.timelapse_day_min = value[1]
+
+
+func _on_weather(value: Array) -> void:
+	settings.sky_saved = true
+	settings.weather_mode = value[0]
+	if value[0] == Weather.MODE_FIXED:
+		settings.weather = value[1]
 
 
 func _on_window_mode(mode: String) -> void:
@@ -261,6 +315,10 @@ func _refresh() -> void:
 	_select("max_fps", settings.max_fps)
 	_select("shadows", settings.shadows)
 	_select("window_mode", settings.window_mode)
+	var number := settings.fixed_hour if settings.time_mode == DayNight.MODE_FIXED 			else settings.timelapse_day_min if settings.time_mode == DayNight.MODE_TIMELAPSE else 0.0
+	_select_or_add("time", _time_value(settings.time_mode, number), _time_label)
+	_select_or_add("weather", _weather_value(settings.weather_mode,
+			settings.weather if settings.weather_mode == Weather.MODE_FIXED else ""), _weather_label)
 	var sizes: Array = GraphicsSettings.WINDOW_SIZES.duplicate()
 	var size_option: OptionButton = options["window_size"]
 	size_option.clear()
@@ -274,6 +332,16 @@ func _refresh() -> void:
 	size_option.set_meta("values", sizes)
 	size_option.disabled = fullscreen
 	_select("window_size", sizes[0] if fullscreen else settings.window_size)
+
+
+## Wie `_select`; ein Wert, den die Liste nicht hat (z. B. 13:00 aus `config.cfg`), wird angehängt.
+func _select_or_add(key: String, value, label: Callable) -> void:
+	var option: OptionButton = options[key]
+	var values: Array = option.get_meta("values")
+	if value not in values:
+		values.append(value)
+		option.add_item(label.call(value))
+	_select(key, value)
 
 
 func _select(key: String, value) -> void:
