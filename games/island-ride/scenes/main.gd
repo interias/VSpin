@@ -48,6 +48,13 @@
 ## ihrem Start neu mit, halbtransparent (`Track/Ghost`, RiderModel als Ghost) und seitlich versetzt; das HUD zeigt den
 ## Abstand in Sekunden (positiv = hinter dem Ghost). Er wirkt nicht auf die eigene Fahrt. Die Rundenwertung schneidet
 ## jede volle Runde mit; am Fahrtende gehen Bestzeit-Runde (nur bei neuer Bestzeit) und letzte Runde in den Spielstand.
+##
+## Erfolge und Fahrerlevel (#35): Die Fahrt meldet Ereignisse an die Erfolge (Achievements) – je volle Runde `lap`, je
+## voller Kilometer (gesamt über alle Fahrten) `distance`, `weather` und `time_of_day`. Ein neuer Erfolg und ein
+## Levelaufstieg (DriverLevel, aus den Gesamt-Kilometern) blenden im HUD ein, nacheinander mit Bestzeit und Segment.
+## Am Fahrtende werden Strecke und Runden gesamt noch einmal geprüft (ein älterer Spielstand zieht so nach); das Ergebnis
+## nennt die neuen Erfolge und das neue Level. Das Level schaltet nur Kosmetik frei (ADR-0010) und wirkt nicht auf die
+## Fahrt. Das Fahrtenbuch (`scenes/logbook.gd`) öffnet aus dem Startmenü.
 extends Node3D
 
 ## Neuer Spielzustand (siehe STATE_*).
@@ -73,6 +80,8 @@ const KEY_BINDINGS := {
 const SETTINGS_MENU := preload("res://scenes/settings_menu.tscn")
 ## Startmenü (Titel, Menüpunkte, Radstatus).
 const START_MENU := preload("res://scenes/start_menu.tscn")
+## Fahrtenbuch (Statistik, Bestzeiten, Erfolge, letzte Fahrten; #35).
+const LOGBOOK := preload("res://scenes/logbook.gd")
 ## Kamera: Abstand hinter dem Fahrer, Höhe und Blickpunkt voraus aus der Konfiguration (`[camera]`, RideConfig);
 ## Glättung (Zeitkonstante).
 const CAMERA_SMOOTHING_S := 0.45
@@ -103,6 +112,7 @@ var config: RideConfig = null
 var settings_path := GraphicsSettings.DEFAULT_PATH
 var settings_menu: CanvasLayer
 var start_menu: CanvasLayer
+var logbook: CanvasLayer
 ## Spielstand; "" = nicht laden/speichern, Fahrten nur im Speicher (Tests, Probe).
 var save_path := SaveGame.DEFAULT_PATH
 var save_game: SaveGame
@@ -116,6 +126,9 @@ var lap_timing: LapTiming
 var medal_limits: Dictionary = {}
 ## Ghost der laufenden Fahrt (null = aus); seine Runde beginnt mit jeder Runde der Fahrt neu.
 var ghost: Ghost = null
+## In dieser Fahrt neu freigeschaltete Erfolge (Einträge aus Achievements.LIST) und das Fahrerlevel jetzt.
+var ride_achievements: Array = []
+var ride_level := 1
 ## Mitfahrer des Ghosts auf der Strecke und sein halbtransparentes Fahrermodell.
 var ghost_rider: PathFollow3D
 var ghost_model: RiderModel
@@ -146,6 +159,11 @@ var _ever_connected := false
 var _ride_saved := false
 ## Streckenposition des Kameraflugs im Titelbild.
 var _flight_m := 0.0
+## Vor der Fahrt: Kilometer und volle Runden gesamt, Fahrerlevel; nächster voller Kilometer (gesamt) für die Ereignisse.
+var _km_before := 0.0
+var _laps_before := 0
+var _level_before := 1
+var _next_km := 1.0
 
 @onready var track: Track = $Track
 @onready var rider: PathFollow3D = $Track/Rider
@@ -171,8 +189,13 @@ func _ready() -> void:
 	start_menu.ride_requested.connect(_on_ride_requested)
 	start_menu.settings_requested.connect(settings_menu.open)
 	start_menu.quit_requested.connect(_on_quit_requested)
+	start_menu.logbook_requested.connect(open_logbook)
 	add_child(start_menu)
-	settings_menu.visibility_changed.connect(func(): start_menu.set_covered(settings_menu.visible))
+	logbook = LOGBOOK.new()
+	logbook.name = "Logbook"
+	logbook.closed.connect(_on_logbook_closed)
+	add_child(logbook)
+	settings_menu.visibility_changed.connect(_on_settings_visibility_changed)
 	_setup_track()
 	_setup_ghost_rider()
 	sky = SkyController.new()
@@ -186,6 +209,7 @@ func _ready() -> void:
 	bus.ack_received.connect(_on_ack)
 	model = RideModel.new(config, start_distance_m)
 	_new_lap_timing()
+	_reset_progress()
 	hud.setup(track, world)
 	_update_view()
 	_update_camera(0.0, true)
@@ -320,6 +344,7 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 	model = RideModel.new(config, start_distance_m)
 	stats = RideStats.new()
 	_new_lap_timing()
+	_reset_progress()
 	grade_reporter.reset()
 	resistance_hint = ""
 	_manual_pause = false
@@ -353,6 +378,64 @@ func _new_lap_timing() -> void:
 	medal_limits = Medals.thresholds(track, config)
 
 
+## Erfolge und Fahrerlevel für eine neue Fahrt: Stand vor der Fahrt aus dem Spielstand (Kilometer und Runden aller
+## Fahrten), noch nichts Neues.
+func _reset_progress() -> void:
+	_km_before = save_game.total_km()
+	_laps_before = save_game.total_laps()
+	_level_before = DriverLevel.level_for(_km_before)
+	ride_level = _level_before
+	_next_km = floorf(_km_before) + 1.0
+	ride_achievements = []
+
+
+## Ein Ereignis der Fahrt an die Erfolge: neu erfüllte werden freigeschaltet (im Spielstand, gespeichert mit der Fahrt)
+## und mit `announce` eingeblendet.
+func _achievement_event(event: Dictionary, announce: bool = true) -> void:
+	for achievement in Achievements.check(event, save_game.achievements()):
+		save_game.unlock_achievement(achievement["id"])
+		ride_achievements.append(achievement)
+		if announce:
+			hud.celebrate("Erfolg: %s – %s" % [achievement["name"], achievement["text"]])
+
+
+## Fahrerlevel aus den Gesamt-Kilometern (bisher plus diese Fahrt); ein Aufstieg blendet mit `announce` ein.
+func _check_level(announce: bool = true) -> void:
+	var level := DriverLevel.level_for(_km_before + stats.distance_m / 1000.0)
+	if level > ride_level:
+		ride_level = level
+		if announce:
+			hud.celebrate("Fahrerlevel %d erreicht!" % level)
+
+
+## Ereignisse je voller Kilometer (gesamt): Strecke, Wetter und Tageszeit beim Fahren. Die Jahreszeit (#39) kommt hier
+## als {"type": Achievements.EVENT_SEASON, "season": …} dazu.
+func _km_events() -> Array:
+	return [
+		{"type": Achievements.EVENT_DISTANCE, "total_km": _km_before + stats.distance_m / 1000.0,
+			"ride_km": stats.distance_m / 1000.0},
+		{"type": Achievements.EVENT_WEATHER, "state": sky.weather.state},
+		{"type": Achievements.EVENT_TIME_OF_DAY, "hour": sky.clock.local_hour()},
+	]
+
+
+## Fahrtenbuch aus dem Startmenü öffnen (das Menü tritt so lange zurück).
+func open_logbook() -> void:
+	start_menu.close()
+	logbook.open(save_game)
+
+
+func _on_logbook_closed() -> void:
+	start_menu.open()
+	start_menu.buttons["logbook"].grab_focus()
+
+
+func _on_settings_visibility_changed() -> void:
+	start_menu.set_covered(settings_menu.visible)
+	if not settings_menu.visible:
+		logbook.focus_default.call_deferred()  # Einstellungen über dem Fahrtenbuch geschlossen
+
+
 ## Seite „Rundfahrt“ im Startmenü: Tageszeiten wie im Einstellungsmenü, die gespeicherten Ghosts und die Bestzeit der
 ## Strecke.
 func _update_round_trip_menu() -> void:
@@ -378,6 +461,7 @@ func return_to_menu() -> void:
 
 
 func _enter_menu() -> void:
+	logbook.close()
 	state = STATE_MENU
 	_manual_pause = false
 	hud.visible = false
@@ -413,6 +497,13 @@ func _save_ride() -> void:
 		save_game.record_ghost(config.track, LapTiming.DIRECTION_CW, Ghost.BEST, best_ghost)
 	if lap_timing.last_ghost != null:
 		save_game.record_ghost(config.track, LapTiming.DIRECTION_CW, Ghost.LAST, lap_timing.last_ghost)
+	# Gesamtstand mit dieser Fahrt: holt auch nach, was ein älterer Spielstand schon erfüllt (ohne Einblendung – im
+	# Ergebnis stehen die neuen Erfolge und das Level).
+	_achievement_event({"type": Achievements.EVENT_DISTANCE, "total_km": save_game.total_km(),
+			"ride_km": stats.distance_m / 1000.0}, false)
+	_achievement_event({"type": Achievements.EVENT_LAP, "total_laps": save_game.total_laps(),
+			"ride_laps": lap_timing.lap_times.size()}, false)
+	_check_level(false)
 	for i in range(lap_timing.lap_times.size()):
 		save_game.record_medal(config.track, LapTiming.DIRECTION_CW, Medals.LAP, lap_medal(i))
 	for result in lap_timing.segments.results:
@@ -528,8 +619,10 @@ static func format_power(watts: float, estimated: bool) -> String:
 func status_message() -> String:
 	match state:
 		STATE_FINISHED:
-			return "%s\nZeit: %s\n%s\nØ Kadenz: %d rpm\nØ Tempo: %.1f km/h\nEnter: zurück ins Menü · Esc: Einstellungen" % [
-					"Ziel erreicht!" if lap_timing.finished() else "Fahrt beendet", format_time(lap_time_s(), true),
+			var rewards := rewards_result()  # in der Kopfzeile: als eigene Zeile passten 20 Runden nicht mehr in 1152×648
+			return "%s%s\nZeit: %s\n%s\nØ Kadenz: %d rpm\nØ Tempo: %.1f km/h\nEnter: zurück ins Menü · Esc: Einstellungen" % [
+					"Ziel erreicht!" if lap_timing.finished() else "Fahrt beendet",
+					" · " + rewards if not rewards.is_empty() else "", format_time(lap_time_s(), true),
 					lap_result(), roundi(stats.avg_cadence()), stats.avg_speed_kmh()]
 		STATE_PAUSED_MANUAL:
 			return "Pause\nP / Leertaste: weiter\nEsc / F2: Einstellungen (Fahrt beenden, Beenden)"
@@ -574,6 +667,19 @@ func lap_result() -> String:
 	if not segments.is_empty():
 		text += "\nSegmente: " + " · ".join(segments)
 	return text
+
+
+## Neue Erfolge und Levelaufstieg dieser Fahrt fürs Ergebnis in einer Zeile, z. B. „Neuer Erfolg: Erste Runde ·
+## Fahrerlevel 2 erreicht“ oder „3 neue Erfolge“ ("" = nichts Neues). Alle stehen im Fahrtenbuch.
+func rewards_result() -> String:
+	var parts := []
+	if ride_achievements.size() == 1:
+		parts.append("Neuer Erfolg: %s" % ride_achievements[0]["name"])
+	elif ride_achievements.size() > 1:
+		parts.append("%d neue Erfolge" % ride_achievements.size())
+	if ride_level > _level_before:
+		parts.append("Fahrerlevel %d erreicht" % ride_level)
+	return " · ".join(parts)
 
 
 ## Medaille der Runde `index` (ab 0). Eine verkürzte erste Runde (Start nicht an der Start/Ziel-Linie) bekommt keine.
@@ -629,10 +735,19 @@ func _ride(delta: float) -> void:
 		model.distance_m = finish_distance_m
 	stats.add(used, bus.cadence, model.distance_m - before)
 	var segments_before := lap_timing.segments.results.size()
-	if lap_timing.advance(model.distance_m, used) > 0 and lap_timing.last_lap_is_new_best():
+	var laps_done := lap_timing.advance(model.distance_m, used)
+	if laps_done > 0 and lap_timing.last_lap_is_new_best():
 		hud.celebrate("Neue Bestzeit!  %s" % format_time(lap_timing.lap_times[-1], true))
 	for i in range(segments_before, lap_timing.segments.results.size()):
 		hud.celebrate(segment_result_text(lap_timing.segments.results[i]))
+	if laps_done > 0:
+		_achievement_event({"type": Achievements.EVENT_LAP, "total_laps": _laps_before + lap_timing.lap_times.size(),
+				"ride_laps": lap_timing.lap_times.size()})
+	while _km_before + stats.distance_m / 1000.0 >= _next_km:
+		_next_km += 1.0
+		for event in _km_events():
+			_achievement_event(event)
+		_check_level()
 	if lap_timing.finished():
 		_finish_ride()
 

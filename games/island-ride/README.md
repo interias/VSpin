@@ -236,7 +236,8 @@ Enter/Leertaste):
 |---|---|
 | **Fahren** | Modus-Auswahl: **Rundfahrt**, *Training – bald* und *Arcade – bald* ausgegraut, „Zurück“ |
 | **Fahren → Rundfahrt** | **Runden** 1–20 oder *Endlos* (Standard 1), **Tageszeit** (dieselbe Auswahl wie im Einstellungsmenü, Standard *Echtzeit*; wirkt und bleibt wie dort gewählt), **Ghost** (*Aus*, *Bestzeit*, *Letzte Fahrt*; ohne Aufzeichnung ausgegraut, Standard *Bestzeit*, sobald es sie gibt, #32), die **Bestzeit** der Strecke; **Losfahren** startet die Fahrt (#31) |
-| *Fahrtenbuch – bald*, *Garderobe – bald* | ausgegraut |
+| **Fahrtenbuch** | Statistik, Bestzeiten, Segmentzeiten, Medaillen, Erfolge und die letzten Fahrten (#35, siehe unten) |
+| *Garderobe – bald* | ausgegraut |
 | **Einstellungen** | öffnet das Menü „Grafik und Fenster“ (wie `Esc`/`F2`) |
 | **Beenden** | beendet das Spiel (im Browser ausgeblendet) |
 
@@ -254,7 +255,8 @@ Abbruch („Fahrt beenden“, Beenden, Fenster schließen), sofern gefahren wurd
 (die steht in der Session-CSV der Bridge). Bestzeiten stehen je Profil unter `best_times` (Strecke → Richtung →
 Sekunden, z. B. `{"island": {"cw": 873.4}}`), Segment-Bestzeiten unter `segment_best_times` und die beste Medaille je Runde
 (`lap`) und Segment unter `medals` (Strecke → Richtung → Segment-ID, #33), die Ghosts unter `ghosts` (Strecke → Richtung →
-`best`/`last`, je nur `lap_length_m`, `sample_s`, `time_s` und `distance_m`, #32). Spätere Bereiche kommen additiv dazu; ältere
+`best`/`last`, je nur `lap_length_m`, `sample_s`, `time_s` und `distance_m`, #32), die freigeschalteten Erfolge unter
+`achievements` (Erfolg-ID → Datum, #35). Spätere Bereiche kommen additiv dazu; ältere
 Stände werden beim Laden hochgestuft, ein Stand einer neueren Version bleibt unverändert erhalten, eine unlesbare
 Datei wird als `savegame.json.defekt` beiseitegelegt statt überschrieben.
 
@@ -446,6 +448,35 @@ jede Sekunde (`distance_m`, auf 1 cm), dazu Rundenlänge und Rundenzeit; abgespi
 von ~15 min sind rund 900 Zahlen. Aufgezeichnet werden nur volle Runden (Beginn an der Start/Ziel-Linie); das macht
 die Rundenwertung (`LapTiming.best_ghost`/`last_ghost`), Logik in `src/ghost.gd`. Für spätere Pakete (Panorama-Momente
 nicht mit Ghost, #43) fragt man `ghost_active()` der Hauptszene ab.
+
+### Erfolge, Fahrerlevel und Fahrtenbuch (#35)
+
+**Erfolge** (`src/achievements.gd`): 27 einmalige Meilensteine in sechs Kategorien – Strecke (1/10/100/500/1000 km
+gesamt, 20/50 km in einer Fahrt), Rundenzahl (1/10/50 gesamt, 3/10 in einer Fahrt), Tageszeit (5–8, 12–15, 18–21,
+22–5 Uhr Ortszeit), Wetter (je Zustand), Jahreszeit und Training. Jeder Erfolg ist nur Daten (Name, Text, Ereignis,
+Bedingung); ausgewertet werden **Ereignisse der Fahrt**: je volle Runde `lap`, je voller Kilometer (gesamt) `distance`,
+`weather` und `time_of_day`. Jahreszeit (`season`, #39) und Training (`training_finished`, #37) sind im Ereignisvertrag
+angelegt, werden aber erst mit diesen Paketen gesendet. Ein neuer Erfolg blendet im HUD ein („Erfolg: Regenfahrer – Im
+Regen gefahren“); mehrere Einblendungen (Bestzeit, Segment, Erfolg, Level) laufen nacheinander statt sich zu
+überschreiben. Am Fahrtende prüft das Spiel Strecke und Runden gesamt noch einmal – ein Spielstand von vor #35 holt so
+nach, was er schon erfüllt. Das Ergebnis nennt die neuen Erfolge und das neue Level in der Kopfzeile.
+
+**Fahrerlevel** (`src/driver_level.gd`): folgt allein aus den Kilometern aller Fahrten in jedem Modus (nicht
+gespeichert, aus den Fahrten abgeleitet). Level 2 ab 10 km, jeder weitere Schritt 5 km länger (3 ab 25 km, 5 ab 70 km,
+10 ab 270 km, 20 ab 1045 km), höchstens 50. Ein Aufstieg blendet ein („Fahrerlevel 3 erreicht!“). Es schaltet **nur
+Kosmetik** frei (`DriverLevel.unlock_level(teil)` für die Garderobe, #36) und wirkt nicht auf Fahrmodell, Rundenzeit,
+Bestzeit oder Medaille (ADR-0010).
+
+**Fahrtenbuch** (`scenes/logbook.gd`, aus dem Startmenü): drei Seiten – *Übersicht* (Strecke, Zeit, Fahrten, Runden,
+Fahrerlevel mit Rest bis zum nächsten; Bestzeiten je Strecke und Richtung; Segmentzeiten; beste Medaille je Runde und
+Segment), *Erfolge* (alle nach Kategorie, freigeschaltete mit Datum, gesperrte blass) und *Fahrten* (die letzten 20,
+neueste zuerst). Bedienung: Seitenknöpfe mit Pfeil links/rechts oder Maus, Pfeil hoch/runter, Bild auf/ab, Pos1/Ende
+oder Mausrad scrollen, `Esc` oder „Zurück“ schließt. Passt in 960 × 1040, 1920 × 1080 und 1152 × 648
+(`tests/test_logbook.gd`).
+
+Sichtprüfung: `view_probe.gd -- --title --logbook` (Beispielstand nur im Speicher) speichert `logbook_overview.png`,
+`logbook_achievements.png` und `logbook_rides.png`; `--hud --rewards --shots=1200` die Einblendungen `achievement.png`
+und `level_up.png`.
 
 ### Virtuelle Steigung (`set_grade`)
 
