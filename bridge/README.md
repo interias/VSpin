@@ -35,6 +35,8 @@ Container gedacht (`docker-compose.yml`, siehe [Anleitung](../docs/anleitung.md)
 Clients können `set_grade` senden (virtuelle Steigung, ADR-0007). Die Bridge antwortet dem
 Absender mit `ack` (bis zur Widerstandssteuerung `ok: false, reason: "not_supported"`) und
 schreibt eine Zeile ins Terminal, z. B. `set_grade +0.070 (+7.0 %) -> not_supported`.
+Scheitert die Quelle mit einem anderen Fehler, lautet die Antwort `reason: "source_error"`
+(der Fehler steht im Terminal); die Verbindung bleibt offen.
 Der Simulator senkt bergauf die Kadenz (um 2 × Steigung, höchstens auf die Hälfte);
 bei Steigung 0 oder bergab gilt wieder die per Tastatur eingestellte Kadenz.
 Kaputte oder unbekannte Nachrichten werden mit `error` beantwortet (docs/bus-protocol.md).

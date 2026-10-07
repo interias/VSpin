@@ -226,13 +226,16 @@ class Bridge:
         # Andockpunkt Widerstandssteuerung: eine Quelle mit RESISTANCE_CONTROL setzt die
         # Steigung um, alle anderen werfen NotSupportedError (ADR-0003, ADR-0007) – der
         # Simulator wertet sie vorher trotzdem aus.
+        detail = ""
         try:
             await self._source.set_grade(message.grade)
         except NotSupportedError:
             ok, reason = False, "not_supported"
+        except Exception as exc:  # Quelle scheitert anders: Absender bekommt ack, Verbindung bleibt
+            ok, reason, detail = False, "source_error", f" ({exc})"
         else:
             ok, reason = True, None
-        result = "ok" if ok else reason
+        result = ("ok" if ok else reason) + detail
         self._console.info(f"set_grade {message.grade:+.3f} ({message.grade * 100:+.1f} %) -> {result}")
         self._render()
         return ack_message(SET_GRADE, ok, reason)

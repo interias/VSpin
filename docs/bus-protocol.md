@@ -77,6 +77,11 @@ Broadcast. Die Verbindung bleibt danach offen; andere Clients merken nichts davo
 `ok: false, reason: "not_supported"`. Der Simulator wertet die Steigung trotzdem aus
 (bergauf sinkt die simulierte Kadenz).
 
+| `reason` | Ursache |
+|---|---|
+| `not_supported` | Quelle ohne Capability `RESISTANCE_CONTROL` |
+| `source_error` | Quelle hat den Befehl mit einem Fehler abgelehnt (Details im Bridge-Terminal); die Verbindung bleibt offen |
+
 ### `error`
 
 Antwort auf eine kaputte oder unbekannte Client-Nachricht:
