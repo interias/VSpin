@@ -401,6 +401,7 @@ tests/                  GUT-Tests, support/ (Fake-Bus, Basisklasse, Hook), fixtu
 tools/                  E2E-Prüfhilfe gegen die echte Bridge, Sichtprüfung/fps (view_probe.gd), Fenstermodi (window_probe.gd)
 addons/gut/             GUT 9.4.0 (MIT, Lizenz in addons/gut/LICENSE.md)
 assets/kenney/          Low-Poly-Modelle (CC0) für alle Stationen
+icon.svg / icon.ico     VSpin-Symbol (Faltband mit Schattenfalte): Projekt-, Fenster- und Browser-Symbol; .ico für Windows
 ASSETS.md               Asset-Nachweis und Lizenzregel
 ```
 
