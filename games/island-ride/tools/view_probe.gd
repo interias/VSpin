@@ -3,6 +3,7 @@
 ## und misst die Bildrate.
 ##   godot --path games/island-ride -s res://tools/view_probe.gd -- --out=C:/tmp/shots [--shots=0,200,450]
 ##         [--fps-from=0 --fps-to=2310 --speed-kmh=50] [--size=1920x1080] [--cadence=85] [--close] [--pair]
+##         [--advance=1.5]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung). VSync wie im Projekt (Standard: an).
@@ -10,6 +11,8 @@
 ## (sie steht in der Verbindungspause), die Probe bewegt das echte Modell. Vor jedem Screenshot 1 s Tritt.
 ## `--close`: zusätzlich Nahaufnahmen je Position (`close_<m>_side.png`, `close_<m>_rear.png`, Kamera nur hier
 ## versetzt). `--pair`: zweites Bild 0,15 s später (`shot_<m>_b.png`) – Kurbelstellung muss sich unterscheiden.
+## `--advance`: im Bildpaar zusätzlich die Weltanimation (WorldMotion: Flügel, Vögel, Boote, Wolken) um so viele
+## Sekunden vorrücken, damit die Bewegung im Vergleich sichtbar wird (Standard 0).
 extends SceneTree
 
 var _ride: Node3D
@@ -27,6 +30,7 @@ func _initialize() -> void:
 	var size := Vector2i(1920, 1080)
 	var close := false
 	var pair := false
+	var advance := 0.0
 	for arg in OS.get_cmdline_user_args():
 		var value := arg.get_slice("=", 1)
 		if arg.begins_with("--out="):
@@ -48,6 +52,8 @@ func _initialize() -> void:
 			close = true
 		elif arg == "--pair":
 			pair = true
+		elif arg.begins_with("--advance="):
+			advance = float(value)
 	DisplayServer.window_set_size(size)
 	var config := RideConfig.load_file()
 	config.track = RideConfig.TRACK_ISLAND
@@ -67,6 +73,8 @@ func _initialize() -> void:
 		_save(out_dir.path_join("shot_%d.png" % int(d)))
 		if pair:
 			_pedal(0.15)
+			if advance > 0.0 and _ride.world != null:
+				_ride.world.motion.advance(advance)
 			await _frames(2)
 			_save(out_dir.path_join("shot_%d_b.png" % int(d)))
 		if close:

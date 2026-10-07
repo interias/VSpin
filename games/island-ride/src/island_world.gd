@@ -11,6 +11,8 @@
 ##             `distance_m`; dazu `aussichtspunkt` (Landmarke)
 ##   Props     je Station ein Node3D (Name = id) mit der Deko
 ##   Landmarks Sehenswürdigkeiten (Leuchtturm, Talaia, Ermita, …), Details Kleindetails – siehe IslandLandmarks (G2)
+##   Motion    bewegte Szenen und Effekte (Windmühlen, Leuchtturm, Boote, Vögel, Wolken) – siehe WorldMotion (G3);
+##             Meer und Vegetation bekommen dort ihre Shader (Wellen/Brandung, Wind)
 class_name IslandWorld
 extends Node3D
 
@@ -55,7 +57,7 @@ const OLIVE_COLORS := {
 	"woodBark": Color(0.33, 0.3, 0.26),
 }
 const CYPRESS_COLORS := {
-	"leafsGreen": Color(0.12, 0.24, 0.13),
+	"leafsGreen": Color(0.2, 0.35, 0.19),
 	"woodBark": Color(0.36, 0.27, 0.2),
 }
 
@@ -63,6 +65,8 @@ const CYPRESS_COLORS := {
 var terrain: IslandTerrain
 var track: Track
 var landmarks: IslandLandmarks
+## Bewegte Szenen und Effekte (G3), Kind `Motion`.
+var motion: WorldMotion
 
 static var _terrain_mesh: ArrayMesh = null
 static var _models := {}
@@ -78,22 +82,21 @@ func build(course_track: Track) -> void:
 	_add_mesh("Terrain", _terrain_mesh, _vertex_color_material())
 	var sea := PlaneMesh.new()
 	sea.size = Vector2(SEA_SIZE_M, SEA_SIZE_M)
-	var sea_material := StandardMaterial3D.new()
-	sea_material.albedo_color = Color(0.1, 0.42, 0.62, 0.88)
-	sea_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	sea_material.roughness = 0.15
-	sea_material.metallic = 0.2
-	_add_mesh("Sea", sea, sea_material)
+	_add_mesh("Sea", sea, WorldMotion.sea_material(terrain))
 	_add_mesh("Road", track.road_mesh(), _vertex_color_material())
 	_build_stations()
 	_build_props()
 	landmarks = IslandLandmarks.new(self)
 	landmarks.build()
+	motion = WorldMotion.new()
+	add_child(motion)
+	motion.setup(self)
 
 
 func _vertex_color_material() -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
+	material.vertex_color_is_srgb = true
 	material.roughness = 0.95
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return material
@@ -422,6 +425,7 @@ static func _model_mesh(path: String, colors: Dictionary = NATURE_COLORS) -> Arr
 				material.albedo_color = colors.get(material.resource_name,
 						NATURE_COLORS.get(material.resource_name, material.albedo_color))
 				mesh.surface_set_material(s, material)
+		WorldMotion.sway(mesh, path)
 		_models[key] = [mesh, placement]
 		scene.free()
 	return _models[key]

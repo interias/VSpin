@@ -9,7 +9,7 @@
 ##   burg         Burgruine auf einem Felssockel über der Ostküste (Abfahrt)
 ##   aquaedukt    Bogenaquädukt neben der Abfahrt
 ##   windmuehlen  drei Windmühlen (Molins) an der unteren Abfahrt
-## Animierbar (für bewegte Szenen, hier statisch): `windmuehlen/Muehle<n>/Fluegel` (Drehachse lokal z, Pivot =
+## Animierbar (bewegt von WorldMotion, G3): `windmuehlen/Muehle<n>/Fluegel` (Drehachse lokal z, Pivot =
 ## Nabe), `leuchtturm/Lampe` (Drehachse lokal y, Pivot = Laternenmitte), Boote unter `Details/Boote`.
 ##
 ## Kleindetails unter `World/Details`: Kilometersteine, Agaven (teils mit Blütenstand), Feigenkakteen, Schafe und
@@ -117,6 +117,7 @@ func _landmark(parent: Node3D, id: String, title: String, at: Vector3, yaw: floa
 func _vertex_material() -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
+	material.vertex_color_is_srgb = true
 	material.roughness = 0.9
 	return material
 

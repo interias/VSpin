@@ -89,6 +89,46 @@ Mittel 59,9 fps, 1-%-Tief 54,8 fps, 107 von 29 692 Frames < 50 fps – vor #16 a
 **Sichtprüfung G2 (Sehenswürdigkeiten):** fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070): Mittel
 59,9 fps, 1-%-Tief 55,4 fps, 83 von 39 677 Frames < 50 fps – vorher auf derselben Fahrt 59,9 / 54,3 / 180 (Streuung).
 
+## Bewegung, Effekte und Licht
+
+Die Welt lebt (G3), getrieben von `src/world_motion.gd` (`WorldMotion`, Knoten `World/Motion`, von
+`IslandWorld.build()` eingehängt). Alles außer den Shadern ist eine reine Funktion der Animationszeit
+(`apply(t)`), headless getestet (`tests/test_world_motion.gd`).
+
+- **Windmühlen:** die Flügel der drei Molins drehen (0,55–0,8 rad/s, je Mühle eigene Drehzahl).
+- **Leuchtturm:** die Lampe dreht (eine Umdrehung in ~7 s) mit einem dezenten, additiven Lichtkegel
+  (`src/shaders/beam.gdshader`).
+- **Boote:** alle Boote und Bojen im Wasser (Hafen, Buchten der Westküste) schaukeln (Hub ≤ 0,15 m, Neigung
+  ≤ ~4°); zwei Segelboote kreuzen auf Ellipsen vor der Westküste und vor dem Hafen (~3,5 m/s, leichte Krängung).
+- **Vögel:** Möwenschwärme über Hafen, Leuchtturm und Westküste, je ein Greifvogel über den Serpentinen und der
+  Burg – Low-Poly aus Grundkörpern, Flügelschlag in Phasen mit Gleitflug dazwischen.
+- **Wolken:** 18 Low-Poly-Wolken 380–560 m hoch ziehen langsam mit dem Wind und laufen am Rand um.
+- **Wind:** Bäume, Palmen, Büsche, Gras, Blumen (Kenney-Vegetation) und Agaven wiegen sanft
+  (`src/shaders/wind.gdshader`, Vertex-Shader; Gewicht = Höhe im Objektraum, Fuß fest; Phase aus der Weltlage).
+  Felsen und Gebäude bleiben starr.
+- **Meer:** `src/shaders/sea.gdshader` – Wellen als Normalen-Störung (zur Ferne ausgeblendet), Glitzern,
+  türkisfarbenes Flachwasser und laufende Brandung an der Küste. Die Wassertiefe kommt aus einer kleinen
+  Höhenkarte des Geländes (261 × 361 Texel, L8, zur Laufzeit erzeugt), nicht aus dem Tiefenpuffer.
+- **Brunnen** im Bergdorf mit Wasserstrahl (`CPUParticles3D`).
+- **Pausen:** Verbindungs- und manuelle Pause halten nur die Fahrt an, nicht den Szenenbaum – die Welt lebt als
+  Ambiente weiter (sonst wirkte ein Abbruch wie ein Absturz).
+
+**Licht** (`scenes/main.tscn`): ProceduralSky (Mittelmeerblau, heller Horizont) statt Einfarb-Hintergrund,
+Umgebungslicht halb aus dem Himmel, halb warm-neutral (Energie 1,0), Reflexionen aus dem Himmel, ACES-Tonemapping,
+SSAO, dezentes Glow, Fernnebel mit Luftperspektive, Sättigung +12 %. Sonne flacher (−42°) und warm
+(Energie 1,25). Hauptursache der Überbelichtung war, dass Vertex-Farben (Gelände, Straße, G2-Bauten) linear statt
+als sRGB gelesen wurden – die Materialien setzen jetzt `vertex_color_is_srgb`, die Farbwerte sind unverändert.
+
+**Web-Export (Compatibility-Renderer):** alle Shader kompilieren dort (keine Tiefen-/Bildschirmtexturen, kein
+Compute); SSAO und Luftperspektive gibt es im Web nicht, sie werden ignoriert. Partikel sind CPU-Partikel.
+
+**Sichtprüfung:** `view_probe.gd -- --pair --advance=0.4` rückt im Bildpaar zusätzlich die Weltanimation vor
+(Flügel, Vögel, Boote, Wolken unterscheiden sich). Achtung: Die Mühle hat sechs Flügel – ein Vorrücken um ~1 rad
+sieht wie Stillstand aus.
+**Kosten:** fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070): Mittel 59,8 fps, min 6,9, 1-%-Tief
+53,7 fps, 186 von 39 565 Frames < 50 fps – vorher auf derselben Fahrt 59,9 / 7,2 / 54,6 / 130 (Streuung früherer
+Läufe 83–180).
+
 ## Fahrer und Rad
 
 Statt der Kapsel fährt ein stilisierter Rennradfahrer (`Track/Rider/Model`), **prozedural aus Godot-Grundkörpern**
@@ -289,6 +329,8 @@ src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil
 src/island_terrain.gd   IslandTerrain: Höhenfeld (prozedural oder Höhenkarte), unter die Straße geformt, Mesh
 src/island_world.gd     IslandWorld: Gelände, Meer, Fahrbahn, Stationsmarker, Deko aller Stationen mit Modellen (#15, #16)
 src/island_landmarks.gd IslandLandmarks: Sehenswürdigkeiten und Kleindetails (G2), Platzierungsdaten für Tests
+src/world_motion.gd     WorldMotion: bewegte Szenen und Effekte (G3) – Mühlen, Leuchtturm, Boote, Vögel, Wolken, Brunnen
+src/shaders/            Wind (Vegetation), Meer (Wellen, Flachwasser, Brandung), Lichtkegel
 src/graybox_track.gd    GrayboxTrack: Rundkurs ~900 m, flach → +6 % → Kuppe → −6 % → flach (`[world] track="graybox"`)
 tests/                  GUT-Tests, support/ (Fake-Bus, Basisklasse, Hook), fixtures/
 tools/                  E2E-Prüfhilfe gegen die echte Bridge, Sichtprüfung/fps (view_probe.gd)
