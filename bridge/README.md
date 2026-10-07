@@ -189,8 +189,9 @@ Arbeitsverzeichnis, anderer Ort mit `--sessions-dir DIR`. Die Pfade stehen beim 
   Session immer aus beiden Dateien besteht.
 
 Ist einer der beiden Namen schon belegt, bekommen beide `_2`, `_3`, … angehängt. Jede Zeile wird
-sofort geflusht, auch nach Strg+C oder Absturz bleiben lesbare Dateien. `sessions/` ist in
-`.gitignore`.
+sofort geflusht, auch nach Strg+C oder Absturz bleiben lesbare Dateien. Scheitert das Schreiben
+mitten im Lauf (z. B. Platte voll), meldet die Bridge das im Terminal, schreibt für diese Session
+nichts mehr und läuft weiter. `sessions/` ist in `.gitignore`.
 
 ## Testen
 
