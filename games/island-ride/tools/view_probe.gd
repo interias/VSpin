@@ -7,10 +7,11 @@
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--menu] [--crop=x,y,w,h]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
-## (ohne Bridge stünde dort die Verbindungsmeldung), außer mit `--hud` (dann samt Debug-Anzeige); `--menu` öffnet
-## das Grafikmenü. Grafik wie bei einem frischen Start (GraphicsSettings-Standard, `user://settings.cfg` bleibt
-## unberührt); `--aa`/`--scale`/`--upscaler`/`--vsync=off` überschreiben. `--crop`: zusätzlich Bildausschnitt
-## `crop_<m>.png` (z. B. für den AA-Vergleich).
+## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
+## `--cadence`, Tempo des Fahrmodells, Steigung und Abschnitt der Strecke, Strecke/Zeit bis zur Position, „~142 W“),
+## die Verbindungsmeldung ist unsichtbar, dazu die Debug-Anzeige (F3). `--menu` öffnet das Grafikmenü. Grafik wie bei einem frischen Start (GraphicsSettings-Standard,
+## `user://settings.cfg` bleibt unberührt); `--aa`/`--scale`/`--upscaler`/`--vsync=off` überschreiben. `--crop`:
+## zusätzlich Bildausschnitt `crop_<m>.png` (z. B. für den AA-Vergleich). VSync wie im Projekt (Standard: an).
 ## Fahrer und Rad treten mit `--cadence` (rpm, 0 = Stillstand): die Hauptszene füttert ohne Bus nur eine Attrappe
 ## (sie steht in der Verbindungspause), die Probe bewegt das echte Modell. Vor jedem Screenshot 1 s Tritt.
 ## `--close`: zusätzlich Nahaufnahmen je Position (`close_<m>_side.png`, `close_<m>_rear.png`, Kamera nur hier
@@ -25,6 +26,8 @@ var _model: RiderModel
 var _cadence := 85.0
 ## Bildausschnitt für `crop_<m>.png` (leer = keiner).
 var _crop := Rect2i()
+## HUD mit Beispielwerten zeigen (`--hud`).
+var _hud := false
 
 
 func _initialize() -> void:
@@ -37,7 +40,6 @@ func _initialize() -> void:
 	var close := false
 	var pair := false
 	var advance := 0.0
-	var hud := false
 	var menu := false
 	var graphics := GraphicsSettings.new()
 	for arg in OS.get_cmdline_user_args():
@@ -72,7 +74,7 @@ func _initialize() -> void:
 		elif arg == "--vsync=off":
 			graphics.vsync = false
 		elif arg == "--hud":
-			hud = true
+			_hud = true
 		elif arg == "--menu":
 			menu = true
 		elif arg.begins_with("--crop="):
@@ -85,14 +87,19 @@ func _initialize() -> void:
 	_ride.config = config
 	_ride.settings_path = ""
 	root.add_child(_ride)
-	_ride.get_node("Hud").visible = hud
+	_ride.get_node("Hud").visible = _hud
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	await _frames(10)
 	_ride.settings_menu.settings = graphics  # erst nach `_ready` der Hauptszene vorhanden
 	_ride.settings_menu.apply()
-	_ride.debug_label.visible = hud
+	_ride.debug_label.visible = _hud
 	if menu:
 		_ride.settings_menu.open()
+	if _hud:
+		# Beispielwerte: die Hauptszene zeigt Kadenz und Watt des (ohne Bridge nicht verbundenen) Bus-Clients an.
+		_ride.get_node("Hud/Message").modulate = Color.TRANSPARENT
+		_ride.bus.cadence = _cadence
+		_ride.bus.last_telemetry = {"cadence": _cadence, "power_w": 142.0}
 	_model = _ride.rider_model  # erst nach `_ready` der Hauptszene gesetzt
 	var dummy := RiderModel.new()
 	_ride.rider_model = dummy
@@ -151,9 +158,14 @@ func _close_ups(out_dir: String, d: float) -> void:
 	_place(d)
 
 
-## Fahrer an Position `d`, Kamera sofort dahinter.
+## Fahrer an Position `d`, Kamera sofort dahinter. Mit `--hud`: Tempo des Fahrmodells, Strecke und Zeit bis hier
+## (Beispiel: Ø 22 km/h).
 func _place(d: float) -> void:
 	_ride.model.distance_m = d
+	if _hud:
+		_ride.model.speed_mps = _ride.model.target_speed_mps(_cadence, _ride.current_grade())
+		_ride.stats.distance_m = d
+		_ride.stats.ride_time_s = d / (22.0 / 3.6)
 	_ride._update_view()
 	_ride._update_camera(0.0, true)
 
