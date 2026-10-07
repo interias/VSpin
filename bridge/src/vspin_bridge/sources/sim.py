@@ -81,10 +81,11 @@ class SimulatorSource:
     def grade(self) -> float:
         return self._grade
 
-    def set_grade(self, grade: float) -> None:
-        """Virtuelle Steigung auswerten. Keine Widerstandssteuerung – die Capability
-        RESISTANCE_CONTROL fehlt weiterhin, `set_resistance` bleibt `NotSupportedError`."""
+    async def set_grade(self, grade: float) -> None:
+        """Virtuelle Steigung auswerten (bergauf sinkt die Kadenz). Keine Widerstandssteuerung –
+        die Capability RESISTANCE_CONTROL fehlt, daher danach trotzdem `NotSupportedError`."""
         self._grade = float(grade)
+        raise NotSupportedError("Simulator hat keine Capability RESISTANCE_CONTROL")
 
     def _effective_cadence(self, base: float) -> float:
         factor = max(GRADE_CADENCE_FLOOR, 1.0 - GRADE_CADENCE_DROP * max(0.0, self._grade))
@@ -118,9 +119,6 @@ class SimulatorSource:
                 yield TelemetrySample(t_ms=bridge_time_ms(), cadence=self._effective_cadence(base))
                 next_tick += self._interval_s
         await asyncio.sleep(max(0.0, next_tick - loop.time()))  # auch der letzte Takt dauert voll
-
-    async def set_resistance(self, level: float) -> None:
-        raise NotSupportedError("Simulator hat keine Capability RESISTANCE_CONTROL")
 
 
 def _manual() -> Iterator[Tick]:

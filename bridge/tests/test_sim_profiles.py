@@ -73,7 +73,7 @@ def test_profile_plays_deterministically(bridge_process, bus_client, tmp_path):
     ]
     # Die Quelle liefert in jedem Lauf exakt dieselbe Folge (Rohwert in der CSV) …
     assert raw_cadences(runs[0]) == raw_cadences(runs[1]) == RAMP_CADENCES
-    # … am Bus (Spalte `cadence`) geglättet (EMA ~1 s): startet beim ersten Wert und läuft
+    # … am Bus (Spalte `cadence`) geglättet (EMA 0,3 s): startet beim ersten Wert und läuft
     # dem Profil steigend hinterher.
     for run in runs:
         smoothed = cadences(run)
@@ -84,6 +84,19 @@ def test_profile_plays_deterministically(bridge_process, bus_client, tmp_path):
     # Die Pause ist eine Datenlücke von Takt + 0,5 s zwischen Rampe und letztem Schritt.
     t_ms = [int(r["t_ms"]) for r in runs[0]]
     assert t_ms[4] - t_ms[3] >= 700, t_ms
+
+
+def test_reported_cadence_zero_reaches_zero_quickly(bridge_process, bus_client, tmp_path):
+    profile = write_profile(
+        tmp_path, "[[steps]]\nduration_s = 1\ncadence = 60\n\n[[steps]]\nduration_s = 3\ncadence = 0\n"
+    )
+    rows = play_to_end(bridge_process, bus_client, tmp_path / "out", "--profile", str(profile))
+    assert raw_cadences(rows) == [60.0] * 4 + [0.0] * 12
+    # Die Quelle meldet ausdrücklich 0: am Bus fällt die Kadenz und ist nach spätestens
+    # 1,5 s (6 Takten) genau 0 – statt nur asymptotisch (EMA allein: erst nach ~2,1 s 0,0).
+    falling = cadences(rows)[4:]
+    assert falling == sorted(falling, reverse=True), falling
+    assert 0 < falling[0] < 60 and falling[5:] == [0.0] * 7, falling
 
 
 def test_noise_with_seed_is_reproducible(bridge_process, bus_client, tmp_path):
@@ -103,7 +116,7 @@ def test_noise_with_seed_is_reproducible(bridge_process, bus_client, tmp_path):
     noisy = raw_cadences(first)
     assert len(set(noisy)) > 3, noisy
     assert all(60 <= c <= 100 for c in noisy), noisy
-    # Die Glättung (EMA ~1 s) dämpft das Rauschen am Bus.
+    # Die Glättung (EMA 0,3 s) dämpft das Rauschen am Bus.
     smoothed = cadences(first)
     assert max(smoothed) - min(smoothed) < max(noisy) - min(noisy), (smoothed, noisy)
     # Jitter: der Abstand der Samples schwankt deutlich um den Takt von 250 ms.

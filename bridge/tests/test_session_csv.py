@@ -5,6 +5,7 @@ am Bus gesehen hat.
 """
 
 import csv
+import errno
 import json
 import re
 import signal
@@ -13,6 +14,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from bridge_harness import BRIDGE_ROOT, receive_json, wait_until
+from vspin_bridge.session import files as session_files
+from vspin_bridge.sources.sim import SimulatorSource
 from websockets.exceptions import ConnectionClosed
 
 HEADER = "t_ms,cadence_raw,cadence,speed_kmh,power_w,power_estimated,hr_bpm,grade,status"
@@ -213,3 +216,52 @@ def test_sessions_directory_is_git_ignored():
     assert ignored("sessions/2026-10-06_12-00-00.csv")
     assert ignored("bridge/sessions/2026-10-06_12-00-00.csv")
     assert not ignored("bridge/src/vspin_bridge/session/csv_log.py")  # Gegenprobe: greift nicht überall
+
+
+class DiskFullAfter:
+    """Datei-Stream, der nach `lines` Zeilen mit „Platte voll“ scheitert (wie ein volles Laufwerk)."""
+
+    def __init__(self, stream, lines: int) -> None:
+        self._stream = stream
+        self._lines = lines
+
+    def write(self, text: str) -> int:
+        if self._lines <= 0:
+            raise OSError(errno.ENOSPC, "No space left on device")
+        self._lines -= text.count("\n")
+        return self._stream.write(text)
+
+    def flush(self) -> None:
+        self._stream.flush()
+
+    def close(self) -> None:
+        self._stream.close()
+
+    @property
+    def closed(self) -> bool:
+        return self._stream.closed
+
+
+def test_write_error_stops_session_logging_but_bridge_keeps_running(
+    in_process_bridge, bus_client, tmp_path, monkeypatch
+):
+    real_open = open
+
+    def open_with_full_disk(path, *args, **kwargs):
+        stream = real_open(path, *args, **kwargs)
+        return DiskFullAfter(stream, lines=5) if str(path).endswith(".csv") else stream
+
+    monkeypatch.setattr(session_files, "open", open_with_full_disk, raising=False)
+    out = tmp_path / "out"
+    bridge = in_process_bridge(SimulatorSource(cadence=80), out)
+    client = connect(bus_client)
+    # Nach Kopfzeile + 4 Samples ist die Platte voll – die Telemetrie läuft trotzdem weiter …
+    assert len(telemetry(client, 16)) == 16
+    assert receive_json(connect(bus_client))["type"] == "telemetry"  # … und neue Clients kommen an.
+
+    assert bridge.stop() is None  # kein Abbruch, kein Traceback
+    log = bridge.log()
+    assert log.count("Session-Logging beendet") == 1, log
+    assert "No space left on device" in log and "Bridge läuft weiter" in log
+    header, rows = read_csv(session_file(out))  # was vor dem Fehler stand, bleibt lesbar
+    assert header == HEADER and len(rows) == 4
