@@ -21,6 +21,10 @@
 ## (`total_km`, `total_time_s`, `total_laps`). Ein älterer Stand ohne `achievements` bekommt den leeren Bereich; was er
 ## schon erfüllt, fällt beim nächsten Fahrtende.
 ##
+## Training (#37): eine Fahrt im Modus MODE_TRAINING trägt zusätzlich den Namen der Einheit (`training`) und die
+## Gesamtbewertung (`training_score`, Treffer der Zielkadenz 0..1); `finished` heißt dort: Einheit zu Ende gefahren.
+## Bestzeit, Segmentzeiten, Medaillen und Ghosts schreibt das Training nicht.
+##
 ## Erweitern (Garderobe – spätere Pakete) geht additiv:
 ## neue Bereiche in PROFILE_DEFAULTS bekommen beim Laden ihren Standardwert. Ändert sich das Format, steigt
 ## VERSION und `_upgrade_steps()` bekommt einen Schritt von der alten Version aus – alte Stände werden beim Laden
@@ -32,8 +36,9 @@ extends RefCounted
 const DEFAULT_PATH := "user://savegame.json"
 ## Aktuelle Formatversion.
 const VERSION := 1
-## Spielmodus einer Fahrt (CONTEXT.md: Rundfahrt; Training und Arcade folgen).
+## Spielmodus einer Fahrt (CONTEXT.md: Rundfahrt, Training; Arcade folgt).
 const MODE_ROUND_TRIP := "rundfahrt"
+const MODE_TRAINING := "training"
 ## Bereiche je Fahrerprofil mit Standardwert (fehlende werden beim Laden ergänzt).
 const PROFILE_DEFAULTS := {"rides": [], "best_times": {}, "segment_best_times": {}, "medals": {}, "ghosts": {},
 		"achievements": {}}
@@ -197,6 +202,15 @@ func total_time_s() -> float:
 ## Volle Runden aller Fahrten.
 func total_laps() -> int:
 	return int(_ride_sum("laps"))
+
+
+## Zu Ende gefahrene Trainings (Einheit bis zum Ausrollen, #37).
+func finished_trainings() -> int:
+	var count := 0
+	for ride in rides():
+		if ride is Dictionary and ride.get("mode") == MODE_TRAINING and ride.get("finished") == true:
+			count += 1
+	return count
 
 
 func _ride_sum(key: String) -> float:

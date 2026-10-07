@@ -6,6 +6,7 @@
 ##         [--advance=1.5] [--time=21:30] [--date=2026-06-21] [--weather=rain] [--profile=forward|compat]
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
 ##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4] [--logbook] [--rewards]
+##         [--training]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -43,6 +44,9 @@
 ## `logbook_overview.png`, `logbook_achievements.png` und `logbook_rides.png` statt der Titelbilder.
 ## `--hud --rewards` speichert nach den Streckenbildern die Einblendung eines Erfolgs (`achievement.png`) und eines
 ## Levelaufstiegs (`level_up.png`) an der letzten Position aus `--shots`.
+## Training (#37): `--title --training` speichert zusätzlich `title_training.png` (Seite „Training“); `--hud --training`
+## fährt nach den Streckenbildern die Einheit „Intervalle kurz“ bis kurz vor die erste harte Phase (HUD mit
+## Trainingszeile und Ansage, `training.png`) und dann zu Ende, mit Treffern je nach Phase (`training_result.png`).
 extends SceneTree
 
 ## Beispiel-Rundenzeiten (s) für `--laps`: gespeicherte Bestzeit vorher, dann die Runden der Fahrt.
@@ -67,6 +71,8 @@ var _ghost_s := NAN
 ## Fahrtenbuch statt Titelbilder (`--logbook`), Einblendungen von Erfolg und Levelaufstieg (`--rewards`).
 var _logbook := false
 var _rewards := false
+## Trainingsseite bzw. Training im HUD (`--training`).
+var _training := false
 
 
 func _initialize() -> void:
@@ -138,6 +144,8 @@ func _initialize() -> void:
 			_logbook = true
 		elif arg == "--rewards":
 			_rewards = true
+		elif arg == "--training":
+			_training = true
 		elif arg.begins_with("--crop="):
 			var p := value.split(",")
 			_crop = Rect2i(int(p[0]), int(p[1]), int(p[2]), int(p[3]))
@@ -218,6 +226,8 @@ func _initialize() -> void:
 		await _segment_shots(out_dir)
 	if _rewards and _hud:
 		await _reward_shots(out_dir)
+	if _training and _hud:
+		await _training_shots(out_dir)
 	if fps_to > fps_from:
 		await _measure(fps_from, fps_to, speed_kmh / 3.6)
 	if _laps >= 0 and _hud:
@@ -255,6 +265,10 @@ func _title_shots(out_dir: String) -> void:
 		_ride.start_menu.show_round_trip()
 		await _frames(4)
 		_save_image(out_dir.path_join("title_round_trip.png"))
+	if _training:
+		_ride.start_menu.show_training()
+		await _frames(4)
+		_save_image(out_dir.path_join("title_training.png"))
 	_ride.start_menu.show_page(false)
 	var start := Time.get_ticks_msec()
 	while Time.get_ticks_msec() - start < 3000:
@@ -304,6 +318,35 @@ func _reward_shots(out_dir: String) -> void:
 	_ride._update_view()
 	await _frames(8)
 	_save_image(out_dir.path_join("level_up.png"))
+
+
+## Training „Intervalle kurz“ an der aktuellen Position: 7,5 s vor der ersten harten Phase (Ansage im HUD), danach die
+## ganze Einheit mit Beispieltreffern (jede dritte Phase knapp daneben) bis zum Ergebnis.
+func _training_shots(out_dir: String) -> void:
+	var unit: Dictionary = Training.load_all()[0]
+	var training := Training.new(unit)
+	training.advance(_cadence, unit["phases"][0]["duration_s"] - 7.5)
+	_ride.ride_mode = SaveGame.MODE_TRAINING
+	_ride.training = training
+	_ride.laps = 0
+	_ride.lap_timing = LapTiming.new(_ride.track.length_m(), 0.0, 0)
+	_ride.lap_timing.advance(_ride.model.distance_m, _ride.stats.ride_time_s)
+	_ride.hud.end_celebration()
+	_ride._update_view()
+	await _frames(8)
+	_save_image(out_dir.path_join("training.png"))
+	for i in range(training.phase_index(), training.phases.size()):
+		var phase: Dictionary = training.phases[i]
+		var cadence: float = (phase["cadence_min"] + phase["cadence_max"]) / 2.0
+		training.advance(cadence, training.remaining_s() * 0.8)
+		training.advance(cadence - 12.0 if i % 3 == 1 else cadence, training.remaining_s())
+	_ride.stats = RideStats.new()
+	_ride.stats.add(training.duration_s(), 88.0, training.duration_s() * 22.0 / 3.6)
+	_ride._finish_ride()  # wie im Spiel: Erfolg „Erste Einheit“, Spielstand nur im Speicher (save_path "")
+	_ride.get_node("Hud/Message").modulate = Color.WHITE
+	_ride._update_view()
+	await _frames(8)
+	_save_image(out_dir.path_join("training_result.png"))
 
 
 func _save_image(path: String) -> void:

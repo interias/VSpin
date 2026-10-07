@@ -116,9 +116,10 @@ func test_menu_items_and_disabled_entries() -> void:
 	assert_string_contains(texts["arcade"], "Arcade")
 	assert_string_contains(texts["arcade"], "bald")
 	assert_eq(texts["logbook"], "Fahrtenbuch")
-	for key in ["training", "arcade", "wardrobe"]:
+	assert_eq(texts["training"], "Training", "Training wählbar (#37)")
+	for key in ["arcade", "wardrobe"]:
 		assert_true(buttons[key].disabled, "%s ausgegraut" % key)
-	for key in ["drive", "round_trip", "logbook", "settings", "quit", "back"]:
+	for key in ["drive", "round_trip", "training", "logbook", "settings", "quit", "back"]:
 		assert_false(buttons[key].disabled, "%s wählbar" % key)
 	assert_true(buttons["quit"].is_visible_in_tree(), "Beenden auf dem Desktop")
 	var web_menu := START_MENU_SCENE.instantiate()
@@ -327,6 +328,9 @@ func _check_both_pages(menu: CanvasLayer, label: String) -> void:
 	menu.show_round_trip()
 	await wait_process_frames(2)
 	_assert_menu_inside(menu, label + " (Rundfahrt)")
+	menu.show_training()
+	await wait_process_frames(2)
+	_assert_menu_inside(menu, label + " (Training)")
 
 
 func test_layout_fits_half_screen_window() -> void:

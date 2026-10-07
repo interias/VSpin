@@ -1,7 +1,8 @@
 ## Startmenü der Inselfahrt (#30): Titel über dem Kameraflug, Menüpunkte und unten dauerhaft der Status des Rads.
-##   Fahren        → Modus-Auswahl: Rundfahrt, Training und Arcade noch ausgegraut („bald“)
+##   Fahren        → Modus-Auswahl: Rundfahrt, Training, Arcade noch ausgegraut („bald“)
 ##   Rundfahrt     → Rundenzahl (1–n oder endlos), Tageszeit (wie im Einstellungsmenü), Ghost (aus, Bestzeit,
 ##                   letzte Fahrt; ohne Aufzeichnung ausgegraut, #32), Bestzeit; „Losfahren“ (#31)
+##   Training      → Einheit (aus `res://trainings`, Training.load_all) mit Beschreibung und Dauer; „Losfahren“ (#37)
 ##   Fahrtenbuch   öffnet das Fahrtenbuch (Statistik, Bestzeiten, Erfolge, letzte Fahrten; #35)
 ##   Garderobe     ausgegraut („bald“)
 ##   Einstellungen öffnet das Menü „Grafik und Fenster“ (wie F2)
@@ -12,7 +13,8 @@
 extends CanvasLayer
 
 ## „Fahren → Rundfahrt → Losfahren“ gewählt (Modus wie SaveGame.MODE_*); Rundenzahl und Tageszeit siehe
-## `round_trip_laps()`, `time_index()` und `ghost_choice()`.
+## `round_trip_laps()`, `time_index()` und `ghost_choice()`. „Fahren → Training → Losfahren“: Modus
+## SaveGame.MODE_TRAINING, die Einheit liefert `training_unit()`.
 signal ride_requested(mode: String)
 ## „Fahrtenbuch“ gewählt (#35).
 signal logbook_requested
@@ -36,16 +38,20 @@ const GHOST_CHOICES := ["", Ghost.BEST, Ghost.LAST]
 var web := OS.has_feature("web")
 
 ## Knöpfe je Menüpunkt (Schlüssel: drive, round_trip, training, arcade, back, logbook, wardrobe, settings, quit;
-## auf der Seite „Rundfahrt“: start, trip_back).
+## auf der Seite „Rundfahrt“: start, trip_back; auf der Seite „Training“: training_start, training_back).
 var buttons := {}
-## Auswahlfelder der Seite „Rundfahrt“ (Schlüssel: laps, time, ghost).
+## Auswahlfelder der Seite „Rundfahrt“ (Schlüssel: laps, time, ghost) und der Seite „Training“ (unit).
 var options := {}
+## Einheiten zur Auswahl auf der Seite „Training“ (wie Training.load_file).
+var training_units: Array = []
 ## Ghost selbst gewählt? Dann bleibt die Wahl, solange sie verfügbar ist; sonst gilt der Standard.
 var _ghost_picked := false
 var _main_page: VBoxContainer
 var _mode_page: VBoxContainer
 var _trip_page: VBoxContainer
+var _training_page: VBoxContainer
 var _best_label: Label
+var _training_info: Label
 var _center: CenterContainer
 var _panel: PanelContainer
 var _status_dot: Label
@@ -76,6 +82,7 @@ func show_page(modes: bool) -> void:
 	_main_page.visible = not modes
 	_mode_page.visible = modes
 	_trip_page.visible = false
+	_training_page.visible = false
 	if visible:
 		focus_default()
 
@@ -85,6 +92,17 @@ func show_round_trip() -> void:
 	_main_page.visible = false
 	_mode_page.visible = false
 	_trip_page.visible = true
+	_training_page.visible = false
+	if visible:
+		focus_default()
+
+
+## Seite „Training“: Einheit mit Beschreibung; Fokus auf „Losfahren“.
+func show_training() -> void:
+	_main_page.visible = false
+	_mode_page.visible = false
+	_trip_page.visible = false
+	_training_page.visible = true
 	if visible:
 		focus_default()
 
@@ -94,6 +112,8 @@ func focus_default() -> void:
 	var first: Button = buttons["drive"]
 	if _trip_page.visible:
 		first = buttons["start"]
+	elif _training_page.visible:
+		first = buttons["training_start"] if not buttons["training_start"].disabled else buttons["training_back"]
 	elif _mode_page.visible:
 		first = buttons["round_trip"]
 	first.grab_focus()
@@ -132,6 +152,38 @@ func set_ghost_choices(best_available: bool, last_available: bool) -> void:
 func ghost_choice() -> String:
 	var option: OptionButton = options["ghost"]
 	return "" if option.selected < 0 or option.is_item_disabled(option.selected) else GHOST_CHOICES[option.selected]
+
+
+## Einheiten für die Seite „Training“ (in dieser Reihenfolge); ohne Einheit ist „Losfahren“ ausgegraut.
+func set_training_units(units: Array) -> void:
+	training_units = units
+	var option: OptionButton = options["unit"]
+	option.clear()
+	for unit in units:
+		option.add_item(unit["name"])
+	if not units.is_empty():
+		option.select(0)
+	var button: Button = buttons["training_start"]
+	button.disabled = units.is_empty()
+	button.focus_mode = Control.FOCUS_NONE if button.disabled else Control.FOCUS_ALL
+	_show_training_info()
+
+
+## Gewählte Einheit ({} = keine).
+func training_unit() -> Dictionary:
+	var index := (options["unit"] as OptionButton).selected
+	return training_units[index] if index >= 0 and index < training_units.size() else {}
+
+
+## Beschreibung und Dauer der gewählten Einheit, z. B. „10 × 30 s hart / 30 s locker · 23 min“.
+func _show_training_info() -> void:
+	var unit := training_unit()
+	if unit.is_empty():
+		_training_info.text = "Keine Einheit gefunden"
+		return
+	var text: String = unit["description"]
+	_training_info.text = "%s%d min" % [text + " · " if not text.is_empty() else "",
+			roundi(Training.new(unit).duration_s() / 60.0)]
 
 
 ## Bestzeit der Strecke anzeigen, als fertiger Zeittext ("" = noch keine).
@@ -229,7 +281,7 @@ func _build() -> void:
 	heading.add_theme_font_size_override("font_size", 26)
 	_mode_page.add_child(heading)
 	_add_button(_mode_page, "round_trip", "Rundfahrt", show_round_trip)
-	_add_button(_mode_page, "training", "Training – bald", Callable(), true)
+	_add_button(_mode_page, "training", "Training", show_training)
 	_add_button(_mode_page, "arcade", "Arcade – bald", Callable(), true)
 	_add_button(_mode_page, "back", "Zurück", show_page.bind(false))
 	_trip_page = _page(pages, "RoundTrip")
@@ -258,6 +310,30 @@ func _build() -> void:
 	_trip_page.add_child(actions)
 	_add_button(actions, "start", "Losfahren", ride_requested.emit.bind(SaveGame.MODE_ROUND_TRIP))
 	_add_button(actions, "trip_back", "Zurück", show_page.bind(true))
+	_training_page = _page(pages, "Training")
+	var training_heading := Label.new()
+	training_heading.text = "Training"
+	training_heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	training_heading.add_theme_font_size_override("font_size", 26)
+	_training_page.add_child(training_heading)
+	var training_grid := GridContainer.new()
+	training_grid.columns = 2
+	training_grid.add_theme_constant_override("h_separation", 16)
+	_training_page.add_child(training_grid)
+	_add_option(training_grid, "unit", "Einheit", ["–"])
+	options["unit"].item_selected.connect(func(_index): _show_training_info())
+	_training_info = Label.new()
+	_training_info.name = "TrainingInfo"
+	_training_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_training_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_training_info.custom_minimum_size = Vector2(420, 0)
+	_training_page.add_child(_training_info)
+	var training_actions := HBoxContainer.new()
+	training_actions.add_theme_constant_override("separation", 10)
+	_training_page.add_child(training_actions)
+	_add_button(training_actions, "training_start", "Losfahren", ride_requested.emit.bind(SaveGame.MODE_TRAINING))
+	_add_button(training_actions, "training_back", "Zurück", show_page.bind(true))
+	set_training_units(Training.load_all())
 	var status := PanelContainer.new()
 	status.name = "Status"
 	status.add_theme_stylebox_override("panel", _panel_style(0.6, 12))

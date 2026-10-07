@@ -379,6 +379,27 @@ text = "Neue Bestzeit!"
 horizontal_alignment = 1
 vertical_alignment = 1
 
+[node name="Announcement" type="Label" parent="Layout/Rows/Fill"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -148.0
+offset_bottom = -100.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_colors/font_color = Color(0.62, 0.9, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.7)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 28
+text = "In 10 s: Widerstand 2 Stufen hoch, 100 rpm halten"
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 3
+
 [node name="Bottom" type="PanelContainer" parent="Layout/Rows"]
 unique_name_in_owner = true
 layout_mode = 2
@@ -387,6 +408,55 @@ mouse_filter = 2
 [node name="Box" type="VBoxContainer" parent="Layout/Rows/Bottom"]
 layout_mode = 2
 theme_override_constants/separation = 4
+
+[node name="Training" type="HBoxContainer" parent="Layout/Rows/Bottom/Box"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="PhaseValue" type="Label" parent="Layout/Rows/Bottom/Box/Training"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"HudTitle"
+text = "Aufwärmen"
+
+[node name="TargetCaption" type="Label" parent="Layout/Rows/Bottom/Box/Training"]
+layout_mode = 2
+theme_type_variation = &"HudCaption"
+text = "Ziel"
+
+[node name="TargetValue" type="Label" parent="Layout/Rows/Bottom/Box/Training"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"HudTitle"
+theme_override_colors/font_color = Color(0.62, 0.9, 1, 1)
+text = "80–90 rpm"
+
+[node name="RemainingCaption" type="Label" parent="Layout/Rows/Bottom/Box/Training"]
+layout_mode = 2
+theme_type_variation = &"HudCaption"
+text = "noch"
+
+[node name="RemainingValue" type="Label" parent="Layout/Rows/Bottom/Box/Training"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(56, 0)
+layout_mode = 2
+theme_type_variation = &"HudTitle"
+text = "0:00"
+
+[node name="NextCaption" type="Label" parent="Layout/Rows/Bottom/Box/Training"]
+layout_mode = 2
+theme_type_variation = &"HudCaption"
+text = "danach"
+
+[node name="NextValue" type="Label" parent="Layout/Rows/Bottom/Box/Training"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Ende"
+text_overrun_behavior = 3
 
 [node name="Lap" type="HBoxContainer" parent="Layout/Rows/Bottom/Box"]
 layout_mode = 2

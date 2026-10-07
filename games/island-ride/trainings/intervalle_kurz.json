@@ -1,0 +1,16 @@
+{
+	"name": "Intervalle kurz",
+	"description": "10 × 30 s hart / 30 s locker",
+	"phases": [
+		{"name": "Aufwärmen", "kind": "warmup", "duration_s": 480, "cadence_rpm": [80, 90],
+			"announcement": "Widerstand leicht, bei 85 rpm einrollen"},
+		{"repeat": 10, "phases": [
+			{"name": "Hart", "kind": "work", "duration_s": 30, "cadence_rpm": [95, 105],
+				"announcement": "Widerstand 2 Stufen hoch, 100 rpm halten"},
+			{"name": "Locker", "kind": "recovery", "duration_s": 30, "cadence_rpm": [80, 90],
+				"announcement": "Widerstand 2 Stufen runter, locker 85 rpm"}
+		]},
+		{"name": "Ausrollen", "kind": "cooldown", "duration_s": 300, "cadence_rpm": [70, 80],
+			"announcement": "Widerstand ganz runter, bei 75 rpm ausrollen"}
+	]
+}

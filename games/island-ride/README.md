@@ -223,7 +223,8 @@ Kurbel mit Kettenblatt, Kette und Pedalen, Trinkflasche; Fahrer mit Helm und Bri
    ```
 Reihenfolge egal: Startet das Spiel zuerst, zeigt es „Bridge nicht erreichbar … Bridge starten:
 `vspin-bridge --source sim`“ und versucht alle `reconnect_s` Sekunden zu verbinden.
-3. Im Startmenü **Fahren → Rundfahrt** wählen, Rundenzahl und Tageszeit einstellen, **Losfahren**.
+3. Im Startmenü **Fahren → Rundfahrt** wählen, Rundenzahl und Tageszeit einstellen, **Losfahren** – oder
+   **Fahren → Training**, Einheit wählen, **Losfahren**.
 
 ### Startmenü und Spielstand (#30)
 
@@ -234,8 +235,9 @@ Enter/Leertaste):
 
 | Punkt | Wirkung |
 |---|---|
-| **Fahren** | Modus-Auswahl: **Rundfahrt**, *Training – bald* und *Arcade – bald* ausgegraut, „Zurück“ |
+| **Fahren** | Modus-Auswahl: **Rundfahrt**, **Training**, *Arcade – bald* ausgegraut, „Zurück“ |
 | **Fahren → Rundfahrt** | **Runden** 1–20 oder *Endlos* (Standard 1), **Tageszeit** (dieselbe Auswahl wie im Einstellungsmenü, Standard *Echtzeit*; wirkt und bleibt wie dort gewählt), **Ghost** (*Aus*, *Bestzeit*, *Letzte Fahrt*; ohne Aufzeichnung ausgegraut, Standard *Bestzeit*, sobald es sie gibt, #32), die **Bestzeit** der Strecke; **Losfahren** startet die Fahrt (#31) |
+| **Fahren → Training** | **Einheit** (*Intervalle kurz*, *Pyramide*, *Tempo-Blöcke*) mit Beschreibung und Dauer; **Losfahren** startet das Training (#37, siehe unten) |
 | **Fahrtenbuch** | Statistik, Bestzeiten, Segmentzeiten, Medaillen, Erfolge und die letzten Fahrten (#35, siehe unten) |
 | *Garderobe – bald* | ausgegraut |
 | **Einstellungen** | öffnet das Menü „Grafik und Fenster“ (wie `Esc`/`F2`) |
@@ -315,7 +317,9 @@ Schlicht, halbtransparente Panels, Standardschrift der Engine:
 - **Unten – Runde und Höhenprofil** (`src/hud_profile.gd`): Fortschrittsbalken mit Prozent und Restdistanz, darunter
   das Höhenprofil des Rundkurses mit Abschnittsgrenzen und -namen (Name nur, wenn er in den Abschnitt passt),
   höchstem Punkt und Marker an der Fahrerposition; der gefahrene Teil ist hinterlegt. Mit Ghost rechts neben der
-  Restdistanz der **Abstand** zu ihm („Ghost +1.4 s“, siehe Ghost).
+  Restdistanz der **Abstand** zu ihm („Ghost +1.4 s“, siehe Ghost). Im Training darüber die **Trainingszeile**:
+  Phase, Zielkadenz, Restzeit der Phase und die nächste Phase; die **Ansage** zum Widerstandsknopf steht groß über
+  dem unteren Panel (siehe Training).
 - Über dem unteren Panel dezent der `set_grade`-Hinweis, mittig zwischen oben und unten Pause-/Verbindungs-/Ziel-Meldungen.
 
 Layout nur über Anker und Container: passt im schmalen Halbbild-Fenster (960 × 1040) wie in 1920 × 1080 und
@@ -456,7 +460,7 @@ gesamt, 20/50 km in einer Fahrt), Rundenzahl (1/10/50 gesamt, 3/10 in einer Fahr
 22–5 Uhr Ortszeit), Wetter (je Zustand), Jahreszeit und Training. Jeder Erfolg ist nur Daten (Name, Text, Ereignis,
 Bedingung); ausgewertet werden **Ereignisse der Fahrt**: je volle Runde `lap`, je voller Kilometer (gesamt) `distance`,
 `weather` und `time_of_day`. Jahreszeit (`season`, #39) und Training (`training_finished`, #37) sind im Ereignisvertrag
-angelegt, werden aber erst mit diesen Paketen gesendet. Ein neuer Erfolg blendet im HUD ein („Erfolg: Regenfahrer – Im
+angelegt; `training_finished` sendet das Training (#37), `season` folgt mit #39. Ein neuer Erfolg blendet im HUD ein („Erfolg: Regenfahrer – Im
 Regen gefahren“); mehrere Einblendungen (Bestzeit, Segment, Erfolg, Level) laufen nacheinander statt sich zu
 überschreiben. Am Fahrtende prüft das Spiel Strecke und Runden gesamt noch einmal – ein Spielstand von vor #35 holt so
 nach, was er schon erfüllt. Das Ergebnis nennt die neuen Erfolge und das neue Level in der Kopfzeile.
@@ -477,6 +481,36 @@ oder Mausrad scrollen, `Esc` oder „Zurück“ schließt. Passt in 960 × 1040,
 Sichtprüfung: `view_probe.gd -- --title --logbook` (Beispielstand nur im Speicher) speichert `logbook_overview.png`,
 `logbook_achievements.png` und `logbook_rides.png`; `--hud --rewards --shots=1200` die Einblendungen `achievement.png`
 und `level_up.png`.
+
+### Training (#37)
+
+**Fahren → Training** führt durch eine angeleitete **Einheit**. Die Einheiten sind Dateien in `trainings/` (JSON, je
+Datei eine; eigene Einheiten entstehen nur als Datei): Name, Beschreibung und Phasen mit Art (Aufwärmen, Hauptteil,
+Erholung, Ausrollen), Dauer, **Zielkadenz** (Bereich in rpm) und **Ansage** zum Widerstandsknopf; `repeat`
+wiederholt einen Block. Dabei sind:
+
+| Einheit | Aufbau | Dauer |
+|---|---|---|
+| **Intervalle kurz** | 8 min Aufwärmen, 10 × 30 s hart (95–105 rpm) / 30 s locker (80–90 rpm), 5 min Ausrollen | 23 min |
+| **Pyramide** | 8 min Aufwärmen, je 3 min bei 70 → 80 → 90 → 100 → 90 → 80 → 70 rpm (± 3), 5 min Ausrollen | 34 min |
+| **Tempo-Blöcke** | 6 min Aufwärmen, 3 × 8 min bei 85–90 rpm mit je 3 min Erholung, 4 min Ausrollen | 40 min |
+
+Die Insel läuft dabei **endlos**. Das HUD zeigt Phase, Zielkadenz, Restzeit und die nächste Phase. Der Widerstand ist
+manuell – das Spiel kennt die Knopfstellung nicht –, die Ansage ist eine Empfehlung: 10 s vor dem Wechsel als
+Vorankündigung („In 8 s: Widerstand 2 Stufen hoch, 100 rpm halten“), dann noch 5 s nach dem Wechsel. Bewertet wird
+allein, **wie lange die Kadenz im Zielbereich lag** (ADR-0010) – je Phase und gesamt (nach Zeit gewichtet). Nach dem
+Ausrollen endet die Fahrt mit dem Ergebnis („Zielkadenz getroffen: 87 %“ und je Phase, Wiederholungen
+zusammengefasst); „Fahrt beenden“ vorher zeigt die Teilbewertung der gefahrenen Phasen.
+
+Runden im Training zählen **nicht** für Bestzeit, Medaillen, Segmentzeiten und Ghost (die Vorgabe wechselt, die
+Runden wären nicht vergleichbar); die Kilometer zählen fürs Fahrerlevel. Ein zu Ende gefahrenes Training meldet
+`training_finished` an die Erfolge (*Erste Einheit*, *Trainingsfleiß*, *Punktlandung* ab 90 %). Im Spielstand steht
+die Fahrt im Modus `training` mit Name und Gesamtbewertung der Einheit (`training`, `training_score`); das
+Fahrtenbuch zeigt sie als „Training“. Logik in `src/training.gd` (Training, ohne Szene und Bus); spätere Pakete
+(keine Panorama-Momente im Training, #43) fragen `training_active()` der Hauptszene ab.
+
+Sichtprüfung: `view_probe.gd -- --title --training` speichert `title_training.png`, `--hud --training --shots=1200`
+die Trainingszeile mit Ansage (`training.png`) und das Ergebnis (`training_result.png`).
 
 ### Virtuelle Steigung (`set_grade`)
 
@@ -612,6 +646,8 @@ src/ride_stats.gd       RideStats: Fahrzeit, Strecke, Ø Kadenz, Ø Tempo (ohne 
 src/lap_timing.gd       LapTiming: Rundenwertung – Rundenzeiten, Ziel nach n Runden oder endlos, Bestzeit, Ghost-Aufzeichnung – reine Logik
 src/segment_timing.gd   SegmentTiming: Segmentzeiten (Live-Zeit, gewertete Segmente, Segment-Bestzeit) – reine Logik
 src/ghost.gd            Ghost: Runde als Strecke über Zeit – aufzeichnen, abspielen, Abstand in s – reine Logik
+src/training.gd         Training: Einheit laden, Ablauf (Phase, Restzeit, Ansage), Bewertung der Zielkadenz – reine Logik
+trainings/              Trainingseinheiten als Dateien (JSON): Intervalle kurz, Pyramide, Tempo-Blöcke
 src/medals.gd           Medals: Medaillen-Schwellen aus dem Fahrmodell (70/85/95 rpm), Medaille einer Zeit – reine Logik
 src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik
 src/ride_model.gd       RideModel: reine Logik (Kadenz, Steigung, Δt, Konfig → Geschwindigkeit, Position)
@@ -620,7 +656,7 @@ src/rider_model.gd      RiderModel: Fahrer und Rennrad aus Grundkörpern, Pose a
 src/ride_config.gd      RideConfig: liest config.cfg
 src/graphics_settings.gd GraphicsSettings: Grafik-/Fenstereinstellungen, Tageszeit/Wetter (user://settings.cfg), Anwenden, Fensterhälften
 scenes/settings_menu.*  Menü „Grafik und Fenster“ (F2, F11), von der Hauptszene eingehängt
-scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt-Auswahl, Radstatus (#30, #31)
+scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt- und Training-Auswahl, Radstatus (#30, #31, #37)
 src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Bestzeiten, Segment-Bestzeiten, Medaillen, Ghosts, Hochstufung
 src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz), stations, station_at(), road_mesh()
 src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil, Stationen, Segmente (reine Daten/Logik)
