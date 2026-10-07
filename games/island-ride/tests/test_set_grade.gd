@@ -17,7 +17,7 @@ func _grades(bus: FakeBusServer) -> Array:
 
 
 func _hud(ride: Node) -> String:
-	return ride.get_node("Hud/Label").text
+	return ride.get_node("Hud").readout()
 
 
 func test_sends_initial_grade_after_connect() -> void:

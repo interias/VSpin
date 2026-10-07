@@ -1,0 +1,29 @@
+# VSPIN ohne lokale Python-/Godot-Installation: `docker compose up --build`,
+# dann http://localhost:8080 öffnen (README: „Mit Docker Desktop starten“, #21).
+# BLE bleibt nativ unter Windows (`--source ble`) – Docker Desktop reicht kein Bluetooth durch.
+name: vspin
+
+services:
+  bridge:
+    build: ./bridge
+    environment:
+      # Profil relativ zu bridge/, z. B. profiles/sprint.toml; leer = manuelle Kadenz.
+      VSPIN_PROFILE: ${VSPIN_PROFILE:-}
+      # Start-Kadenz in rpm (nur ohne Profil); ändern per `docker attach` und Pfeiltasten.
+      VSPIN_CADENCE: ${VSPIN_CADENCE:-80}
+    # Tastatur der Bridge: `docker attach <container>`, abkoppeln mit Strg+P Strg+Q.
+    stdin_open: true
+    tty: true
+    ports:
+      # Bus bleibt lokal (ADR-0002): im Container 0.0.0.0, auf dem Host nur 127.0.0.1.
+      - "127.0.0.1:8765:8765"
+    volumes:
+      # Sessions (ADR-0008) im Host-Ordner sessions/ (git-ignoriert).
+      - ./sessions:/app/sessions
+
+  game:
+    build: ./games/island-ride
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      - bridge

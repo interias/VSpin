@@ -2,6 +2,10 @@
 ## Kadenz vom Bus → Fahrmodell (mit Steigung der Strecke) → Fahrer folgt dem Path3D. Kein Lenken.
 ## Strecke laut Konfiguration (`[world] track`): Insel-Rundkurs mit Insel-Welt (Standard, #14) oder Graybox.
 ## Die Kamera folgt dem Fahrer ruhig: Position hinter ihm auf der Strecke, Blick voraus, beides geglättet.
+## Fahrer und Rad (`Track/Rider/Model`, RiderModel): Kurbel und Beine drehen mit der Kadenz, Räder rollen mit dem
+## Tempo, Schräglage in Kurven, Vorbeuge bergauf; außerhalb von `riding` steht alles still.
+## Grafik und Fenster: eigenes Menü (`settings_menu`, F2/F11), hier nur eingehängt.
+## HUD (`Hud`, RideHud, Szene `scenes/hud.tscn`): bekommt pro Frame die Werte, Rundenfortschritt und Position.
 ##
 ## Spielzustände (`state`):
 ##   riding             fahren – Bus verbunden, Quelle `connected` und Daten seit dem letzten Abbruch
@@ -35,12 +39,13 @@ const KEY_BINDINGS := {
 	"ride_pause": [KEY_P, KEY_SPACE],
 	"ride_quit": [KEY_ESCAPE],
 	"ride_debug": [KEY_F3],
+	"ride_settings": [KEY_F2],
+	"ride_fullscreen": [KEY_F11],
 }
-## Kamera: Abstand hinter dem Fahrer (entlang der Strecke), Höhe, Blickpunkt voraus, Glättung (Zeitkonstante).
-const CAMERA_BEHIND_M := 9.0
-const CAMERA_HEIGHT_M := 3.5
-const CAMERA_LOOK_AHEAD_M := 14.0
-const CAMERA_LOOK_HEIGHT_M := 1.2
+## Menü „Grafik und Fenster“ (F2, F11; siehe `scenes/settings_menu.gd`).
+const SETTINGS_MENU := preload("res://scenes/settings_menu.tscn")
+## Kamera: Abstand hinter dem Fahrer, Höhe und Blickpunkt voraus aus der Konfiguration (`[camera]`, RideConfig);
+## Glättung (Zeitkonstante).
 const CAMERA_SMOOTHING_S := 0.45
 ## Mindesthöhe der Kamera über dem Gelände (Insel).
 const CAMERA_TERRAIN_CLEARANCE_M := 1.5
@@ -54,6 +59,9 @@ var config: RideConfig = null
 @export var start_distance_m := 0.0
 ## Beendet das Spiel bei `ride_quit`; Tests schalten das ab und beobachten `quit_requested`.
 @export var quit_on_request := true
+## Grafik-/Fenstereinstellungen; "" = Standardwerte, nichts speichern, Fenster unberührt (Tests, Probe).
+var settings_path := GraphicsSettings.DEFAULT_PATH
+var settings_menu: CanvasLayer
 
 var bus: BusClient
 var model: RideModel
@@ -69,6 +77,8 @@ var finish_distance_m := 0.0
 
 ## Insel-Welt (null bei der Graybox-Strecke).
 var world: IslandWorld = null
+## Tag/Nacht und Wetter (G6), Kind `Sky`.
+var sky: SkyController = null
 
 var _manual_pause := false
 var _camera_look := Vector3.ZERO
@@ -78,7 +88,8 @@ var _ever_connected := false
 
 @onready var track: Track = $Track
 @onready var rider: PathFollow3D = $Track/Rider
-@onready var hud_label: Label = $Hud/Label
+@onready var rider_model: RiderModel = $Track/Rider/Model
+@onready var hud: RideHud = $Hud
 @onready var message_label: Label = $Hud/Message
 @onready var hint_label: Label = $Hud/Hint
 @onready var debug_label: Label = $Hud/Debug
@@ -89,7 +100,14 @@ func _ready() -> void:
 	if config == null:
 		config = RideConfig.load_file()
 	_register_key_bindings()
+	settings_menu = SETTINGS_MENU.instantiate()
+	settings_menu.settings_path = settings_path
+	add_child(settings_menu)
 	_setup_track()
+	sky = SkyController.new()
+	add_child(sky)
+	sky.setup(self)
+	_setup_sky_settings()
 	bus = BusClient.from_config(config)
 	bus.telemetry_received.connect(_on_telemetry)
 	bus.status_changed.connect(_on_status_changed)
@@ -98,6 +116,7 @@ func _ready() -> void:
 	model = RideModel.new(config, start_distance_m)
 	var lap := track.length_m()
 	finish_distance_m = (floorf(start_distance_m / lap) + 1.0) * lap if lap > 0.0 else INF
+	hud.setup(track, world)
 	_update_view()
 	_update_camera(0.0, true)
 
@@ -109,7 +128,24 @@ func _process(delta: float) -> void:
 		_ride(delta)
 	_report_grade(delta)
 	_update_view()
+	_update_rider(delta)
 	_update_camera(delta)
+
+
+## Tageszeit/Wetter aus dem Menü: gespeicherte Werte (`settings.cfg [sky]`) über `config.cfg` legen, sonst den
+## Stand aus `config.cfg` im Menü anzeigen; danach wirkt jede Auswahl sofort.
+func _setup_sky_settings() -> void:
+	var settings: GraphicsSettings = settings_menu.settings
+	if settings.sky_saved:
+		settings.apply_sky(sky)
+	else:
+		settings.capture_sky(sky)
+	settings_menu.settings_changed.connect(_on_settings_changed)
+
+
+func _on_settings_changed(key: String) -> void:
+	if key in ["time", "weather"]:
+		settings_menu.settings.apply_sky(sky)
 
 
 ## Strecke laut Konfiguration: Insel-Rundkurs mit Welt (Gelände, Meer, Stationen) oder Graybox mit Boden.
@@ -151,8 +187,9 @@ func current_station() -> String:
 ## seitlich auszuschwenken), Blick auf einen Punkt voraus; beides exponentiell geglättet. `snap` springt sofort.
 func _update_camera(delta: float, snap: bool = false) -> void:
 	var d := model.distance_m
-	var target := track.to_global(track.position_at(d - CAMERA_BEHIND_M)) + Vector3.UP * CAMERA_HEIGHT_M
-	var look := track.to_global(track.position_at(d + CAMERA_LOOK_AHEAD_M)) + Vector3.UP * CAMERA_LOOK_HEIGHT_M
+	var up := Vector3.UP
+	var target := track.to_global(track.position_at(d - config.camera_behind_m)) + up * config.camera_height_m
+	var look := track.to_global(track.position_at(d + config.camera_look_ahead_m)) + up * config.camera_look_height_m
 	if world != null:
 		target.y = maxf(target.y, world.terrain.height_at(target.x, target.z) + CAMERA_TERRAIN_CLEARANCE_M)
 	var follow := 1.0 if snap else 1.0 - exp(-delta / CAMERA_SMOOTHING_S)
@@ -195,6 +232,13 @@ func current_grade() -> float:
 	return track.grade_at(model.distance_m)
 
 
+## Krümmung der Strecke an der Position des Fahrers (1/m, positiv = Linkskurve).
+func current_curvature() -> float:
+	var d := model.distance_m
+	return RiderMotion.signed_curvature(track.position_at(d - RiderMotion.CURVE_SAMPLE_M), track.position_at(d),
+			track.position_at(d + RiderMotion.CURVE_SAMPLE_M))
+
+
 ## Steigung (Anteil) für die Anzeige, z. B. 0.06 → "+6.0 %", flach → "0.0 %".
 static func format_grade(grade: float) -> String:
 	var percent := snappedf(grade * 100.0, 0.1)
@@ -226,7 +270,7 @@ func status_message() -> String:
 			return "Ziel erreicht!\nZeit: %s\nØ Kadenz: %d rpm\nØ Tempo: %.1f km/h\nEsc: beenden" % [
 					format_time(lap_time_s(), true), roundi(stats.avg_cadence()), stats.avg_speed_kmh()]
 		STATE_PAUSED_MANUAL:
-			return "Pause\nP / Leertaste: weiter · Esc: beenden"
+			return "Pause\nP / Leertaste: weiter · Esc: beenden\nF2: Grafik und Fenster"
 		STATE_PAUSED_CONNECTION:
 			var text: String
 			if not bus.bus_connected:
@@ -336,22 +380,17 @@ func _register_key_bindings() -> void:
 			InputMap.action_add_event(action, event)
 
 
+## Pose von Fahrer und Rad: Kadenz und Tempo wie gefahren, Pause in jedem Zustand außer `riding`.
+func _update_rider(delta: float) -> void:
+	rider_model.update(bus.cadence, model.speed_mps, current_grade(), current_curvature(), state != STATE_RIDING, delta)
+
+
 func _update_view() -> void:
 	rider.progress = track.wrap_distance(model.distance_m)
-	var lines := [
-		"Kadenz: %d rpm" % roundi(bus.cadence),
-		"Tempo: %.1f km/h" % model.speed_kmh(),
-		"Strecke: %.2f km" % (stats.distance_m / 1000.0),
-		"Zeit: %s" % format_time(lap_time_s()),
-		"Steigung: %s" % format_grade(current_grade()),
-	]
-	var station := current_station()
-	if not station.is_empty():
-		lines.append("Abschnitt: %s" % station)
-	var power := format_power(bus.power_w(), bus.power_estimated())
-	if not power.is_empty():
-		lines.append("Leistung: %s" % power)
-	hud_label.text = "\n".join(lines)
+	var grade := current_grade()
+	hud.show_ride(bus.cadence, model.speed_kmh(), stats.distance_m, format_time(lap_time_s()), grade,
+			format_grade(grade), current_station(), format_power(bus.power_w(), bus.power_estimated()))
+	hud.show_lap(model.distance_m, start_distance_m, finish_distance_m, rider.progress)
 	if debug_label.visible:
 		debug_label.text = debug_text()
 	hint_label.text = resistance_hint

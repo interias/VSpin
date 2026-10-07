@@ -17,6 +17,10 @@ func test_values_are_read_from_file() -> void:
 	assert_eq(config.downhill_boost, 6.0)
 	assert_eq(config.inertia_s, 0.0)
 	assert_eq(config.track, RideConfig.TRACK_GRAYBOX)
+	assert_eq(config.camera_behind_m, 7.0)
+	assert_eq(config.camera_height_m, 3.0)
+	assert_eq(config.camera_look_ahead_m, 12.5)
+	assert_eq(config.camera_look_height_m, 0.8)
 
 
 func test_missing_keys_fall_back_to_defaults() -> void:
@@ -26,6 +30,10 @@ func test_missing_keys_fall_back_to_defaults() -> void:
 	assert_eq(config.bus_url, defaults.bus_url)
 	assert_eq(config.inertia_s, defaults.inertia_s)
 	assert_eq(config.track, RideConfig.TRACK_ISLAND, "ohne [world] → Insel-Rundkurs")
+	assert_eq(config.camera_behind_m, defaults.camera_behind_m, "ohne [camera] → Standard-Kamera")
+	assert_eq(config.camera_height_m, defaults.camera_height_m)
+	assert_eq(config.camera_look_ahead_m, defaults.camera_look_ahead_m)
+	assert_eq(config.camera_look_height_m, defaults.camera_look_height_m)
 
 
 func test_unknown_track_falls_back_to_island() -> void:
@@ -46,3 +54,15 @@ func test_config_file_changes_ride_feel() -> void:
 			"stärkere Verstärkung bergab aus der Datei")
 	steep.step(80.0, 0.0, 0.1)
 	assert_almost_eq(steep.speed_mps, steep.target_speed_mps(80.0, 0.0), 0.0001, "inertia_s=0 aus der Datei")
+
+
+func test_camera_defaults_follow_close_behind_the_rider() -> void:
+	var defaults := RideConfig.new()
+	assert_between(defaults.camera_behind_m, 4.0, 7.0, "Kamera nah hinter dem Fahrer")
+	assert_lt(defaults.camera_height_m, defaults.camera_behind_m)
+	assert_gt(defaults.camera_look_ahead_m, 0.0, "Blick voraus")
+	var game := RideConfig.load_file()
+	assert_eq(game.camera_behind_m, defaults.camera_behind_m, "config.cfg nennt die Standardwerte")
+	assert_eq(game.camera_height_m, defaults.camera_height_m)
+	assert_eq(game.camera_look_ahead_m, defaults.camera_look_ahead_m)
+	assert_eq(game.camera_look_height_m, defaults.camera_look_height_m)
