@@ -152,3 +152,44 @@ func test_window_origin_keeps_position_on_a_screen_else_centers() -> void:
 			"Bildschirm weg → mittig")
 	assert_eq(GraphicsSettings.window_origin(GraphicsSettings.POSITION_CENTERED, size, screen, screens),
 			Vector2i(160, 70))
+
+
+func test_sky_round_trip() -> void:
+	var settings := GraphicsSettings.new()
+	settings.sky_saved = true
+	settings.time_mode = DayNight.MODE_TIMELAPSE
+	settings.fixed_hour = 20.5
+	settings.timelapse_day_min = 12.0
+	settings.weather_mode = Weather.MODE_FIXED
+	settings.weather = Weather.RAIN
+	assert_eq(settings.save_file(TEMP_PATH), OK)
+	var loaded := GraphicsSettings.load_file(TEMP_PATH)
+	assert_true(loaded.sky_saved, "[sky] gespeichert")
+	assert_eq(loaded.time_mode, DayNight.MODE_TIMELAPSE)
+	assert_eq(loaded.fixed_hour, 20.5)
+	assert_eq(loaded.timelapse_day_min, 12.0)
+	assert_eq(loaded.weather_mode, Weather.MODE_FIXED)
+	assert_eq(loaded.weather, Weather.RAIN)
+
+
+func test_sky_not_written_until_chosen() -> void:
+	assert_eq(GraphicsSettings.new().save_file(TEMP_PATH), OK)
+	var file := ConfigFile.new()
+	file.load(TEMP_PATH)
+	assert_false(file.has_section("sky"), "ohne Menüauswahl gilt config.cfg [sky]")
+	assert_false(GraphicsSettings.load_file(TEMP_PATH).sky_saved)
+
+
+func test_invalid_sky_values_give_defaults() -> void:
+	var file := ConfigFile.new()
+	file.set_value("sky", "time_mode", "morgens")
+	file.set_value("sky", "fixed_hour", "zwölf")
+	file.set_value("sky", "timelapse_day_min", -5.0)
+	file.set_value("sky", "weather_mode", 3)
+	file.set_value("sky", "weather", "schnee")
+	file.save(TEMP_PATH)
+	var loaded := GraphicsSettings.load_file(TEMP_PATH)
+	var defaults := GraphicsSettings.new()
+	assert_true(loaded.sky_saved)
+	for key in ["time_mode", "fixed_hour", "timelapse_day_min", "weather_mode", "weather"]:
+		assert_eq(loaded.get(key), defaults.get(key), "[sky] %s" % key)

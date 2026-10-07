@@ -107,6 +107,7 @@ func _ready() -> void:
 	sky = SkyController.new()
 	add_child(sky)
 	sky.setup(self)
+	_setup_sky_settings()
 	bus = BusClient.from_config(config)
 	bus.telemetry_received.connect(_on_telemetry)
 	bus.status_changed.connect(_on_status_changed)
@@ -129,6 +130,22 @@ func _process(delta: float) -> void:
 	_update_view()
 	_update_rider(delta)
 	_update_camera(delta)
+
+
+## Tageszeit/Wetter aus dem Menü: gespeicherte Werte (`settings.cfg [sky]`) über `config.cfg` legen, sonst den
+## Stand aus `config.cfg` im Menü anzeigen; danach wirkt jede Auswahl sofort.
+func _setup_sky_settings() -> void:
+	var settings: GraphicsSettings = settings_menu.settings
+	if settings.sky_saved:
+		settings.apply_sky(sky)
+	else:
+		settings.capture_sky(sky)
+	settings_menu.settings_changed.connect(_on_settings_changed)
+
+
+func _on_settings_changed(key: String) -> void:
+	if key in ["time", "weather"]:
+		settings_menu.settings.apply_sky(sky)
 
 
 ## Strecke laut Konfiguration: Insel-Rundkurs mit Welt (Gelände, Meer, Stationen) oder Graybox mit Boden.

@@ -182,7 +182,8 @@ einfarbige Flächen) ×0,78, Sonne/Mond ×0,8, Belichtung ×0,92, Umgebungslicht
 `MODE_FIXED`, `MODE_TIMELAPSE` (Stunde = Ortszeit 0–24) und `sky.set_weather_mode(mode, state = "")` mit
 `Weather.MODE_CHANGING`/`MODE_FIXED` und `Weather.CLEAR`, `LIGHT_CLOUDS`, `OVERCAST`, `RAIN`. Lesen: `sky.clock`
 (`local_hour()`, `timelapse_day_min`), `sky.weather.state`, `sky.sun_angles`. `set_compatibility(bool)` schaltet das
-Lichtprofil (Tests, Vergleich).
+Lichtprofil (Tests, Vergleich). Im Grafikmenü (`F2`, G8) lassen sich Tageszeit und Wetter umstellen; die Auswahl
+liegt in `user://settings.cfg [sky]` über `config.cfg [sky]` (siehe „Grafik und Fenster“).
 
 **Sichtprüfung:** `view_probe.gd -- --time=21:30 --date=2026-06-21 --weather=rain` (feste Ortszeit/Datum/Wetter
 ohne Überblendung), `--profile=forward|compat` erzwingt das Lichtprofil (Vergleich vorher/nachher im
@@ -292,6 +293,8 @@ Das Spiel läuft weiter, solange das Menü offen ist.
 | VSync | An, Aus | An |
 | fps-Limit | Ohne, 30, 60, 120, 144 | Ohne |
 | Schatten | Niedrig/Mittel/Hoch (Schattenatlas 2048/4096/8192, Weichzeichnung) | Mittel (wie bisher) |
+| Tageszeit | Echtzeit (Mallorca), feste Uhrzeit 6:00/9:00/12:00/15:00/18:00/20:30/22:00/0:00, Zeitraffer 12/24/48 min je Tag (startet bei der aktuellen Uhrzeit des Spiels) | wie `config.cfg [sky]` (Echtzeit) |
+| Wetter | Wechselnd (meist sonnig), Klar, Leicht bewölkt, Bewölkt, Regen (fest) – sofort, ohne Überblendung | wie `config.cfg [sky]` (Wechselnd) |
 | Fenstermodus | Fenster (mit Rahmen, frei skalierbar), Randloses Fenster, Vollbild | Fenster 1600 × 900, mittig |
 | Fenstergröße | 960 × 1040, 1280 × 720, 1600 × 900, 1920 × 1080, 2560 × 1440 (im Vollbild: Bildschirmauflösung) | 1600 × 900 |
 
@@ -305,6 +308,10 @@ diese Hälfte der Arbeitsfläche (ohne Taskleiste) des aktuellen Bildschirms, Ra
 geht es dabei zurück ins Fenster. Alternativ wie gewohnt Win+←/→. HUD, Meldungen und Debug-Anzeige bleiben im
 schmalen Hochformat lesbar (die Mittelmeldung bricht um), die 3D-Sicht wird nicht verzerrt (vertikaler Blickwinkel
 fest, seitlich sieht man entsprechend weniger). Ohne Fokus läuft das Spiel mit voller Bildrate weiter.
+
+Tageszeit und Wetter landen erst nach einer Auswahl im Menü als Abschnitt `[sky]` in `settings.cfg`; beim Start
+gilt zuerst `config.cfg [sky]`, ein gespeicherter `[sky]`-Abschnitt liegt darüber. Eine Uhrzeit aus `config.cfg`, die
+nicht in der Liste steht (z. B. 13:00), zeigt das Menü als zusätzlichen Eintrag.
 
 Im Browser (Web-Export) gibt es keine Fensteroptionen und kein VSync (steuert der Browser); der Compatibility-
 Renderer kann nur MSAA und bilineare Skalierung, das Menü bietet dort nur diese an.
@@ -450,7 +457,7 @@ src/ride_model.gd       RideModel: reine Logik (Kadenz, Steigung, Δt, Konfig �
 src/rider_motion.gd     RiderMotion: Kurbel-/Radwinkel, Schräglage, Vorbeuge, Glieder-IK – reine Logik
 src/rider_model.gd      RiderModel: Fahrer und Rennrad aus Grundkörpern, Pose aus RiderMotion
 src/ride_config.gd      RideConfig: liest config.cfg
-src/graphics_settings.gd GraphicsSettings: Grafik-/Fenstereinstellungen (user://settings.cfg), Anwenden, Fensterhälften
+src/graphics_settings.gd GraphicsSettings: Grafik-/Fenstereinstellungen, Tageszeit/Wetter (user://settings.cfg), Anwenden, Fensterhälften
 scenes/settings_menu.*  Menü „Grafik und Fenster“ (F2, F11), von der Hauptszene eingehängt
 src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz), stations, station_at(), road_mesh()
 src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil, Stationen (reine Daten/Logik)
