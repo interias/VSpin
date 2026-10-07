@@ -75,6 +75,21 @@ vor #15 (VSync-Takt im Fenster, nicht der Inhalt; ohne VSync Mittel ~1500 fps).
 Mittel 59,9 fps, 1-%-Tief 54,8 fps, 107 von 29 692 Frames < 50 fps – vor #16 auf derselben Fahrt 59,9 / 54,7 / 135.
 **Offen:** Gelände-Belichtung, ruhige Kamera in den Kehren.
 
+## Fahrer und Rad
+
+Statt der Kapsel fährt ein stilisierter Rennradfahrer (`Track/Rider/Model`), **prozedural aus Godot-Grundkörpern**
+(keine fremden Assets): Rahmen aus Rohren, Laufräder (Ø 0,68 m) mit Reifen, Felge und Speichen, Rennlenker, Sattel,
+Kurbel mit Kettenblatt, Kette und Pedalen, Trinkflasche; Fahrer mit Helm und Brille, Trikot, Hose, Socken, Schuhen.
+
+- `src/rider_motion.gd` (reine Logik, getestet): Kurbelwinkel += 2π · Kadenz/60 · dt, Radwinkel += v · dt / 0,34 m,
+  Schräglage atan(v² · κ / g) bis 15°, Vorbeuge bergauf bis 9°, Wiegen mit dem Tritt; Knie/Ellbogen per
+  Zwei-Glieder-IK. In jedem Zustand außer `riding` stehen Kurbel, Beine und Räder; bei Kadenz 0 rollt das Rad aus.
+- `src/rider_model.gd` baut die Geometrie (~90 Teile, ein Material je Farbe) und setzt die Pose;
+  `scenes/main.gd` übergibt pro Frame Kadenz, Tempo, Steigung, Krümmung (`current_curvature()`) und Pause.
+- Kosten: fps-Fahrt 0–2310 m ohne VSync 1202 statt 1229 fps (~0,02 ms/Frame); mit VSync unverändert ~60 fps.
+- Sichtprüfung: `view_probe.gd -- --cadence=85 --close --pair` (Nahaufnahmen seitlich/schräg hinten, zweites Bild
+  0,15 s später mit anderer Kurbelstellung).
+
 ## Spielen
 
 1. Bridge starten (siehe `bridge/README.md`), z. B. mit dem Simulator:
@@ -252,6 +267,8 @@ src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeou
 src/ride_stats.gd       RideStats: Fahrzeit, Strecke, Ø Kadenz, Ø Tempo (ohne Pausen) – reine Logik
 src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik
 src/ride_model.gd       RideModel: reine Logik (Kadenz, Steigung, Δt, Konfig → Geschwindigkeit, Position)
+src/rider_motion.gd     RiderMotion: Kurbel-/Radwinkel, Schräglage, Vorbeuge, Glieder-IK – reine Logik
+src/rider_model.gd      RiderModel: Fahrer und Rennrad aus Grundkörpern, Pose aus RiderMotion
 src/ride_config.gd      RideConfig: liest config.cfg
 src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz), stations, station_at(), road_mesh()
 src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil, Stationen (reine Daten/Logik)

@@ -2,13 +2,20 @@
 ## an Streckenpositionen und speichert je ein Viewport-Bild; optional fährt sie einen Abschnitt mit festem Tempo ab
 ## und misst die Bildrate.
 ##   godot --path games/island-ride -s res://tools/view_probe.gd -- --out=C:/tmp/shots [--shots=0,200,450]
-##         [--fps-from=0 --fps-to=2310 --speed-kmh=50] [--size=1920x1080]
+##         [--fps-from=0 --fps-to=2310 --speed-kmh=50] [--size=1920x1080] [--cadence=85] [--close] [--pair]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung). VSync wie im Projekt (Standard: an).
+## Fahrer und Rad treten mit `--cadence` (rpm, 0 = Stillstand): die Hauptszene füttert ohne Bus nur eine Attrappe
+## (sie steht in der Verbindungspause), die Probe bewegt das echte Modell. Vor jedem Screenshot 1 s Tritt.
+## `--close`: zusätzlich Nahaufnahmen je Position (`close_<m>_side.png`, `close_<m>_rear.png`, Kamera nur hier
+## versetzt). `--pair`: zweites Bild 0,15 s später (`shot_<m>_b.png`) – Kurbelstellung muss sich unterscheiden.
 extends SceneTree
 
 var _ride: Node3D
+## Echtes Fahrer-/Radmodell in der Szene und Kadenz, mit der es tritt.
+var _model: RiderModel
+var _cadence := 85.0
 
 
 func _initialize() -> void:
@@ -18,6 +25,8 @@ func _initialize() -> void:
 	var fps_to := -1.0
 	var speed_kmh := 50.0
 	var size := Vector2i(1920, 1080)
+	var close := false
+	var pair := false
 	for arg in OS.get_cmdline_user_args():
 		var value := arg.get_slice("=", 1)
 		if arg.begins_with("--out="):
@@ -33,6 +42,12 @@ func _initialize() -> void:
 			speed_kmh = float(value)
 		elif arg.begins_with("--size="):
 			size = Vector2i(int(value.get_slice("x", 0)), int(value.get_slice("x", 1)))
+		elif arg.begins_with("--cadence="):
+			_cadence = float(value)
+		elif arg == "--close":
+			close = true
+		elif arg == "--pair":
+			pair = true
 	DisplayServer.window_set_size(size)
 	var config := RideConfig.load_file()
 	config.track = RideConfig.TRACK_ISLAND
@@ -42,15 +57,57 @@ func _initialize() -> void:
 	_ride.get_node("Hud").visible = false
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	await _frames(10)
+	_model = _ride.rider_model  # erst nach `_ready` der Hauptszene gesetzt
+	var dummy := RiderModel.new()
+	_ride.rider_model = dummy
 	for d in shots:
 		_place(d)
+		_pedal(1.0)
 		await _frames(8)
-		var path := out_dir.path_join("shot_%d.png" % int(d))
-		root.get_texture().get_image().save_png(path)
-		print("SHOT %s station=%s" % [path, _ride.current_station()])
+		_save(out_dir.path_join("shot_%d.png" % int(d)))
+		if pair:
+			_pedal(0.15)
+			await _frames(2)
+			_save(out_dir.path_join("shot_%d_b.png" % int(d)))
+		if close:
+			await _close_ups(out_dir, d)
 	if fps_to > fps_from:
 		await _measure(fps_from, fps_to, speed_kmh / 3.6)
+	_ride.rider_model = _model  # die Hauptszene läuft bis zum Beenden noch einen Frame weiter
+	dummy.free()
 	quit(0)
+
+
+func _save(path: String) -> void:
+	root.get_texture().get_image().save_png(path)
+	print("SHOT %s station=%s crank=%.0f° lean=%.1f° bend=%.1f°" % [path, _ride.current_station(),
+		rad_to_deg(_model.motion.crank_angle), rad_to_deg(_model.motion.lean), rad_to_deg(_model.motion.bend)])
+
+
+## Bewegt das echte Modell `seconds` lang mit `_cadence` und dem passenden Tempo des Fahrmodells.
+func _pedal(seconds: float, dt: float = 1.0 / 60.0) -> void:
+	var grade: float = _ride.current_grade()
+	var speed: float = _ride.model.target_speed_mps(_cadence, grade)
+	for i in range(maxi(int(seconds / dt), 1)):
+		_model.update(_cadence, speed, grade, _ride.current_curvature(), false, dt)
+
+
+## Nahaufnahmen von der Seite (rechts) und schräg von hinten links; die Kamera der Hauptszene ruht so lange.
+func _close_ups(out_dir: String, d: float) -> void:
+	_ride.set_process(false)
+	var at: Transform3D = _ride.rider.global_transform
+	var camera: Camera3D = _ride.camera
+	var views := {
+		"side": at.origin + at.basis.x * 3.2 + Vector3.UP * 1.0,
+		"rear": at.origin + at.basis.z * 2.6 - at.basis.x * 1.6 + Vector3.UP * 1.7,
+	}
+	for view in views:
+		camera.global_position = views[view]
+		camera.look_at(at.origin + Vector3.UP * 0.75, Vector3.UP)
+		await _frames(4)
+		_save(out_dir.path_join("close_%d_%s.png" % [int(d), view]))
+	_ride.set_process(true)
+	_place(d)
 
 
 ## Fahrer an Position `d`, Kamera sofort dahinter.
@@ -81,6 +138,8 @@ func _measure(from: float, to: float, speed: float) -> void:
 		last = now
 		d += speed * dt
 		_ride.model.distance_m = d
+		var grade: float = _ride.current_grade()
+		_model.update(_cadence, speed, grade, _ride.current_curvature(), false, dt)
 		if warmup > 0.0:
 			warmup -= dt
 			continue
