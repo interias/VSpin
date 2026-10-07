@@ -13,3 +13,4 @@ config/features=PackedStringArray("4.4")
 [rendering]
 
 renderer/rendering_method="forward_plus"
+renderer/rendering_method.web="gl_compatibility"

@@ -18,6 +18,7 @@ build/
 .godot/
 *.import
 export_presets.cfg
+!games/island-ride/export_presets.cfg
 *.translation
 
 # PlatformIO
