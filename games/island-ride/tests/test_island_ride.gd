@@ -74,8 +74,8 @@ func test_short_ride_on_serpentines_progresses_and_reports_grade() -> void:
 	var grade: float = bus.received_of_type("set_grade")[-1]["message"]["grade"]
 	assert_between(grade, 0.04, 0.10, "Serpentinen: Steigung gemeldet")
 	assert_almost_eq(grade, ride.current_grade(), 0.006, "gemeldet = Steigung an der Fahrerposition")
-	assert_string_contains(ride.get_node("Hud/Label").text, "Abschnitt: Serpentinen")
-	assert_string_contains(ride.get_node("Hud/Label").text, "Steigung: +")
+	assert_string_contains(ride.get_node("Hud").readout(), "Abschnitt: Serpentinen")
+	assert_string_contains(ride.get_node("Hud").readout(), "Steigung: +")
 
 
 func test_grade_by_position_changes_speed() -> void:
@@ -87,7 +87,7 @@ func test_grade_by_position_changes_speed() -> void:
 	assert_between(up.current_grade(), 0.03, 0.10, "bergauf")
 	assert_lt(down.current_grade(), -0.03, "bergab")
 	assert_gt(down.model.speed_kmh(), up.model.speed_kmh() * 1.4, "gleiche Kadenz: bergab deutlich schneller")
-	assert_string_contains(down.get_node("Hud/Label").text, "Abschnitt: Abfahrt")
+	assert_string_contains(down.get_node("Hud").readout(), "Abschnitt: Abfahrt")
 	var sent: Array = down_bus.received_of_type("set_grade")
 	assert_false(sent.is_empty())
 	if not sent.is_empty():

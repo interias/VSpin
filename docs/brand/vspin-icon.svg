@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 64 64">
+  <!-- VSpin-Symbol „Faltband mit Schattenfalte“: Limette #c6f432, Limette dunkel #7fae16, Graphit #16181d. -->
+  <rect width="64" height="64" rx="14" fill="#16181d"/>
+  <polygon points="38,15 50,15 37,49 27,49" fill="#7fae16"/>
+  <polygon points="26,15 31,15 37,49 35,49" fill="#000000" fill-opacity="0.35"/>
+  <polygon points="14,15 26,15 37,49 27,49" fill="#c6f432"/>
+</svg>

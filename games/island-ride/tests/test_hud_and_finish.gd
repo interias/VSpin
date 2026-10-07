@@ -1,5 +1,6 @@
 ## HUD, Debug-Anzeige und Rundenabschluss gegen den Fake-Bus: alle Werte sichtbar, Watt nur mit „~“ und nur
 ## wenn vorhanden, Debug-Anzeige per F3, Ziel mit Zusammenfassung – Fahrzeit und Durchschnitte ohne Pausen.
+## Die HUD-Werte liest `_hud()` aus RideHud.readout(): genau die sichtbaren Anzeigen als „Name: Wert Einheit“.
 extends "res://tests/support/bus_test.gd"
 
 const FLAT_M := 20.0
@@ -8,7 +9,7 @@ const BEFORE_FINISH_M := 12.0
 
 
 func _hud(ride: Node) -> String:
-	return ride.get_node("Hud/Label").text
+	return ride.get_node("Hud").readout()
 
 
 func _message(ride: Node) -> String:
@@ -107,6 +108,7 @@ func test_finish_shows_summary_with_averages_without_pause_time() -> void:
 	assert_string_contains(message, "Zeit: %s" % ride.format_time(ride.lap_time_s(), true))
 	assert_string_contains(message, "Ø Kadenz: 90 rpm")
 	assert_string_contains(message, "Ø Tempo: %.1f km/h" % ride.stats.avg_speed_kmh())
+	assert_string_contains(_hud(ride), "Runde: 100 % (noch 0.00 km)", "Rundenfortschritt voll im Ziel")
 
 
 func test_finish_is_final() -> void:
