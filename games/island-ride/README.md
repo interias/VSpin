@@ -8,14 +8,14 @@ Graybox-Strecke bleibt per Konfiguration wählbar (und ist die Grundlage vieler 
 
 ## Insel und Rundkurs (#14, ADR-0006)
 
-Stilisierte Insel im Mallorca-Stil, ca. **2,1 × 3,1 km** (Superellipse mit Hafenbucht im Süden, Felsküste im
+Stilisierte Insel im Mallorca-Stil, ca. **2 × 3,1 km** (Superellipse mit Hafenbucht im Süden, Felsküste im
 Westen, Hochebene mit Gipfel im Nordwesten), Meer rundum. Darauf der **Rundkurs, 9,21 km**, Start/Ziel am Hafen,
 gefahren im Uhrzeigersinn über West → Nord → Ost:
 
 | Station | Strecke (km) | Höhe (m) | Steigung | Grundform |
 |---|---|---|---|---|
-| Hafen (Start/Ziel) | 0,00–0,42 | 3 → 4 | flach | Kai, Molen, Boote, Start/Ziel-Bogen |
-| Küstenstraße | 0,42–2,31 | 4 → 42 | Ø 2 %, wellig bis 4,4 % | entlang der Felsküste, Felsen seeseitig |
+| Hafen (Start/Ziel) | 0,00–0,42 | 3 → 4 | flach | Kai mit Pollern, Molen mit Leuchtfeuern, Boote, Häuserzeile, Palmen, Start/Ziel-Bogen (#15) |
+| Küstenstraße | 0,42–2,31 | 4 → 42 | Ø 2 %, wellig bis 4,4 % | entlang der Felsküste, Meer links, Mauer, Klippen, Pinien und Macchia (#15) |
 | Serpentinen (Sa-Calobra-Stil) | 2,31–4,68 | 42 → 212 | Ø 7,1 %, bis 8,4 % (Einstieg ab 4,3 %) | 6 Rampen mit 5 Kehren, Randsteine; **Aussichtspunkt** (4,59 km) mit Plattform über der Westküste |
 | Pinien-/Olivenhain | 4,68–5,69 | 212 → 222 | Ø 1 %, wellig bis 4,4 % | Pinien und Oliven beidseits |
 | Bergdorf | 5,69–6,02 | 222 → 223 | flach | Häuser mit Terrakotta-Dächern, Kirche |
@@ -36,17 +36,30 @@ verfügbar, daher nur Godot-Bordmittel:
   das prozedurale Gelände ersetzen: `IslandTerrain.from_image(image)` (R-Kanal 0..1 → −40..360 m) und danach
   `fit_to_road(IslandCourse.samples())`.
 - `src/island_world.gd` – Gelände, Meer (y = 0), Fahrbahn (6 m, Randlinien), Stationsmarker
-  (`World/Stations/<id>` mit Schild, Metadaten `station_name`/`distance_m`) und Graybox-Deko je Station
-  (`World/Props/<id>`) aus Grundkörpern. Keine fremden Assets – siehe `ASSETS.md`.
+  (`World/Stations/<id>` mit Schild, Metadaten `station_name`/`distance_m`) und Deko je Station
+  (`World/Props/<id>`). **Hafen und Küstenstraße sind ausgestaltet (#15)**, die übrigen Stationen haben noch
+  Graybox-Deko aus Grundkörpern:
+  - **Hafen:** gepflasterter Kai von der Straße bis zur Kaimauer mit Pollern, zwei Molen mit Leuchtfeuern
+    (grün/rot), Segel-, Fischer- und Schlepperboote am Kai (Bug zur Mauer) und vor Anker in der Bucht, Bojen,
+    Ladung auf dem Kai, landseitig eine Häuserzeile mit Terrakotta-Dächern, Palmen, Ruderboote am Strand.
+  - **Küstenstraße:** seeseitig niedrige Natursteinmauer am Straßenrand, Felsküste aus einem dichten Felsband auf dem
+    Hang zum Meer (4–10 m, Knoten `Hang_*`) und Klippen an der Wasserlinie, Hang zum Wasser hin felsfarben, dazwischen
+    Büsche; landseitig Pinien, Büsche und Felsen. Das Gelände fällt seeseitig zum
+    Meer ab (`IslandTerrain.COAST_*`: Küstenlinie ~50–120 m neben der Straße), damit das Meer beim Fahren sichtbar
+    ist; Grundriss und Höhenprofil des Rundkurses sind unverändert.
+  - Modelle: Kenney Watercraft Kit, City Kit (Suburban), Nature Kit (CC0) unter `assets/kenney/`, nur die benutzten
+    `.glb` (~1 MB) – Nachweis in `ASSETS.md`. Wiederholte Modelle (Palmen, Pinien, Büsche, Felsen, Mauer) als
+    `MultiMeshInstance3D`. Sichtprüfung/fps: `tools/view_probe.gd` (Screenshots an Streckenpositionen, fps-Fahrt).
 - Kamera (`scenes/main.gd`): sitzt 9 m hinter dem Fahrer **auf der Strecke** (schwenkt in Kehren nicht seitlich
   aus), blickt 14 m voraus, beides exponentiell geglättet (0,45 s), mindestens 1,5 m über dem Gelände.
 - HUD zeigt zusätzlich den aktuellen Abschnitt („Abschnitt: Serpentinen“).
 
 Erzeugung beim Start ca. 2 s (Gelände wird einmal pro Prozess erzeugt und gecacht).
 
-**Offen – Sichtprüfung am Windows-PC** (headless nicht prüfbar): Optik von Gelände, Meer, Deko und Schildern,
-ruhige Kamera beim Fahren (v. a. in den Kehren), **60 fps** auf dem Ziel-PC (Gelände ~375 000 Vertices,
-Schatten bis 400 m).
+**Sichtprüfung am Windows-PC (#15, Hafen + Küstenstraße):** Screenshots mit `tools/view_probe.gd`; fps-Fahrt
+0–2310 m mit 50 km/h, 1920 × 1080, VSync an (RTX 4070): Mittel 60,0 fps; ~1 % der Frames < 50 fps, genauso wie
+vor #15 (VSync-Takt im Fenster, nicht der Inhalt; ohne VSync Mittel ~1500 fps). **Offen:** Optik der übrigen
+Stationen (#16), Gelände-Belichtung, ruhige Kamera in den Kehren.
 
 ## Spielen
 
@@ -229,13 +242,14 @@ src/ride_config.gd      RideConfig: liest config.cfg
 src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz), stations, station_at(), road_mesh()
 src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil, Stationen (reine Daten/Logik)
 src/island_terrain.gd   IslandTerrain: Höhenfeld (prozedural oder Höhenkarte), unter die Straße geformt, Mesh
-src/island_world.gd     IslandWorld: Gelände, Meer, Fahrbahn, Stationsmarker, Graybox-Deko
+src/island_world.gd     IslandWorld: Gelände, Meer, Fahrbahn, Stationsmarker, Deko (Hafen/Küste mit Modellen, #15)
 src/graybox_track.gd    GrayboxTrack: Rundkurs ~900 m, flach → +6 % → Kuppe → −6 % → flach (`[world] track="graybox"`)
 tests/                  GUT-Tests, support/ (Fake-Bus, Basisklasse, Hook), fixtures/
-tools/                  E2E-Prüfhilfe gegen die echte Bridge
+tools/                  E2E-Prüfhilfe gegen die echte Bridge, Sichtprüfung/fps (view_probe.gd)
 addons/gut/             GUT 9.4.0 (MIT, Lizenz in addons/gut/LICENSE.md)
-ASSETS.md               Asset-Nachweis und Lizenzregel (bisher keine fremden Assets)
+assets/kenney/          Low-Poly-Modelle (CC0) für Hafen und Küstenstraße
+ASSETS.md               Asset-Nachweis und Lizenzregel
 ```
 
-Noch nicht enthalten: echte Modelle/Texturen (CC0, siehe `ASSETS.md`), Terrain3D (ADR-0006 Nachtrag),
+Noch nicht enthalten: Modelle für Serpentinen, Hain, Bergdorf und Abfahrt (#16), Terrain3D (ADR-0006 Nachtrag),
 Feinschliff der Optik nach Sichtprüfung am Windows-PC.
