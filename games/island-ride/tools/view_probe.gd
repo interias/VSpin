@@ -3,7 +3,7 @@
 ## und misst die Bildrate.
 ##   godot --path games/island-ride -s res://tools/view_probe.gd -- --out=C:/tmp/shots [--shots=0,200,450]
 ##         [--fps-from=0 --fps-to=2310 --speed-kmh=50] [--size=1920x1080] [--cadence=85] [--close] [--pair]
-##         [--advance=1.5]
+##         [--advance=1.5] [--time=21:30] [--date=2026-06-21] [--weather=rain] [--profile=forward|compat]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung). VSync wie im Projekt (Standard: an).
@@ -13,6 +13,10 @@
 ## versetzt). `--pair`: zweites Bild 0,15 s später (`shot_<m>_b.png`) – Kurbelstellung muss sich unterscheiden.
 ## `--advance`: im Bildpaar zusätzlich die Weltanimation (WorldMotion: Flügel, Vögel, Boote, Wolken) um so viele
 ## Sekunden vorrücken, damit die Bewegung im Vergleich sichtbar wird (Standard 0).
+## Tag/Nacht und Wetter (G6): `--time` feste Ortszeit (Mallorca, HH:MM), `--date` Datum dazu (Standard heute),
+## `--weather` festes Wetter (clear, light_clouds, overcast, rain) ohne Überblendung. Ohne Angabe gilt `[sky]` aus
+## config.cfg. Bei Regen wartet die Probe, bis die Tropfen gefallen sind. `--profile` erzwingt das Lichtprofil
+## (Vergleich: Compatibility-Renderer mit `--profile=forward` zeigt das Bild ohne Web-Profil).
 extends SceneTree
 
 var _ride: Node3D
@@ -31,6 +35,10 @@ func _initialize() -> void:
 	var close := false
 	var pair := false
 	var advance := 0.0
+	var hour := NAN
+	var date := ""
+	var weather := ""
+	var profile := ""
 	for arg in OS.get_cmdline_user_args():
 		var value := arg.get_slice("=", 1)
 		if arg.begins_with("--out="):
@@ -54,6 +62,14 @@ func _initialize() -> void:
 			pair = true
 		elif arg.begins_with("--advance="):
 			advance = float(value)
+		elif arg.begins_with("--time="):
+			hour = float(value.get_slice(":", 0)) + float(value.get_slice(":", 1)) / 60.0
+		elif arg.begins_with("--date="):
+			date = value
+		elif arg.begins_with("--weather="):
+			weather = value
+		elif arg.begins_with("--profile="):
+			profile = value
 	DisplayServer.window_set_size(size)
 	var config := RideConfig.load_file()
 	config.track = RideConfig.TRACK_ISLAND
@@ -63,6 +79,11 @@ func _initialize() -> void:
 	_ride.get_node("Hud").visible = false
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	await _frames(10)
+	if not profile.is_empty():
+		_ride.sky.set_compatibility(profile == "compat")
+	_set_sky(hour, date, weather)
+	if weather == Weather.RAIN:
+		await _frames(100)
 	_model = _ride.rider_model  # erst nach `_ready` der Hauptszene gesetzt
 	var dummy := RiderModel.new()
 	_ride.rider_model = dummy
@@ -84,6 +105,23 @@ func _initialize() -> void:
 	_ride.rider_model = _model  # die Hauptszene läuft bis zum Beenden noch einen Frame weiter
 	dummy.free()
 	quit(0)
+
+
+## Feste Uhrzeit/Datum/Wetter (siehe Kopf); leere Angaben lassen `[sky]` gelten.
+func _set_sky(hour: float, date: String, weather: String) -> void:
+	var sky: SkyController = _ride.sky
+	if not is_nan(hour):
+		sky.set_time_mode(DayNight.MODE_FIXED, hour)
+	if not date.is_empty():
+		var parts := date.split("-")
+		sky.clock.set_mode(DayNight.MODE_FIXED)
+		sky.clock.unix_s = DayNight.local_to_unix(int(parts[0]), int(parts[1]), int(parts[2]), sky.clock.fixed_hour)
+	if not weather.is_empty():
+		sky.set_weather_mode(Weather.MODE_FIXED, weather)
+		sky.weather.snap()
+	sky.apply_now()
+	print("SKY local=%.2f h sun=%.1f°/%.1f° weather=%s compat=%s lights=%s" % [sky.clock.local_hour(), sky.sun_angles.x,
+			sky.sun_angles.y, sky.weather.state, sky.compatibility, sky.current["lights_on"]])
 
 
 func _save(path: String) -> void:

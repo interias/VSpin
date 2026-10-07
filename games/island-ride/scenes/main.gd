@@ -71,6 +71,8 @@ var finish_distance_m := 0.0
 
 ## Insel-Welt (null bei der Graybox-Strecke).
 var world: IslandWorld = null
+## Tag/Nacht und Wetter (G6), Kind `Sky`.
+var sky: SkyController = null
 
 var _manual_pause := false
 var _camera_look := Vector3.ZERO
@@ -93,6 +95,9 @@ func _ready() -> void:
 		config = RideConfig.load_file()
 	_register_key_bindings()
 	_setup_track()
+	sky = SkyController.new()
+	add_child(sky)
+	sky.setup(self)
 	bus = BusClient.from_config(config)
 	bus.telemetry_received.connect(_on_telemetry)
 	bus.status_changed.connect(_on_status_changed)

@@ -102,7 +102,8 @@ Die Welt lebt (G3), getrieben von `src/world_motion.gd` (`WorldMotion`, Knoten `
   ≤ ~4°); zwei Segelboote kreuzen auf Ellipsen vor der Westküste und vor dem Hafen (~3,5 m/s, leichte Krängung).
 - **Vögel:** Möwenschwärme über Hafen, Leuchtturm und Westküste, je ein Greifvogel über den Serpentinen und der
   Burg – Low-Poly aus Grundkörpern, Flügelschlag in Phasen mit Gleitflug dazwischen.
-- **Wolken:** 18 Low-Poly-Wolken 380–560 m hoch ziehen langsam mit dem Wind und laufen am Rand um.
+- **Wolken:** bis zu 36 Low-Poly-Wolken 380–560 m hoch ziehen mit dem Wind und laufen am Rand um; wie viele zu
+  sehen sind, bestimmt das Wetter (G6).
 - **Wind:** Bäume, Palmen, Büsche, Gras, Blumen (Kenney-Vegetation) und Agaven wiegen sanft
   (`src/shaders/wind.gdshader`, Vertex-Shader; Gewicht = Höhe im Objektraum, Fuß fest; Phase aus der Weltlage).
   Felsen und Gebäude bleiben starr.
@@ -128,6 +129,63 @@ sieht wie Stillstand aus.
 **Kosten:** fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070): Mittel 59,8 fps, min 6,9, 1-%-Tief
 53,7 fps, 186 von 39 565 Frames < 50 fps – vorher auf derselben Fahrt 59,9 / 7,2 / 54,6 / 130 (Streuung früherer
 Läufe 83–180).
+
+## Tag, Nacht und Wetter
+
+Tageszeit, Sonnenstand und Wetter (G6) stellt `src/sky_controller.gd` (`SkyController`, Knoten `Sky`, von
+`scenes/main.gd` in `_ready` angelegt). Rechnungen sind reine Funktionen, headless getestet
+(`tests/test_day_night_weather.gd`).
+
+**Zeitbasis:** echte **Ortszeit auf Mallorca** (Europe/Madrid: MEZ = UTC+1, MESZ = UTC+2 nach EU-Regel, letzter
+Sonntag im März/Oktober 01:00 UTC). Die Uhr (`src/day_night.gd`, `DayNight`) zählt UTC-Sekunden aus der Systemuhr
+und rechnet selbst in Mallorca-Zeit um – die Zeitzone des Rechners spielt keine Rolle (in Deutschland ohnehin
+dieselbe). Annahme: die Systemuhr geht richtig. **Sonnenstand** für Palma (39,57° N, 2,65° O) nach der NOAA-Näherung
+(Zeitgleichung, Deklination, Stundenwinkel); gerechnet: 21.06. Aufgang 6:22, Untergang 21:20 MESZ, Mittag 73,9°;
+21.12. Aufgang 8:06, Untergang 17:28 MEZ, Mittag 27,0° (Test gegen Palma 6:20/21:20 und 8:10/17:30, ±15 min, sowie gegen unabhängig nach USNO gerechnete Werte für
+20.03., 07.10. und den Umstellungstag 29.03., ±6 min).
+Norden = −z, Osten = +x.
+
+**Modi** (`[sky] time_mode`): `realtime` Echtzeit (Standard) · `fixed` feste Ortszeit `fixed_hour` · `timelapse`
+Zeitraffer, ein Tag in `timelapse_day_min` Minuten (Standard 24).
+
+**Licht über den Tag** (`SkyController.look(sonnenhöhe, wetter, compat)`): Sonne aus Höhe/Azimut, mittags wie G3
+(Energie 1,25, warmweiß), tief stehend orange (Abendrot, Horizont rötlich), unter dem Horizont aus. Nachts ein
+schwacher bläulicher **Mond** (vereinfacht gegenüber der Sonne, mind. 25° hoch, ohne Schatten und Phasen), Sterne
+(900 Punkte, nur bei klarem Himmel), Umgebungslicht bläulich mit Energie 0,5 und Belichtung 1,2 – die Strecke bleibt
+**befahrbar und erkennbar**. Unter 3° Sonnenhöhe (bei dichter Bewölkung 7°) gehen die **Lichter** an
+(`src/night_lights.gd`): Leuchtpunkte an allen Laternen (Bergdorf, neu: 12 an der Uferstraße im Hafen) und an den
+Molenfeuern (ein MultiMesh, `src/shaders/glow.gdshader`), echte Lichter nur an den 6 Laternen nächst der Kamera
+(OmniLight3D, 16 m, ohne Schatten); **Leuchtturm** mit hellem Kegel, Spot (320 m) und Glühen; **Fahrradlicht**
+vorn (Spot auf die Straße) und hinten (rot) an `Track/Rider/Model/Lean/Bike`. Vögel fliegen nachts und bei Regen
+nicht. Neu angewandt wird höchstens alle 0,25 s und nur, wenn die Sonne sich ≥ 0,05° bewegt hat oder das Wetter
+überblendet (der Himmel wird bei jeder Änderung neu berechnet).
+
+**Wetter** (simuliert, kein Online-Wetter – `src/weather.gd`, `Weather`): `clear` klar · `light_clouds` leicht
+bewölkt · `overcast` bewölkt/dunstig · `rain` leichter Regen. Wirkung: Wolkenbedeckung (sichtbarer Anteil, dichter
+auch größer) und Tönung, grauer Himmel, weniger direkte Sonne (bedeckt ohne Sonnenscheibe), Dunst/Nebel (Regen
+~8-fach), entsättigt, mehr Wind (Wolkenzug, Vegetation, Wellenhöhe `wave_scale`), Meer grauer, Regen als Tropfen
+um die Kamera (Forward+: 7000 GPU-Partikel, Web: 1800 CPU-Partikel), nasse Straße dunkler und glänzend. Modus
+`[sky] weather_mode`: `changing` (Standard) – meist sonnig, je Zustand 4–45 min, dann Wechsel zu einem Nachbarn
+(Regen nur über „bewölkt“), weich über 4 min; `fixed` – bleibt bei `weather`, Umstellen blendet in 10 s über.
+
+**Web-Profil** (Compatibility-Renderer, erkannt über `RenderingServer.get_current_rendering_method()`): dort wirkt
+`vertex_color_is_srgb` nicht und die Lichter-Kurve unterscheidet sich – mit den Forward+-Werten war das Bild blass und
+überbelichtet. Das Profil gilt für alle Tageszeiten und Wetter: untexturierte Materialien der Welt (Vertex-Farben und
+einfarbige Flächen) ×0,78, Sonne/Mond ×0,8, Belichtung ×0,92, Umgebungslicht ×1,0, Sättigung ×1,04, Kontrast ×1,04
+(`SkyController.COMPAT_*`). Texturierte Modelle bleiben unverändert (sie stimmten schon).
+
+**Schnittstelle** (z. B. für das Grafikmenü): `sky.set_time_mode(mode, hour = NAN)` mit `DayNight.MODE_REALTIME`,
+`MODE_FIXED`, `MODE_TIMELAPSE` (Stunde = Ortszeit 0–24) und `sky.set_weather_mode(mode, state = "")` mit
+`Weather.MODE_CHANGING`/`MODE_FIXED` und `Weather.CLEAR`, `LIGHT_CLOUDS`, `OVERCAST`, `RAIN`. Lesen: `sky.clock`
+(`local_hour()`, `timelapse_day_min`), `sky.weather.state`, `sky.sun_angles`. `set_compatibility(bool)` schaltet das
+Lichtprofil (Tests, Vergleich).
+
+**Sichtprüfung:** `view_probe.gd -- --time=21:30 --date=2026-06-21 --weather=rain` (feste Ortszeit/Datum/Wetter
+ohne Überblendung), `--profile=forward|compat` erzwingt das Lichtprofil (Vergleich vorher/nachher im
+Compatibility-Renderer: `godot --rendering-method gl_compatibility …`).
+**Kosten:** fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070), Datum 21.06.: Tag (13:30, klar) Mittel
+59,9 / min 7,2 / 1-%-Tief 53,2 / 61 Frames < 50 fps; Nacht (23:30) 60,0 / 36,4 / 52,2 / 342; Regen (14:00) 60,0 /
+8,8 / 52,6 / 30 – jeweils ~39 700 Frames (Einzelhänger wie vor G6, siehe oben).
 
 ## Fahrer und Rad
 
@@ -235,6 +293,11 @@ Kadenz; die Steigung steht in der Session-CSV der Bridge (Spalte `grade`).
 | `[ride] downhill_boost` | `2.0` | bergab: `v_ziel · (1 + downhill_boost · \|Gefälle\|)` |
 | `[ride] inertia_s` | `1.5` | Trägheit: Zeitkonstante (s) der Annäherung an `v_ziel`; 0 = sofort |
 | `[world] track` | `island` | Strecke: `island` = Insel-Rundkurs, `graybox` = kurze Graybox-Teststrecke (~900 m); Unbekanntes → `island` |
+| `[sky] time_mode` | `realtime` | Tageszeit: `realtime` = echte Ortszeit Mallorca, `fixed` = feste Stunde, `timelapse` = Zeitraffer; Unbekanntes → `realtime` |
+| `[sky] fixed_hour` | `13.0` | Ortszeit (h, 0–24) für `fixed` (z. B. `21.5` = 21:30) |
+| `[sky] timelapse_day_min` | `24.0` | Zeitraffer: Minuten echter Zeit je Tag |
+| `[sky] weather_mode` | `changing` | Wetter: `changing` = wechselnd (meist sonnig), `fixed` = fest; Unbekanntes → `changing` |
+| `[sky] weather` | `clear` | Anfangs-/festes Wetter: `clear`, `light_clouds`, `overcast`, `rain` |
 
 Steigung als Anteil (0.06 = 6 %, wie `set_grade`). Fehlende Schlüssel → Standardwerte aus `src/ride_config.gd`.
 
@@ -315,7 +378,7 @@ Bridge-Terminal `set_grade … -> not_supported`, Kadenz sinkt bergauf, in der S
 ## Aufbau
 
 ```
-config.cfg              Bus-Adresse, Fahrmodell-Parameter, Strecke
+config.cfg              Bus-Adresse, Fahrmodell-Parameter, Strecke, Tageszeit und Wetter
 scenes/main.tscn/.gd    Hauptszene: Strecke laut Konfiguration, Bus-Client → Fahrmodell → Fahrer auf dem Pfad, Kamera, Spielzustände, Tasten, HUD
 src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeout), status/telemetry parsen, send_message
 src/ride_stats.gd       RideStats: Fahrzeit, Strecke, Ø Kadenz, Ø Tempo (ohne Pausen) – reine Logik
@@ -330,7 +393,11 @@ src/island_terrain.gd   IslandTerrain: Höhenfeld (prozedural oder Höhenkarte),
 src/island_world.gd     IslandWorld: Gelände, Meer, Fahrbahn, Stationsmarker, Deko aller Stationen mit Modellen (#15, #16)
 src/island_landmarks.gd IslandLandmarks: Sehenswürdigkeiten und Kleindetails (G2), Platzierungsdaten für Tests
 src/world_motion.gd     WorldMotion: bewegte Szenen und Effekte (G3) – Mühlen, Leuchtturm, Boote, Vögel, Wolken, Brunnen
-src/shaders/            Wind (Vegetation), Meer (Wellen, Flachwasser, Brandung), Lichtkegel
+src/day_night.gd        DayNight: Uhr (Mallorca-Ortszeit, Modi), Sonnenstand, Auf-/Untergang – reine Logik
+src/weather.gd          Weather: simuliertes Wetter, Zustände und Übergänge – reine Logik
+src/sky_controller.gd   SkyController: Sonne, Mond, Himmel, Environment, Regen, Sterne, Web-Lichtprofil (G6)
+src/night_lights.gd     NightLights: Laternen, Leuchtfeuer, Fahrradlicht bei Nacht
+src/shaders/            Wind (Vegetation), Meer (Wellen, Flachwasser, Brandung), Lichtkegel, Leuchtpunkte
 src/graybox_track.gd    GrayboxTrack: Rundkurs ~900 m, flach → +6 % → Kuppe → −6 % → flach (`[world] track="graybox"`)
 tests/                  GUT-Tests, support/ (Fake-Bus, Basisklasse, Hook), fixtures/
 tools/                  E2E-Prüfhilfe gegen die echte Bridge, Sichtprüfung/fps (view_probe.gd)
