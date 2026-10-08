@@ -288,7 +288,7 @@ func _setup_sky_settings() -> void:
 
 
 func _on_settings_changed(key: String) -> void:
-	if key in ["time", "weather"]:
+	if key in ["time", "weather", "season"]:
 		settings_menu.settings.apply_sky(sky)
 	if key == "time" and state == STATE_MENU:
 		_update_round_trip_menu()
@@ -478,14 +478,15 @@ func _check_level(announce: bool = true) -> void:
 			hud.celebrate("Fahrerlevel %d erreicht!" % level)
 
 
-## Ereignisse je voller Kilometer (gesamt): Strecke, Wetter und Tageszeit beim Fahren. Die Jahreszeit (#39) kommt hier
-## als {"type": Achievements.EVENT_SEASON, "season": …} dazu.
+## Ereignisse je voller Kilometer (gesamt): Strecke, Wetter, Tageszeit und Jahreszeit (#39; die Mandelblüte zählt als
+## Frühling, Season.achievement_season) beim Fahren.
 func _km_events() -> Array:
 	return [
 		{"type": Achievements.EVENT_DISTANCE, "total_km": _km_before + stats.distance_m / 1000.0,
 			"ride_km": stats.distance_m / 1000.0},
 		{"type": Achievements.EVENT_WEATHER, "state": sky.weather.state},
 		{"type": Achievements.EVENT_TIME_OF_DAY, "hour": sky.clock.local_hour()},
+		{"type": Achievements.EVENT_SEASON, "season": Season.achievement_season(sky.season())},
 	]
 
 

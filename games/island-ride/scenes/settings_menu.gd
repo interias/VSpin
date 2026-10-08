@@ -4,7 +4,7 @@
 ## Jede Änderung wirkt sofort und wird in `settings_path` gespeichert (GraphicsSettings, `user://settings.cfg`).
 ## Beim Start wendet das Menü die gespeicherten Einstellungen an; die Fenstergeometrie (auch nach Ziehen oder
 ## Windows-Snap) wird beim Beenden gemerkt. Das Spiel läuft weiter, solange das Menü offen ist.
-## Tageszeit und Wetter (G8) stehen in denselben Einstellungen (`[sky]`); auf die Welt wirken sie über
+## Tageszeit, Wetter (G8) und Jahreszeit (#39) stehen in denselben Einstellungen (`[sky]`); auf die Welt wirken sie über
 ## `settings_changed`, das die Hauptszene an den SkyController weitergibt.
 ## Im Browser (`web`) gibt es keine Fenstermodi/-größen und kein VSync; im Compatibility-Renderer nur MSAA und
 ## bilineare Skalierung.
@@ -198,7 +198,7 @@ func _build() -> void:
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 16)
-	grid.add_theme_constant_override("v_separation", 8)
+	grid.add_theme_constant_override("v_separation", 4)  # alle Felder passen auch in 1280×720
 	box.add_child(grid)
 	var aa_modes := GraphicsSettings.AA_MODES_COMPATIBILITY if compatibility else GraphicsSettings.AA_MODES
 	_add_row(grid, "aa", "Kantenglättung", aa_modes.map(func(m): return AA_LABELS[m]), aa_modes,
@@ -222,6 +222,9 @@ func _build() -> void:
 	var weathers: Array = [_weather_value(Weather.MODE_CHANGING, "")]
 	weathers.append_array(Weather.STATES.keys().map(func(w): return _weather_value(Weather.MODE_FIXED, w)))
 	_add_row(grid, "weather", "Wetter", weathers.map(_weather_label), weathers, _on_weather)
+	var seasons: Array = [_season_value(Season.MODE_REAL, "")]
+	seasons.append_array(Season.PHASES.map(func(p): return _season_value(Season.MODE_FIXED, p)))
+	_add_row(grid, "season", "Jahreszeit", seasons.map(_season_label), seasons, _on_season)
 	_add_row(grid, "window_mode", "Fenstermodus", GraphicsSettings.WINDOW_MODES.map(func(m): return WINDOW_LABELS[m]),
 			GraphicsSettings.WINDOW_MODES, _on_window_mode)
 	_add_row(grid, "window_size", "Fenstergröße", [], [], _on_window_size)
@@ -334,6 +337,22 @@ func _on_weather(value: Array) -> void:
 		settings.weather = value[1]
 
 
+## Jahreszeit als Menüwert: [Modus, Phase] – nach dem Datum ohne Phase.
+static func _season_value(mode: String, phase: String) -> Array:
+	return [mode, phase]
+
+
+static func _season_label(value: Array) -> String:
+	return Season.NAMES.get(value[1], "") if value[0] == Season.MODE_FIXED else "Nach Datum (Mallorca)"
+
+
+func _on_season(value: Array) -> void:
+	settings.sky_saved = true
+	settings.season_mode = value[0]
+	if value[0] == Season.MODE_FIXED:
+		settings.season = value[1]
+
+
 func _on_window_mode(mode: String) -> void:
 	if mode != GraphicsSettings.WINDOW_FULLSCREEN:
 		_windowed_mode = mode
@@ -365,6 +384,8 @@ func _refresh() -> void:
 	_select_or_add("time", _time_value(settings.time_mode, number), _time_label)
 	_select_or_add("weather", _weather_value(settings.weather_mode,
 			settings.weather if settings.weather_mode == Weather.MODE_FIXED else ""), _weather_label)
+	_select("season", _season_value(settings.season_mode,
+			settings.season if settings.season_mode == Season.MODE_FIXED else ""))
 	var sizes: Array = GraphicsSettings.WINDOW_SIZES.duplicate()
 	var size_option: OptionButton = options["window_size"]
 	size_option.clear()

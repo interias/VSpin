@@ -8,7 +8,7 @@
 ##   lap                {total_laps, ride_laps}   Runde fertig: volle Runden gesamt und in dieser Fahrt
 ##   weather            {state}                   Wetter beim Fahren (Weather.CLEAR, LIGHT_CLOUDS, OVERCAST, RAIN)
 ##   time_of_day        {hour}                    Ortszeit beim Fahren (Mallorca, 0–24, DayNight.local_hour())
-##   season             {season}                  Jahreszeit beim Fahren (SEASONS) – sendet erst #39
+##   season             {season}                  Jahreszeit beim Fahren (SEASONS; Mandelblüte zählt als spring, Season)
 ##   training_finished  {total_trainings, score}  Training fertig: Einheiten gesamt, Treffer der Zielkadenz 0..1 –
 ##                                                sendet erst #37
 ##

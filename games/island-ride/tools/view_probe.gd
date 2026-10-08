@@ -3,7 +3,7 @@
 ## und misst die Bildrate.
 ##   godot --path games/island-ride -s res://tools/view_probe.gd -- --out=C:/tmp/shots [--shots=0,200,450]
 ##         [--fps-from=0 --fps-to=2310 --speed-kmh=50] [--size=1920x1080] [--cadence=85] [--close] [--pair]
-##         [--advance=1.5] [--time=21:30] [--date=2026-06-21] [--weather=rain] [--profile=forward|compat]
+##         [--advance=1.5] [--time=21:30] [--date=2026-06-21] [--weather=rain] [--season=summer] [--profile=forward|compat]
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
 ##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4] [--logbook] [--rewards]
 ##         [--training] [--ccw] [--wardrobe=trikot_gelb,radfarbe_blau,helm_schwarz]
@@ -23,7 +23,8 @@
 ## Sekunden vorrücken, damit die Bewegung im Vergleich sichtbar wird (Standard 0).
 ## Tag/Nacht und Wetter (G6): `--time` feste Ortszeit (Mallorca, HH:MM), `--date` Datum dazu (Standard heute),
 ## `--weather` festes Wetter (clear, light_clouds, overcast, rain) ohne Überblendung. Ohne Angabe gilt `[sky]` aus
-## config.cfg. Bei Regen wartet die Probe, bis die Tropfen gefallen sind. `--profile` erzwingt das Lichtprofil
+## config.cfg. Bei Regen wartet die Probe, bis die Tropfen gefallen sind. Jahreszeit (#39): `--season` feste Phase
+## (almond, spring, summer, autumn, winter); ohne Angabe folgt sie dem Datum (`--date` oder heute). `--profile` erzwingt das Lichtprofil
 ## (Vergleich: Compatibility-Renderer mit `--profile=forward` zeigt das Bild ohne Web-Profil).
 ## Startmenü (#30): `--title` startet wie das Spiel mit Titelbild und Kameraflug und speichert `title.png`,
 ## `title_modes.png` (Seite „Fahren“) und `title_b.png` (3 s später, Kamera weitergeflogen) statt der Streckenbilder.
@@ -101,6 +102,7 @@ func _initialize() -> void:
 	var hour := NAN
 	var date := ""
 	var weather := ""
+	var season := ""
 	var profile := ""
 	for arg in OS.get_cmdline_user_args():
 		var value := arg.get_slice("=", 1)
@@ -168,6 +170,8 @@ func _initialize() -> void:
 			date = value
 		elif arg.begins_with("--weather="):
 			weather = value
+		elif arg.begins_with("--season="):
+			season = value
 		elif arg.begins_with("--profile="):
 			profile = value
 	DisplayServer.window_set_size(size)
@@ -201,7 +205,7 @@ func _initialize() -> void:
 		_ride.bus.last_telemetry = {"cadence": _cadence, "power_w": 142.0}
 	if not profile.is_empty():
 		_ride.sky.set_compatibility(profile == "compat")
-	_set_sky(hour, date, weather)
+	_set_sky(hour, date, weather, season)
 	if weather == Weather.RAIN:
 		await _frames(100)
 	if _ccw:
@@ -260,8 +264,8 @@ func _initialize() -> void:
 	quit(0)
 
 
-## Feste Uhrzeit/Datum/Wetter (siehe Kopf); leere Angaben lassen `[sky]` gelten.
-func _set_sky(hour: float, date: String, weather: String) -> void:
+## Feste Uhrzeit/Datum/Wetter/Jahreszeit (siehe Kopf); leere Angaben lassen `[sky]` gelten.
+func _set_sky(hour: float, date: String, weather: String, season: String) -> void:
 	var sky: SkyController = _ride.sky
 	if not is_nan(hour):
 		sky.set_time_mode(DayNight.MODE_FIXED, hour)
@@ -272,9 +276,11 @@ func _set_sky(hour: float, date: String, weather: String) -> void:
 	if not weather.is_empty():
 		sky.set_weather_mode(Weather.MODE_FIXED, weather)
 		sky.weather.snap()
+	if not season.is_empty():
+		sky.set_season_mode(Season.MODE_FIXED, season)
 	sky.apply_now()
-	print("SKY local=%.2f h sun=%.1f°/%.1f° weather=%s compat=%s lights=%s" % [sky.clock.local_hour(), sky.sun_angles.x,
-			sky.sun_angles.y, sky.weather.state, sky.compatibility, sky.current["lights_on"]])
+	print("SKY local=%.2f h sun=%.1f°/%.1f° weather=%s season=%s compat=%s lights=%s" % [sky.clock.local_hour(),
+			sky.sun_angles.x, sky.sun_angles.y, sky.weather.state, sky.season(), sky.compatibility, sky.current["lights_on"]])
 
 
 ## Titelbild mit Startmenü (Hauptseite, Seite „Fahren“) und ein Bild 3 s später (Kameraflug).

@@ -169,3 +169,38 @@ func test_web_shows_sky_options() -> void:
 	var menu := _spawn_menu(true, true)
 	assert_true(menu.options["time"].visible)
 	assert_true(menu.options["weather"].visible)
+
+
+## Menü in einem Fenster `viewport_size` (ohne Datei, ohne Fenstersteuerung), mit „Fahrt beenden“ – die volle Höhe.
+func _menu_in(viewport_size: Vector2i, web: bool = false) -> CanvasLayer:
+	var viewport := SubViewport.new()
+	viewport.size = viewport_size
+	add_child_autofree(viewport)
+	var menu := MENU_SCENE.instantiate()
+	menu.settings_path = ""
+	menu.web = web
+	viewport.add_child(menu)
+	menu.set_ride_active(true)
+	menu.open()
+	await wait_process_frames(4)
+	return menu
+
+
+func _assert_menu_inside(menu: CanvasLayer, label: String) -> void:
+	var screen: Rect2 = menu._panel.get_viewport_rect()
+	var checked := 0
+	for control in menu.find_children("*", "Control", true, false):
+		if not control.is_visible_in_tree():
+			continue
+		checked += 1
+		var rect: Rect2 = control.get_global_rect()
+		assert_true(screen.encloses(rect), "%s: %s liegt im Fenster %s (%s)" % [label, control.name, screen, rect])
+	assert_gt(checked, 20, "%s: alle Felder geprüft" % label)
+
+
+## Layout in jeder wählbaren Fenstergröße (auch Halbbild) und im Browser – mit allen Feldern, auch der Jahreszeit (#39).
+func test_layout_fits_every_window_size() -> void:
+	for size in GraphicsSettings.WINDOW_SIZES:
+		var label := "%d×%d" % [size.x, size.y]
+		_assert_menu_inside(await _menu_in(size), label)
+	_assert_menu_inside(await _menu_in(Vector2i(1280, 720), true), "Browser 1280×720")

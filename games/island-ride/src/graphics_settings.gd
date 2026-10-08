@@ -1,5 +1,5 @@
 ## Grafik- und Fenstereinstellungen der Inselfahrt (Menü `F2`, G4): Kantenglättung, Render-Auflösung, VSync,
-## fps-Limit, Schatten, Fenstermodus und -geometrie; dazu Tageszeit und Wetter (G8, Abschnitt `[sky]`, nur geschrieben,
+## fps-Limit, Schatten, Fenstermodus und -geometrie; dazu Tageszeit, Wetter und Jahreszeit (G8, #39; Abschnitt `[sky]`, nur geschrieben,
 ## sobald im Menü gewählt – sonst gilt `config.cfg [sky]`). Gespeichert in `user://settings.cfg` (ConfigFile), getrennt von
 ## der Spiel-Konfiguration `config.cfg` (Bus, Fahrmodell). Fehlende Datei oder Schlüssel, ungültige Werte → Standard.
 ## Logik und Werte hier; das Menü (`scenes/settings_menu.gd`) zeigt sie an und wendet sie an.
@@ -75,6 +75,9 @@ var fixed_hour := 13.0
 var timelapse_day_min := 24.0
 var weather_mode := Weather.MODE_CHANGING
 var weather := Weather.CLEAR
+## Jahreszeit (#39, Season): nach dem Datum oder fest.
+var season_mode := Season.MODE_REAL
+var season := Season.SPRING
 
 
 ## Liest `path`; fehlende/kaputte Datei oder Schlüssel und ungültige Werte ergeben die Standardwerte.
@@ -113,6 +116,9 @@ static func load_file(path: String = DEFAULT_PATH) -> GraphicsSettings:
 				settings.weather_mode)
 		settings.weather = _choice(file.get_value("sky", "weather", settings.weather), Weather.STATES.keys(),
 				settings.weather)
+		settings.season_mode = _choice(file.get_value("sky", "season_mode", settings.season_mode), Season.MODES,
+				settings.season_mode)
+		settings.season = _choice(file.get_value("sky", "season", settings.season), Season.PHASES, settings.season)
 	return settings
 
 
@@ -133,6 +139,8 @@ func save_file(path: String = DEFAULT_PATH) -> Error:
 		file.set_value("sky", "timelapse_day_min", timelapse_day_min)
 		file.set_value("sky", "weather_mode", weather_mode)
 		file.set_value("sky", "weather", weather)
+		file.set_value("sky", "season_mode", season_mode)
+		file.set_value("sky", "season", season)
 	var err := file.save(path)
 	if err != OK:
 		push_warning("GraphicsSettings: %s nicht schreibbar (Fehler %d)" % [path, err])
@@ -164,22 +172,24 @@ func apply_engine(window_vsync: bool = true) -> void:
 	RenderingServer.directional_soft_shadow_filter_set_quality(SHADOW_FILTER[shadows])
 
 
-## Tageszeit und Wetter von `sky` übernehmen (Anzeige im Menü, solange nichts gespeichert ist).
+## Tageszeit, Wetter und Jahreszeit von `sky` übernehmen (Anzeige im Menü, solange nichts gespeichert ist).
 func capture_sky(sky: SkyController) -> void:
 	time_mode = sky.clock.mode
 	fixed_hour = sky.clock.fixed_hour
 	timelapse_day_min = sky.clock.timelapse_day_min
 	weather_mode = sky.weather.mode
 	weather = sky.weather.state
+	season_mode = sky.season_mode
+	season = sky.fixed_season
 
 
-## Tageszeit und Wetter an `sky` setzen; Wetter ohne Überblendung (sofort sichtbar).
+## Tageszeit, Wetter und Jahreszeit an `sky` setzen; Wetter ohne Überblendung (sofort sichtbar).
 func apply_sky(sky: SkyController) -> void:
 	sky.clock.timelapse_day_min = timelapse_day_min
 	sky.set_time_mode(time_mode, fixed_hour if time_mode == DayNight.MODE_FIXED else NAN)
 	sky.set_weather_mode(weather_mode, weather if weather_mode == Weather.MODE_FIXED else "")
 	sky.weather.snap()
-	sky.apply_now()
+	sky.set_season_mode(season_mode, season)
 
 
 ## Fenstermodus, -größe und -position. Gespeicherte Position nur, wenn sie auf einem Bildschirm liegt, sonst mittig.

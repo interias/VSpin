@@ -17,6 +17,7 @@
 ##             IslandVegetation (#38)
 ##   Motion    bewegte Szenen und Effekte (Windmühlen, Leuchtturm, Boote, Vögel, Wolken) – siehe WorldMotion (G3);
 ##             Meer und Vegetation bekommen dort ihre Shader (Wellen/Brandung, Wind)
+## Jahreszeit (#39): `set_season(phase)` färbt Vegetation, Boden und Kenney-Vegetation um (`tint_nature`) – ohne Neubau.
 class_name IslandWorld
 extends Node3D
 
@@ -78,6 +79,10 @@ var compatibility := SkyController.is_compatibility_renderer()
 
 static var _terrain_mesh: ArrayMesh = null
 static var _models := {}
+## Jahreszeit (#39): Faktor je Materialname der Kenney-Modelle (`tint_nature`) und die umgefärbten Materialien
+## [Material, Materialname, Farbe vom Laden].
+static var nature_tint := {}
+static var _nature_materials := []
 
 
 ## Baut die Welt für `course_track` (Pfad mit Insel-Kurve). Die Pfad-Koordinaten sind Weltkoordinaten
@@ -502,6 +507,7 @@ static func _model_mesh(path: String, colors: Dictionary = NATURE_COLORS) -> Arr
 			placement = (node as Node3D).transform * placement
 			node = node.get_parent()
 		var mesh: Mesh = mesh_node.mesh.duplicate()
+		var names := {}
 		for s in range(mesh.get_surface_count()):
 			var material := mesh.surface_get_material(s) as BaseMaterial3D
 			if material != null and material.metallic > 0.0:
@@ -510,10 +516,41 @@ static func _model_mesh(path: String, colors: Dictionary = NATURE_COLORS) -> Arr
 				material.albedo_color = colors.get(material.resource_name,
 						NATURE_COLORS.get(material.resource_name, material.albedo_color))
 				mesh.surface_set_material(s, material)
+				names[s] = [material.resource_name, material.albedo_color]
 		WorldMotion.sway(mesh, path)
+		for s in names:
+			_nature_materials.append([mesh.surface_get_material(s), names[s][0], names[s][1]])
+			_set_nature_color(_nature_materials[-1])
 		_models[key] = [mesh, placement]
 		scene.free()
 	return _models[key]
+
+
+## Jahreszeit (#39, Season.LOOKS[phase]): Vegetation und Boden (IslandVegetation-Palette), Kenney-Vegetation
+## (`tint_nature`) und Mohn – ohne die Welt neu zu bauen.
+func set_season(phase: String) -> void:
+	var look: Dictionary = Season.LOOKS[phase]
+	IslandVegetation.set_palette(look["palette"])
+	tint_nature(look["nature"])
+	if vegetation != null:
+		vegetation.set_kind_visible("Mohn", look["poppies"])
+
+
+## Kenney-Modelle zentral umfärben (#39): Faktor je Materialname (z. B. "grass", "leafsGreen") auf die Farbe vom
+## Laden (NATURE_COLORS/OLIVE_COLORS/…); fehlende Namen zurück auf 1. Wirkt sofort auf alle geladenen Modelle.
+static func tint_nature(tints: Dictionary) -> void:
+	nature_tint = tints.duplicate()
+	for entry in _nature_materials:
+		_set_nature_color(entry)
+
+
+## Farbe eines Eintrags [Material, Materialname, Farbe vom Laden] mit dem aktuellen Faktor (Wind-Shader oder Standard).
+static func _set_nature_color(entry: Array) -> void:
+	var color: Color = entry[2] * nature_tint.get(entry[1], Color.WHITE)
+	if entry[0] is ShaderMaterial:
+		(entry[0] as ShaderMaterial).set_shader_parameter("albedo", color)
+	elif entry[0] is BaseMaterial3D:
+		(entry[0] as BaseMaterial3D).albedo_color = color
 
 
 func _scaled(at: Vector3, factor: float, yaw: float) -> Transform3D:

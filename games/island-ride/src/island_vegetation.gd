@@ -15,7 +15,10 @@
 ## Körnung, die Straße Asphaltkorn mit ausgebesserten Flecken. Die Texturen entstehen prozedural (FastNoiseLite).
 ##
 ## Jahreszeiten (#39): alle Farben kommen aus `PALETTE`. `set_palette()` färbt die geteilten Materialien der
-## Vegetation (Shader-Parameter `albedo`) und die Bodentextur zentral um, ohne die Welt neu zu bauen.
+## Vegetation (Shader-Parameter `albedo`) und die Bodentextur zentral um, ohne die Welt neu zu bauen. Dazu kommen
+## die Arten der Jahreszeiten (`SEASON_KINDS`, gleicher Aufbau wie KINDS): Mohn am Wegrand (nur im Frühling sichtbar,
+## `set_kind_visible`), Mandelbäume im Hain und an der Abfahrt (Krone je Jahreszeit: weiß-rosa Blüte, grün, ocker,
+## kahl) und Getreidefelder an der Abfahrt (`FIELD_*`; junges Grün, im Sommer goldgelb, im Herbst Stoppeln).
 ##
 ## `placements[station][art]` hält die Lage jeder Pflanze (PackedVector3Array) für Tests – headless liefern MultiMeshes
 ## keine Transforms. Eigene Zufallsgeneratoren je Station (Seeds 1511–1516); die übrige Welt bleibt unverändert.
@@ -23,23 +26,35 @@
 class_name IslandVegetation
 extends RefCounted
 
-## Pflanzenarten (Knotennamen-Präfix).
+## Pflanzenarten (Knotennamen-Präfix): auf jeder Station, und die der Jahreszeiten (#39) auf ausgewählten.
 const KINDS := ["Gras", "Unterholz", "Strauch"]
+const SEASON_KINDS := ["Mohn", "Mandelbaum", "Getreide"]
+## Stationen der Jahreszeit-Arten (fehlt eine Art, wächst sie überall).
+const STATIONS := {"Mandelbaum": ["hain", "abfahrt"], "Getreide": ["abfahrt"]}
 ## Versuche je 100 m Strecke und Art (vor dem Aussparen).
-const ATTEMPTS_PER_100M := {"Gras": 520, "Unterholz": 80, "Strauch": 24}
+const ATTEMPTS_PER_100M := {"Gras": 520, "Unterholz": 80, "Strauch": 24, "Mohn": 150, "Mandelbaum": 14, "Getreide": 2000}
 ## Seitlicher Bereich (m von der Straßenmitte) und Verteilung: Abstand = von + (bis − von) · Zufall^exponent –
 ## nahe am Bankett dichter.
-const SPREAD_M := {"Gras": Vector3(4.4, 28.0, 2.4), "Unterholz": Vector3(4.8, 34.0, 1.5), "Strauch": Vector3(6.0, 45.0, 1.3)}
+const SPREAD_M := {"Gras": Vector3(4.4, 28.0, 2.4), "Unterholz": Vector3(4.8, 34.0, 1.5), "Strauch": Vector3(6.0, 45.0, 1.3),
+		"Mohn": Vector3(4.4, 24.0, 2.0), "Mandelbaum": Vector3(9.0, 60.0, 1.0), "Getreide": Vector3(7.0, 38.0, 1.0)}
 ## Radius einer Pflanze (m) bei Größe 1; für den Fahrbahnabstand zählt die größte Größe (SCALE).
-const RADIUS_M := {"Gras": 0.35, "Unterholz": 0.6, "Strauch": 1.3}
+const RADIUS_M := {"Gras": 0.35, "Unterholz": 0.6, "Strauch": 1.3, "Mohn": 0.3, "Mandelbaum": 2.0, "Getreide": 0.55}
 ## Größenfaktor je Instanz (von, bis).
-const SCALE := {"Gras": Vector2(0.8, 1.5), "Unterholz": Vector2(0.7, 1.3), "Strauch": Vector2(0.8, 1.7)}
+const SCALE := {"Gras": Vector2(0.8, 1.5), "Unterholz": Vector2(0.7, 1.3), "Strauch": Vector2(0.8, 1.7),
+		"Mohn": Vector2(0.8, 1.2), "Mandelbaum": Vector2(1.5, 2.0), "Getreide": Vector2(1.0, 1.25)}
 ## Steilster Hang (Höhe je Meter), auf dem die Art noch wächst.
-const MAX_SLOPE := {"Gras": 1.0, "Unterholz": 1.0, "Strauch": 1.3}
+const MAX_SLOPE := {"Gras": 1.0, "Unterholz": 1.0, "Strauch": 1.3, "Mohn": 1.0, "Mandelbaum": 0.8, "Getreide": 0.45}
 ## Sichtweite (m) je Art; dahinter wird das Stück nicht gezeichnet.
-const RANGE_M := {"Gras": 150.0, "Unterholz": 220.0, "Strauch": 400.0}
+const RANGE_M := {"Gras": 150.0, "Unterholz": 220.0, "Strauch": 400.0, "Mohn": 150.0, "Mandelbaum": 400.0, "Getreide": 260.0}
 ## Ausschlag im Wind (Anteil der Höhe, siehe wind.gdshader).
-const SWAY := {"Gras": 0.12, "Unterholz": 0.05, "Strauch": 0.04}
+const SWAY := {"Gras": 0.12, "Unterholz": 0.05, "Strauch": 0.04, "Mohn": 0.12, "Mandelbaum": 0.02, "Getreide": 0.08}
+## Getreidefelder: Abschnitte von FIELD_LENGTH_M je FIELD_EVERY_M Strecke (ab FIELD_OFFSET_M nach Stationsbeginn),
+## seitlich wie SPREAD_M – nur wo das Gelände flach genug ist (MAX_SLOPE); die letzten FIELD_TOWN_M vor dem
+## Stationsende (Ortsrand des Hafens) bleiben frei.
+const FIELD_LENGTH_M := 180.0
+const FIELD_EVERY_M := 500.0
+const FIELD_OFFSET_M := 120.0
+const FIELD_TOWN_M := 350.0
 ## Mindestabstand (m) zur Straßenmitte abzüglich Radius: Fahrbahnhälfte 3,0 m, Mauer bis 4,05 m.
 const ROAD_CLEARANCE_M := 4.1
 ## Streckenlänge (m) je MultiMesh-Stück.
@@ -60,6 +75,9 @@ const PALETTE := {
 	"Strauch": Color(0.3, 0.42, 0.21),
 	"Boden_Erde": Color(1.0, 0.96, 0.91),
 	"Boden_Gras": Color(0.93, 0.98, 0.87),
+	"Mohn": Color(1.0, 1.0, 1.0),
+	"Mandelbaum": Color(0.42, 0.56, 0.26),
+	"Getreide": Color(0.5, 0.66, 0.3),
 }
 ## Kachelgröße (m) der Detailtexturen und Pixel je Kante.
 const GROUND_TILE_M := 20.0
@@ -104,7 +122,7 @@ func build() -> void:
 		var node := Node3D.new()
 		node.name = station
 		root.add_child(node)
-		for kind in KINDS:
+		for kind in KINDS + SEASON_KINDS:
 			var chunks := {}
 			for entry in plan["instances"][station][kind]:
 				var chunk := int(floorf(entry[2] / CHUNK_M))
@@ -133,7 +151,7 @@ func _chunk(parent: Node3D, node_name: String, kind: String, entries: Array) -> 
 	parent.add_child(instance)
 
 
-## Instanzen und Lagen aller Stationen (Browser: Gras und Unterholz ausgedünnt).
+## Instanzen und Lagen aller Stationen (Browser: alles außer Sträuchern und Bäumen ausgedünnt).
 func _plan(lite: bool) -> Dictionary:
 	_index_road()
 	_index_blocked()
@@ -147,9 +165,9 @@ func _plan(lite: bool) -> Dictionary:
 		rng.seed = 1511 + i
 		instances[id] = {}
 		all_placements[id] = {}
-		for kind in KINDS:
+		for kind in KINDS + SEASON_KINDS:
 			var entries := _scatter_kind(id, kind, range_m, rng)
-			if lite and kind != "Strauch":
+			if lite and kind not in ["Strauch", "Mandelbaum"]:
 				var kept := []
 				for k in range(entries.size()):
 					if k % int(round(1.0 / LITE_SHARE)) == 0:
@@ -166,6 +184,8 @@ func _plan(lite: bool) -> Dictionary:
 ## Pflanzen einer Art auf dem Abschnitt `range_m`: [Transform3D, Farbe, Streckenposition, Fußpunkt] je Instanz.
 func _scatter_kind(station: String, kind: String, range_m: Vector2, rng: RandomNumberGenerator) -> Array:
 	var entries := []
+	if STATIONS.has(kind) and station not in STATIONS[kind]:
+		return entries
 	var spread: Vector3 = SPREAD_M[kind]
 	var radius: float = RADIUS_M[kind]
 	var scale: Vector2 = SCALE[kind]
@@ -174,6 +194,10 @@ func _scatter_kind(station: String, kind: String, range_m: Vector2, rng: RandomN
 	var carry := 0.0
 	var d := range_m.x + step / 2.0
 	while d < range_m.y:
+		if kind == "Getreide" and (fposmod(d - range_m.x - FIELD_OFFSET_M, FIELD_EVERY_M) > FIELD_LENGTH_M
+				or d > range_m.y - FIELD_TOWN_M):
+			d += step
+			continue
 		var p := world.track.position_at(d)
 		var ahead := world.track.position_at(d + 1.0)
 		var behind := world.track.position_at(d - 1.0)
@@ -197,6 +221,17 @@ func _scatter_kind(station: String, kind: String, range_m: Vector2, rng: RandomN
 					tint, d + along, at])
 		d += step
 	return entries
+
+
+## Arten ein-/ausblenden (Jahreszeit: Mohn nur im Frühling); wirkt auf alle Stücke der Art dieser Welt.
+func set_kind_visible(kind: String, shown: bool) -> void:
+	var root := world.get_node_or_null("Vegetation")
+	if root == null:
+		return
+	for station in root.get_children():
+		for chunk in station.get_children():
+			if String(chunk.name).rstrip("0123456789") == kind:
+				chunk.visible = shown
 
 
 ## Darf an `at` (Streckenposition `d`, seitlich `side` m, rechts positiv) eine Pflanze mit Radius `radius` wachsen?
@@ -315,6 +350,25 @@ static func mesh(kind: String) -> ArrayMesh:
 					var size := rng.randf_range(0.38, 0.55)
 					parts.lump(rng, Vector3(cos(angle) * r, size * 0.8 + rng.randf_range(0.0, 0.35), sin(angle) * r),
 							Vector3(size, size * 0.85, size))
+			"Mohn":
+				# grüne Stängel mit roter Blüte (Vertex-Farben; die Palette bleibt weiß)
+				for k in range(6):
+					var tip := parts.blade(rng, 0.25, rng.randf_range(0.3, 0.55), Color(0.4, 0.58, 0.24))
+					parts.lump(rng, tip, Vector3(0.07, 0.045, 0.07), Color(0.95, 0.12, 0.08))
+			"Mandelbaum":
+				# kurzer, knorriger Stamm, breite lockere Krone (Farbe der Krone aus der Palette)
+				parts.lump(rng, Vector3(0.0, 0.8, 0.0), Vector3(0.16, 0.85, 0.16), Color(0.42, 0.32, 0.26))
+				parts.lump(rng, Vector3(0.0, 2.4, 0.0), Vector3(1.4, 0.75, 1.4))
+				for k in range(5):
+					var angle := TAU * k / 5.0 + rng.randf_range(-0.3, 0.3)
+					var r := rng.randf_range(0.8, 1.2)
+					var size := rng.randf_range(0.6, 0.85)
+					parts.lump(rng, Vector3(cos(angle) * r, rng.randf_range(2.1, 2.9), sin(angle) * r),
+							Vector3(size, size * 0.7, size))
+			"Getreide":
+				# dichter Büschel gerader Halme gleicher Höhe (Feld)
+				for k in range(16):
+					parts.blade(rng, 0.5, rng.randf_range(0.95, 1.15), Color.WHITE, 0.08)
 		var built := parts.commit()
 		var height := maxf(built.get_aabb().end.y, 0.1)
 		var material := WorldMotion._wind_material(palette[kind], 0.95, height, SWAY[kind], true)
@@ -421,25 +475,28 @@ class Facets:
 		normals.append_array([n, n, n])
 		colors.append_array([ca, cb, cc])
 
-	## Halm: dreiseitiges Prisma vom Fuß (bis `reach` m von der Mitte) zur Spitze, nach außen geneigt; unten dunkler.
-	func blade(rng: RandomNumberGenerator, reach: float, height: float) -> void:
+	## Halm: dreiseitiges Prisma vom Fuß (bis `reach` m von der Mitte) zur Spitze, nach außen geneigt (`lean` als Anteil
+	## der Höhe, Standard 0,2–0,45); unten dunkler, getönt mit `tint`. Gibt die Spitze zurück.
+	func blade(rng: RandomNumberGenerator, reach: float, height: float, tint: Color = Color.WHITE, lean: float = -1.0) -> Vector3:
 		var angle := rng.randf() * TAU
 		var out := Vector3(cos(angle), 0.0, sin(angle))
 		var foot := out * rng.randf_range(0.0, reach)
 		var width := rng.randf_range(0.035, 0.055)
-		var tip := foot + out * height * rng.randf_range(0.2, 0.45) + Vector3(0.0, height, 0.0)
+		var bend := rng.randf_range(0.2, 0.45) if lean < 0.0 else lean
+		var tip := foot + out * height * bend + Vector3(0.0, height, 0.0)
 		var base := []
 		for k in range(3):
 			var a := angle + TAU * k / 3.0
 			base.append(foot + Vector3(cos(a), 0.0, sin(a)) * width)
-		var low := Color(0.55, 0.55, 0.55)
-		var high := Color(1.0, 1.0, 1.0) * rng.randf_range(0.92, 1.05)
+		var low := Color(0.55, 0.55, 0.55) * tint
+		var high := Color(1.0, 1.0, 1.0) * rng.randf_range(0.92, 1.05) * tint
 		var axis := foot + (tip - foot) * 0.3
 		for k in range(3):
 			triangle(base[k], base[(k + 1) % 3], tip, axis, low, low, high)
+		return tip
 
-	## Unregelmäßiger Ikosaeder mit Radien `radii` um `centre`; jede Fläche leicht anders hell.
-	func lump(rng: RandomNumberGenerator, centre: Vector3, radii: Vector3) -> void:
+	## Unregelmäßiger Ikosaeder mit Radien `radii` um `centre`; jede Fläche leicht anders hell, getönt mit `tint`.
+	func lump(rng: RandomNumberGenerator, centre: Vector3, radii: Vector3, tint: Color = Color.WHITE) -> void:
 		var t := (1.0 + sqrt(5.0)) / 2.0
 		var corners := [Vector3(-1, t, 0), Vector3(1, t, 0), Vector3(-1, -t, 0), Vector3(1, -t, 0), Vector3(0, -1, t),
 				Vector3(0, 1, t), Vector3(0, -1, -t), Vector3(0, 1, -t), Vector3(t, 0, -1), Vector3(t, 0, 1),
@@ -453,7 +510,7 @@ class Facets:
 			var b: Vector3 = points[face[1]]
 			var c: Vector3 = points[face[2]]
 			var up := ((a + b + c) / 3.0 - centre).normalized().y
-			var shade := Color.WHITE * (rng.randf_range(0.82, 0.98) * lerpf(0.72, 1.0, up * 0.5 + 0.5))
+			var shade := tint * (rng.randf_range(0.82, 0.98) * lerpf(0.72, 1.0, up * 0.5 + 0.5))
 			triangle(a, b, c, centre, shade, shade, shade)
 
 	func commit() -> ArrayMesh:

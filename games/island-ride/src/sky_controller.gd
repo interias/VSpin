@@ -14,7 +14,9 @@
 ## (Vertex-Farben: Gelände, Straße, Landmarken; Einfarbig: Kai, Molen, Bogen) zu hell werden, Texturmodelle aber
 ## stimmen, tönt das Profil diese Materialien der Welt (`COMPAT_TINT`, Grundfarbe in Meta `profile_base`, Tönung in
 ## Meta `profile_tint`) und senkt das direkte Licht; Belichtung und Umgebungslicht bleiben fast gleich.
-## Schnittstelle für Menüs: `set_time_mode(mode, hour)`, `set_weather_mode(mode, state)`.
+## Jahreszeit (#39, Season): nach dem Datum derselben Uhr oder fest (`set_season_mode`); ein Wechsel färbt die Welt um
+## (`IslandWorld.set_season`), die Farbstimmung des Lichts je Jahreszeit steht an einer Stelle (`SEASON_MOOD`, in `look`).
+## Schnittstelle für Menüs: `set_time_mode(mode, hour)`, `set_weather_mode(mode, state)`, `set_season_mode(mode, phase)`.
 class_name SkyController
 extends Node
 
@@ -56,6 +58,15 @@ const COMPAT_SUN := 0.8
 const COMPAT_SATURATION := 1.04
 const COMPAT_CONTRAST := 1.04
 const COMPAT_TINT := Color(0.78, 0.78, 0.78)
+## Farbstimmung je Jahreszeit (#39), dezent: Faktoren auf Sonnen- und Umgebungslichtfarbe und Sättigung – Mandelblüte
+## klar, Frühling frisch, Sommer warm-golden, Herbst warm und milder, Winter kühler und blasser.
+const SEASON_MOOD := {
+	"almond": {"sun": Color(1.0, 0.98, 0.98), "ambient": Color(0.99, 0.99, 1.01), "saturation": 1.0},
+	"spring": {"sun": Color(1.0, 1.0, 0.97), "ambient": Color(0.98, 1.02, 0.97), "saturation": 1.05},
+	"summer": {"sun": Color(1.0, 0.97, 0.9), "ambient": Color(1.03, 1.0, 0.93), "saturation": 1.0},
+	"autumn": {"sun": Color(1.0, 0.95, 0.88), "ambient": Color(1.02, 0.98, 0.93), "saturation": 0.97},
+	"winter": {"sun": Color(0.95, 0.98, 1.03), "ambient": Color(0.96, 0.99, 1.04), "saturation": 0.94},
+}
 
 var clock: DayNight
 var weather: Weather
@@ -64,6 +75,10 @@ var compatibility := false
 ## Zuletzt angewandte Werte (`look`) und Sonnenstand (Höhe, Azimut in Grad).
 var current: Dictionary = {}
 var sun_angles := Vector2.ZERO
+## Jahreszeit (#39): Modus (Season.MODE_REAL nach dem Datum der Uhr, MODE_FIXED) und feste Phase; zuletzt angewandte.
+var season_mode := Season.MODE_REAL
+var fixed_season := Season.SPRING
+var applied_season := ""
 
 var environment: Environment
 var sky_material: ProceduralSkyMaterial
@@ -134,6 +149,19 @@ func set_weather_mode(mode: String, state: String = "") -> void:
 	apply_now()
 
 
+## Jahreszeit: Season.MODE_REAL (nach dem Datum der Uhr) oder MODE_FIXED mit `phase` (Season.PHASES). Wirkt sofort.
+func set_season_mode(mode: String, phase: String = "") -> void:
+	season_mode = mode if mode in Season.MODES else Season.MODE_REAL
+	if phase in Season.PHASES:
+		fixed_season = phase
+	apply_now()
+
+
+## Aktuelle Jahreszeit (Season.PHASES).
+func season() -> String:
+	return fixed_season if season_mode == Season.MODE_FIXED else Season.at_unix(clock.unix_s)
+
+
 ## Lichtprofil umschalten (Tests, Fehlersuche).
 func set_compatibility(value: bool) -> void:
 	compatibility = value
@@ -158,8 +186,9 @@ func _process(delta: float) -> void:
 
 
 ## Werte für die Sonnenhöhe `elevation` (Grad) und die Wetter-Kennwerte `w` ({cloud, haze, rain, wind}, siehe Weather)
-## im Profil Forward+ oder Compatibility (`compat`). Reine Funktion.
-static func look(elevation: float, w: Dictionary, compat: bool = false) -> Dictionary:
+## im Profil Forward+ oder Compatibility (`compat`), mit der Farbstimmung der Jahreszeit `season` ("" = ohne). Reine
+## Funktion.
+static func look(elevation: float, w: Dictionary, compat: bool = false, season: String = "") -> Dictionary:
 	var cloud: float = w["cloud"]
 	var haze: float = w["haze"]
 	var wet: float = w["rain"]
@@ -212,6 +241,12 @@ static func look(elevation: float, w: Dictionary, compat: bool = false) -> Dicti
 	v["overcast"] = overcast
 	v["wind"] = w["wind"]
 	v["night"] = night
+	# Jahreszeit (#39): leichte Tönung (#42 baut die Farbstimmung je Tageszeit und Wetter hier aus)
+	var mood: Dictionary = SEASON_MOOD.get(season, {})
+	if not mood.is_empty():
+		v["sun_color"] *= mood["sun"]
+		v["ambient_color"] *= mood["ambient"]
+		v["saturation"] *= mood["saturation"]
 	return v
 
 
@@ -220,7 +255,11 @@ func apply_now() -> void:
 	_since_apply = 0.0
 	sun_angles = clock.sun()
 	_applied_sun = sun_angles
-	current = look(sun_angles.x, weather.params(), compatibility)
+	var phase := season()
+	current = look(sun_angles.x, weather.params(), compatibility, phase)
+	if phase != applied_season and world != null:
+		world.set_season(phase)
+	applied_season = phase
 	_apply(current)
 
 
