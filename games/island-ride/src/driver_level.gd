@@ -6,7 +6,8 @@
 ## Level 2 ab 10 km, 3 ab 25 km, 4 ab 45 km, 5 ab 70 km, 10 ab 270 km, 20 ab 1045 km; höchstens MAX_LEVEL.
 ##
 ## Freischaltung (für die Garderobe, #36): `unlock_level(teil)` sagt, ab welchem Level ein Kosmetik-Teil frei ist.
-## Die Teile selbst und ihre Auswahl gehören zu #36; `UNLOCKS` ist die Tabelle dafür (unbekannte Teile: ab Level 1).
+## Namen und Farben der Teile stehen in Wardrobe.PARTS; `UNLOCKS` ist die Tabelle der Level (unbekannte Teile: ab
+## Level 1). Je Kategorie ist der heutige Look ab Level 1 frei, die übrigen Teile verteilen sich über die Levelkurve.
 class_name DriverLevel
 extends RefCounted
 
@@ -15,10 +16,10 @@ const FIRST_STEP_KM := 10.0
 const STEP_GROWTH_KM := 5.0
 ## Kosmetik-Teil → Level, ab dem es frei ist (Präfix: trikot_, radfarbe_, helm_). Pflegt die Garderobe (#36).
 const UNLOCKS := {
-	"trikot_weiss": 1, "radfarbe_rot": 1, "helm_weiss": 1,
-	"trikot_blau": 2, "radfarbe_blau": 3, "helm_rot": 4,
-	"trikot_gelb": 5, "radfarbe_gruen": 6, "helm_schwarz": 8,
-	"trikot_gestreift": 10, "radfarbe_gold": 15, "helm_gold": 20,
+	"trikot_blau": 1, "trikot_weiss": 2, "trikot_rot": 4, "trikot_gelb": 6, "trikot_gruen": 10, "trikot_schwarz": 15,
+	"radfarbe_rot": 1, "radfarbe_blau": 3, "radfarbe_gruen": 5, "radfarbe_orange": 8, "radfarbe_weiss": 12,
+	"radfarbe_gold": 20,
+	"helm_weiss": 1, "helm_rot": 3, "helm_schwarz": 7, "helm_gelb": 11, "helm_tuerkis": 14, "helm_gold": 18,
 }
 
 

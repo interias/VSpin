@@ -270,7 +270,7 @@ Enter/Leertaste):
 | **Fahren → Rundfahrt** | **Runden** 1–20 oder *Endlos* (Standard 1), **Richtung** (*Im Uhrzeigersinn*, *Gegen den Uhrzeigersinn*, #34), **Tageszeit** (dieselbe Auswahl wie im Einstellungsmenü, Standard *Echtzeit*; wirkt und bleibt wie dort gewählt), **Ghost** (*Aus*, *Bestzeit*, *Letzte Fahrt*; ohne Aufzeichnung ausgegraut, Standard *Bestzeit*, sobald es sie gibt, #32), die **Bestzeit** der Strecke in der gewählten Richtung; **Losfahren** startet die Fahrt (#31) |
 | **Fahren → Training** | **Einheit** (*Intervalle kurz*, *Pyramide*, *Tempo-Blöcke*) mit Beschreibung und Dauer; **Losfahren** startet das Training (#37, siehe unten) |
 | **Fahrtenbuch** | Statistik, Bestzeiten, Segmentzeiten, Medaillen, Erfolge und die letzten Fahrten (#35, siehe unten) |
-| *Garderobe – bald* | ausgegraut |
+| **Garderobe** | Trikot, Radfarbe und Helm mit Vorschau, freigeschaltet über das Fahrerlevel (#36, siehe unten) |
 | **Einstellungen** | öffnet das Menü „Grafik und Fenster“ (wie `Esc`/`F2`) |
 | **Beenden** | beendet das Spiel (im Browser ausgeblendet) |
 
@@ -504,6 +504,18 @@ gespeichert, aus den Fahrten abgeleitet). Level 2 ab 10 km, jeder weitere Schrit
 Kosmetik** frei (`DriverLevel.unlock_level(teil)` für die Garderobe, #36) und wirkt nicht auf Fahrmodell, Rundenzeit,
 Bestzeit oder Medaille (ADR-0010).
 
+**Garderobe** (`scenes/wardrobe.gd`, Teile und Auswahl in `src/wardrobe.gd`, aus dem Startmenü): links eine Vorschau
+(der Fahrer dreht sich langsam auf dem Rad und tritt), rechts je **Trikot**, **Radfarbe** und **Helm** sechs Teile –
+Farbvarianten am vorhandenen Fahrermodell, keine neuen Dateien. Je Kategorie ist der bisherige Look ab Level 1 frei
+(Inselblau, Rennrot, weißer Helm), die übrigen kommen über die Levelkurve bis Level 20 dazu; gesperrte Teile sind
+ausgegraut und zeigen, ab welchem Level sie frei werden („Nachtschwarz · ab Level 15“). Ein Klick (oder Enter/Leertaste)
+wählt das Teil: der Fahrer trägt es sofort in der Vorschau und in der Fahrt, der Spielstand wird gleich gespeichert
+(`wardrobe`: Kategorie → Teil, Format weiter Version 1). Der Ghost-Mitfahrer bleibt im aufgehellten Standard-Look, damit
+er vom eigenen Fahrer unterscheidbar ist. Nur Kosmetik (ADR-0010, `tests/test_wardrobe.gd`). Bedienung: Pfeiltasten/Tab
+zwischen den Teilen, `Esc` oder „Zurück“ schließt; passt in 960 × 1040, 1920 × 1080 und 1152 × 648 (was nicht passt,
+scrollt). Sichtprüfung: `view_probe.gd -- --title --wardrobe=trikot_gelb,radfarbe_blau,helm_schwarz` speichert
+`wardrobe.png`; ohne `--title` trägt der Fahrer die Teile in `--shots`/`--close`.
+
 **Fahrtenbuch** (`scenes/logbook.gd`, aus dem Startmenü): drei Seiten – *Übersicht* (Strecke, Zeit, Fahrten, Runden,
 Fahrerlevel mit Rest bis zum nächsten; Bestzeiten je Strecke und Richtung; Segmentzeiten; beste Medaille je Runde und
 Segment), *Erfolge* (alle nach Kategorie, freigeschaltete mit Datum, gesperrte blass) und *Fahrten* (die letzten 20,
@@ -690,7 +702,9 @@ src/ride_config.gd      RideConfig: liest config.cfg
 src/graphics_settings.gd GraphicsSettings: Grafik-/Fenstereinstellungen, Tageszeit/Wetter (user://settings.cfg), Anwenden, Fensterhälften
 scenes/settings_menu.*  Menü „Grafik und Fenster“ (F2, F11), von der Hauptszene eingehängt
 scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt- und Training-Auswahl, Radstatus (#30, #31, #37)
-src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Bestzeiten, Segment-Bestzeiten, Medaillen, Ghosts, Hochstufung
+scenes/wardrobe.gd      Garderobe: Trikot, Radfarbe, Helm mit Vorschau (SubViewport), gesperrte mit Level (#36)
+src/wardrobe.gd         Wardrobe: Teile und Farben, Auswahl prüfen und wählen, Standard je Kategorie – reine Logik
+src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Bestzeiten, Segment-Bestzeiten, Medaillen, Ghosts, Erfolge, Garderobe, Hochstufung
 src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz), stations, station_at(), road_mesh(); Richtung (#34): set_direction(), path_distance(), ride_position_at(), ride_stations()
 src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil, Stationen, Segmente (reine Daten/Logik)
 src/island_terrain.gd   IslandTerrain: Höhenfeld (prozedural oder Höhenkarte), unter die Straße geformt, Mesh

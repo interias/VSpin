@@ -63,6 +63,10 @@
 ## nennt die neuen Erfolge und das neue Level. Das Level schaltet nur Kosmetik frei (ADR-0010) und wirkt nicht auf die
 ## Fahrt. Das Fahrtenbuch (`scenes/logbook.gd`) öffnet aus dem Startmenü.
 ##
+## Garderobe (#36, `scenes/wardrobe.gd`): aus dem Startmenü; Trikot, Radfarbe und Helm mit Vorschau, freigeschaltet über
+## das Fahrerlevel. Eine Wahl wird sofort gespeichert und vom Fahrer (`rider_model`) getragen; nur Kosmetik (ADR-0010).
+## Der Ghost-Mitfahrer bleibt im Standard-Look, aufgehellt – so bleibt er vom eigenen Fahrer unterscheidbar.
+##
 ## Training (#37): „Fahren → Training“ startet eine Einheit (Training, aus `res://trainings`) als eigenen Modus
 ## (SaveGame.MODE_TRAINING). Die Insel läuft endlos (Rundenwertung mit 0 Runden); das HUD zeigt Phase, Zielkadenz,
 ## Restzeit und nächste Phase, dazu rechtzeitig die Ansage zum Widerstandsknopf. Die Einheit wertet nur die Kadenz
@@ -101,6 +105,8 @@ const SETTINGS_MENU := preload("res://scenes/settings_menu.tscn")
 const START_MENU := preload("res://scenes/start_menu.tscn")
 ## Fahrtenbuch (Statistik, Bestzeiten, Erfolge, letzte Fahrten; #35).
 const LOGBOOK := preload("res://scenes/logbook.gd")
+## Garderobe (Trikot, Radfarbe, Helm mit Vorschau; #36).
+const WARDROBE := preload("res://scenes/wardrobe.gd")
 ## Kamera: Abstand hinter dem Fahrer, Höhe und Blickpunkt voraus aus der Konfiguration (`[camera]`, RideConfig);
 ## Glättung (Zeitkonstante).
 const CAMERA_SMOOTHING_S := 0.45
@@ -132,6 +138,7 @@ var settings_path := GraphicsSettings.DEFAULT_PATH
 var settings_menu: CanvasLayer
 var start_menu: CanvasLayer
 var logbook: CanvasLayer
+var wardrobe: CanvasLayer
 ## Spielstand; "" = nicht laden/speichern, Fahrten nur im Speicher (Tests, Probe).
 var save_path := SaveGame.DEFAULT_PATH
 var save_game: SaveGame
@@ -213,15 +220,22 @@ func _ready() -> void:
 	start_menu.settings_requested.connect(settings_menu.open)
 	start_menu.quit_requested.connect(_on_quit_requested)
 	start_menu.logbook_requested.connect(open_logbook)
+	start_menu.wardrobe_requested.connect(open_wardrobe)
 	start_menu.direction_changed.connect(func(_direction): _update_round_trip_menu())
 	add_child(start_menu)
 	logbook = LOGBOOK.new()
 	logbook.name = "Logbook"
 	logbook.closed.connect(_on_logbook_closed)
 	add_child(logbook)
+	wardrobe = WARDROBE.new()
+	wardrobe.name = "Wardrobe"
+	wardrobe.closed.connect(_on_wardrobe_closed)
+	wardrobe.part_chosen.connect(_on_part_chosen)
+	add_child(wardrobe)
 	settings_menu.visibility_changed.connect(_on_settings_visibility_changed)
 	_setup_track()
 	_setup_ghost_rider()
+	_apply_wardrobe()
 	sky = SkyController.new()
 	add_child(sky)
 	sky.setup(self)
@@ -486,10 +500,34 @@ func _on_logbook_closed() -> void:
 	start_menu.buttons["logbook"].grab_focus()
 
 
+## Garderobe aus dem Startmenü öffnen (das Menü tritt so lange zurück).
+func open_wardrobe() -> void:
+	start_menu.close()
+	wardrobe.open(save_game)
+
+
+func _on_wardrobe_closed() -> void:
+	start_menu.open()
+	start_menu.buttons["wardrobe"].grab_focus()
+
+
+## Teil in der Garderobe gewählt: der Fahrer trägt es, der Spielstand wird gleich gespeichert.
+func _on_part_chosen(_item: String) -> void:
+	_apply_wardrobe()
+	if not save_path.is_empty():
+		save_game.save_file(save_path)
+
+
+## Der Fahrer trägt die gewählten Teile der Garderobe (der Ghost-Mitfahrer nicht).
+func _apply_wardrobe() -> void:
+	rider_model.wear(Wardrobe.outfit(Wardrobe.selection(save_game)))
+
+
 func _on_settings_visibility_changed() -> void:
 	start_menu.set_covered(settings_menu.visible)
 	if not settings_menu.visible:
 		logbook.focus_default.call_deferred()  # Einstellungen über dem Fahrtenbuch geschlossen
+		wardrobe.focus_default.call_deferred()  # … oder über der Garderobe
 
 
 ## Seite „Rundfahrt“ im Startmenü: Tageszeiten wie im Einstellungsmenü, die gespeicherten Ghosts und die Bestzeit der
@@ -521,6 +559,7 @@ func return_to_menu() -> void:
 
 func _enter_menu() -> void:
 	logbook.close()
+	wardrobe.close()
 	state = STATE_MENU
 	_manual_pause = false
 	hud.visible = false
