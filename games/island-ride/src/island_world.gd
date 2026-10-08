@@ -15,6 +15,7 @@
 ##   Landmarks Sehenswürdigkeiten (Leuchtturm, Talaia, Ermita, …), Details Kleindetails – siehe IslandLandmarks (G2)
 ##   Vegetation Gras, Unterholz und Sträucher je Station; Gelände und Fahrbahn mit Detailtextur – siehe
 ##             IslandVegetation (#38)
+##   Fauna     Weide- und Dorftiere (Herden, Ziegen auf der Straße, Esel, Katzen) – siehe IslandFauna (#40)
 ##   Motion    bewegte Szenen und Effekte (Windmühlen, Leuchtturm, Boote, Vögel, Wolken) – siehe WorldMotion (G3);
 ##             Meer und Vegetation bekommen dort ihre Shader (Wellen/Brandung, Wind)
 ## Jahreszeit (#39): `set_season(phase)` färbt Vegetation, Boden und Kenney-Vegetation um (`tint_nature`) – ohne Neubau.
@@ -72,6 +73,8 @@ var track: Track
 var landmarks: IslandLandmarks
 ## Gras, Unterholz und Sträucher entlang der Strecke (#38), Kind `Vegetation`.
 var vegetation: IslandVegetation
+## Weide- und Dorftiere (#40), Kind `Fauna`.
+var fauna: IslandFauna
 ## Bewegte Szenen und Effekte (G3), Kind `Motion`.
 var motion: WorldMotion
 ## Compatibility-Renderer (Web)? Dann wird die Vegetation abgespeckt (#38); vor `build()` injizierbar (Tests).
@@ -105,6 +108,9 @@ func build(course_track: Track) -> void:
 	landmarks.build()
 	vegetation = IslandVegetation.new(self)
 	vegetation.build()
+	fauna = IslandFauna.new()
+	add_child(fauna)
+	fauna.setup(self)
 	motion = WorldMotion.new()
 	add_child(motion)
 	motion.setup(self)
