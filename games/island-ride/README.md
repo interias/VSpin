@@ -74,8 +74,8 @@ verfügbar, daher nur Godot-Bordmittel:
     Serpentinen-Rampen nach Westen voraus, von der Küstenstraße am Hang), Burgruine `burg` (Abfahrt 7,0 km links auf
     Felssockel über der Ostküste, ab ~6,4 km voraus), Aquädukt `aquaedukt` (Abfahrt 6,87 km rechts, parallel zur
     Straße), drei Windmühlen `windmuehlen/Muehle1..3` (8,33 / 8,52 / 8,70 km). Kleindetails unter `World/Details`:
-    Kilometersteine 1–9 rechts am Rand, Agaven (teils mit Blütenstand), Feigenkakteen, Blumen, Schaf- und
-    Ziegenherden, Boote und Bojen in den Buchten der Westküste, Bushaltestelle vor dem Bergdorf. Nur Godot-Grundkörper
+    Kilometersteine 1–9 rechts am Rand, Agaven (teils mit Blütenstand), Feigenkakteen, Blumen, die Lagen der Schaf-
+    und Ziegenherden (gebaut und bewegt von IslandFauna, #40), Boote und Bojen in den Buchten der Westküste, Bushaltestelle vor dem Bergdorf. Nur Godot-Grundkörper
     (je Landmarke ein Mesh) und vorhandene Kenney-Modelle, eigene Seeds 1507/1508. Animierbar (für bewegte Szenen):
     `windmuehlen/Muehle<n>/Fluegel` (Drehachse lokal z), `leuchtturm/Lampe` (Drehachse lokal y), `Details/Boote/*`.
   - **Vegetation und Bodentexturen (#38, `src/island_vegetation.gd`, Knoten `World/Vegetation/<Station>`):** auf jeder
@@ -92,6 +92,17 @@ verfügbar, daher nur Godot-Bordmittel:
     Kosten: fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070): Mittel 60,0 fps, 1-%-Tief 53,1 fps,
     24 von 39 724 Frames < 50 fps – vorher auf derselben Fahrt 60,0 / 53,2 / 18; im Compatibility-Renderer 59,9 /
     59,3 / 66.
+  - **Weide- und Dorftiere (#40, `src/island_fauna.gd`, Knoten `World/Fauna`):** reine Deko (ADR-0010), Low-Poly
+    aus Grundkörpern. Die Schaf- und Ziegenherden grasen (Kopf gesenkt und kauend, ein paar Schritte, Umschauen;
+    MultiMesh `Details/Schafe|Ziegen` mit Köpfen `…/Koepfe`), die Schafe tragen Glocken. Ziegengruppen queren an drei
+    Stellen die Straße (1,24 km Küste, 2,86 und 3,62 km Serpentinen) und springen über die Mauer: abhängig vom
+    Abstand des Fahrers in Fahrtrichtung, ab 100 m voraus, ab 35 m ist die Fahrbahn frei – in beiden Richtungen.
+    An jeder Finca der Abfahrt steht ein Esel am Pfosten mit Heu, im Bergdorf sitzen und streifen acht Katzen auf
+    dem Gehweg und am Kirchplatz. Nicht auf der Fahrbahn, in Häusern oder auf Feldern. Bewegt werden nur Tiere bis
+    250 m um die Kamera. Glocken-Einhängepunkt für den Ton (#44): `Fauna/Glocken/Herde<n>` (Meta `count`).
+    Sichtprüfung: `view_probe --fauna`. Kosten: fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080,
+    13:00, Frühling, VSync an (RTX 4070): Mittel 60,0 fps, 1-%-Tief 58,2 fps, 8 von 39 712 Frames < 50 fps –
+    vorher auf derselben Fahrt 60,0 / 58,2 / 4.
   - Modelle: Kenney Watercraft Kit, City Kit (Suburban), Nature Kit, Fantasy Town Kit (CC0) unter `assets/kenney/`,
     nur die benutzten `.glb` (~1,4 MB) – Nachweis in `ASSETS.md`. Wiederholte Modelle (Bäume, Büsche, Felsen,
     Mauern, Hausmodule) als `MultiMeshInstance3D`. Sichtprüfung/fps: `tools/view_probe.gd` (Screenshots an Streckenpositionen, fps-Fahrt).

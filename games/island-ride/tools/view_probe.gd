@@ -6,7 +6,7 @@
 ##         [--advance=1.5] [--time=21:30] [--date=2026-06-21] [--weather=rain] [--season=summer] [--profile=forward|compat]
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
 ##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4] [--logbook] [--rewards]
-##         [--training] [--ccw] [--wardrobe=trikot_gelb,radfarbe_blau,helm_schwarz]
+##         [--training] [--ccw] [--wardrobe=trikot_gelb,radfarbe_blau,helm_schwarz] [--fauna]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -53,6 +53,9 @@
 ## Garderobe (#36): `--wardrobe=TEIL,…` gibt dem Spielstand (nur im Speicher) Kilometer bis Level 12 und wählt die Teile
 ## (Wardrobe.PARTS; leer = Standard) – der Fahrer trägt sie in `--shots`/`--close`. Mit `--title` öffnet die Probe die
 ## Garderobe aus dem Startmenü und speichert `wardrobe.png` statt der Titelbilder.
+## Tiere (#40): `--fauna` speichert nach den Streckenbildern je Tierart (IslandFauna.KINDS) eine Nahaufnahme
+## (`fauna_<Art>.png`, Kamera wenige Meter neben dem Tier, Blick von der Straße) und 2,5 s Tieranimation später ein
+## zweites Bild (`fauna_<Art>_b.png`). Die Ziegenquerung zeigen `--shots` 100–35 m vor IslandFauna.CROSSINGS_M.
 extends SceneTree
 
 ## Beispiel-Rundenzeiten (s) für `--laps`: gespeicherte Bestzeit vorher, dann die Runden der Fahrt.
@@ -78,6 +81,8 @@ var _segments := false
 var _ghost_s := NAN
 ## Fahrtenbuch statt Titelbilder (`--logbook`), Einblendungen von Erfolg und Levelaufstieg (`--rewards`).
 var _logbook := false
+## Nahaufnahmen der Tiere (`--fauna`).
+var _fauna := false
 var _rewards := false
 ## Trainingsseite bzw. Training im HUD (`--training`).
 var _training := false
@@ -159,6 +164,8 @@ func _initialize() -> void:
 			_training = true
 		elif arg.begins_with("--wardrobe"):
 			_outfit = Array(value.split(",", false)) if arg.contains("=") else []
+		elif arg == "--fauna":
+			_fauna = true
 		elif arg == "--ccw":
 			_ccw = true
 		elif arg.begins_with("--crop="):
@@ -249,6 +256,8 @@ func _initialize() -> void:
 			_save(out_dir.path_join("shot_%d_b.png" % int(d)))
 		if close:
 			await _close_ups(out_dir, d)
+	if _fauna and _ride.world != null:
+		await _fauna_shots(out_dir)
 	if _segments:
 		await _segment_shots(out_dir)
 	if _rewards and _hud:
@@ -438,6 +447,38 @@ func _close_ups(out_dir: String, d: float) -> void:
 		_save(out_dir.path_join("close_%d_%s.png" % [int(d), view]))
 	_ride.set_process(true)
 	_place(d)
+
+
+## Je Tierart das erste Tier (Herdentiere zuerst) aus der Nähe, Blick von der Straßenseite; zweites Bild 2,5 s
+## Tieranimation später. Fahrer und Kamera der Hauptszene ruhen so lange.
+func _fauna_shots(out_dir: String) -> void:
+	var fauna: IslandFauna = _ride.world.fauna
+	var track: Track = _ride.track
+	fauna.set_process(false)
+	for kind in IslandFauna.KINDS:
+		var all := fauna.positions(kind)
+		if all.is_empty():
+			continue
+		var target: Vector3 = all[0]
+		var d := track.curve.get_closest_offset(target)
+		_place(track.path_distance(d))
+		await _frames(4)
+		_ride.set_process(false)
+		var road := track.position_at(d)
+		var towards := Vector3(road.x - target.x, 0.0, road.z - target.z).normalized()
+		var distance: float = {"Schafe": 6.0, "Ziegen": 6.0, "Esel": 4.5, "Katzen": 2.2}[kind]
+		var camera: Camera3D = _ride.camera
+		var eye := target + towards * distance + Vector3.UP * (0.9 if kind == "Katzen" else 1.8)
+		eye.y = maxf(eye.y, _ride.world.terrain.height_at(eye.x, eye.z) + 0.8)
+		for suffix in ["", "_b"]:
+			fauna.apply(2.0 if suffix.is_empty() else 4.5, fauna.rider_path_m)
+			var now: Vector3 = fauna.positions(kind)[0]
+			camera.global_position = eye
+			camera.look_at(now + Vector3.UP * (0.15 if kind == "Katzen" else 0.6), Vector3.UP)
+			await _frames(4)
+			_save(out_dir.path_join("fauna_%s%s.png" % [kind, suffix]))
+		_ride.set_process(true)
+	fauna.set_process(true)
 
 
 ## Fahrer an Position `d`, Kamera sofort dahinter. Mit `--hud`: Tempo des Fahrmodells, Strecke und Zeit bis hier
