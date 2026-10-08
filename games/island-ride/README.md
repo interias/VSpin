@@ -120,6 +120,7 @@ verfügbar, daher nur Godot-Bordmittel:
 - Kamera (`scenes/main.gd`): sitzt 5,5 m hinter dem Fahrer **auf der Strecke** (schwenkt in Kehren nicht seitlich
   aus), 2,4 m hoch, blickt 10 m voraus, beides exponentiell geglättet (0,45 s), mindestens 1,5 m über dem Gelände.
   Abstand, Höhe und Vorausblick in `config.cfg` (`[camera]`, siehe Konfiguration); vor G5 9 m / 3,5 m / 14 m.
+  Beim Fahrtstart ein **Kamera-Intro** (#42, siehe „Farbstimmung, Höhennebel und Tempo“).
 - HUD zeigt zusätzlich den aktuellen Abschnitt, Höhenprofil und Minikarte der Insel (siehe HUD).
 
 Weltaufbau beim Start ca. 0,6 s (mit der Vegetation aus #38 ca. 1,1 s), beim allerersten Start (oder nach Änderung
@@ -266,6 +267,33 @@ Schnittstelle: `sky.set_season_mode(Season.MODE_REAL | MODE_FIXED, phase)`, `sky
 **Sichtprüfung:** `view_probe.gd -- --season=summer` (ohne Angabe nach `--date` bzw. heute).
 **Kosten:** fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070), Frühling (Mohn sichtbar): Mittel
 60,0 fps, 1-%-Tief 53,0 fps, 2 von 39 723 Frames < 50 fps (vorher 60,0 / 53,2 / 2).
+
+### Farbstimmung, Höhennebel und Tempo (#42)
+
+**Farbstimmung** je Tageszeit und Wetter an derselben Stelle wie das Licht (`SkyController.look`, Konstanten
+`MOOD_MORNING`, `MOOD_EVENING`, `MOOD_GREY`), vor der Jahreszeit-Tönung (`SEASON_MOOD`, dazu `SEASON_FOG` für die
+Nebelfarbe – ein Faktor obendrauf): tiefe Sonne **morgens** (Sonne im Osten) kühl-pfirsich mit Dunst, **abends**
+golden und satter, **Wolken und Regen** kühl und flauer. Am klaren Mittag und nachts bleibt das Licht wie bisher. Alle
+Gewichte laufen stetig mit Sonnenhöhe, Azimut und Wetter – keine Sprünge. **Höhennebel** (`fog_height`,
+`fog_height_density` des Environments): Morgendunst und Regen liegen über Meer und Hafen (bis 2,5 m bzw. 5 m über dem
+Meer), bei Bewölkung schwächer, am klaren Tag aus. Er wirkt in beiden Renderern; volumetrischen Nebel gibt es nicht.
+
+**Tempo-Effekte** (`src/speed_effects.gd`, Shader `src/shaders/speed_lines.gdshader`): ab 35 km/h ziehen feine
+**Geschwindigkeitslinien** vom Bildrand nach außen und das Sichtfeld weitet sich leicht (bis +5° bei 60 km/h) –
+stetig mit dem Tempo und geglättet, in Pausen weich aus. Abschaltbar im Grafikmenü (*Tempo-Effekte*). Nur Darstellung:
+Fahrmodell, Zeiten und Wertung sehen davon nichts (ADR-0010).
+
+**Kamera-Intro:** Nach „Losfahren“ (Rundfahrt in beiden Richtungen und Training) schwenkt die Kamera in 3 s von
+schräg vor dem Fahrer über seine rechte Seite hinter ihn. Die Fahrt und die Zeitmessung laufen dabei normal. Die
+Kamera hat dafür einen Modus (`camera_mode`: `CAMERA_FOLLOW`, `CAMERA_INTRO`) an einer Stelle (`_update_camera`);
+weitere Einstellungen (Panorama-Momente, #43) hängen sich dort als eigener Modus ein.
+
+**Sichtprüfung:** `view_probe.gd -- --shots=3000 --time=08:45` (bzw. 13:00, 18:30, `--weather=rain`),
+`--effects-kmh=55` (Tempo-Effekte in `--shots` wie bei 55 km/h), `--intro [--ccw]` (`intro_0.png`, `intro_1.png`,
+`intro_2.png`). Die fps-Fahrt zeigt die Tempo-Effekte bei ihrem Tempo.
+**Kosten:** fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070), Tempo-Effekte an (Stärke 0,65), Frühling:
+13:00 klar Mittel 60,0 fps, 1-%-Tief 58,4 fps, 31 von 39 714 Frames < 50 fps (vorher nach #41: 60,0 / 58,1 / 7);
+7:30 Regen mit Höhennebel 60,0 / 53,1 / 21 von 39 718.
 
 ## Fahrer und Rad
 
@@ -421,7 +449,8 @@ Bridge ändern und schauen, wann „Kadenz roh“ und `t_ms` nachziehen.
 
 Das Menü wirkt sofort und speichert jede Änderung in `user://settings.cfg` – unter Windows
 `%APPDATA%\Godot\app_userdata\Inselfahrt\settings.cfg` (getrennt von `config.cfg`; Datei löschen = Standardwerte).
-Das Spiel läuft weiter, solange das Menü offen ist. Unten „Schließen“, in der Fahrt „Fahrt beenden“ (zurück ins
+Das Spiel läuft weiter, solange das Menü offen ist. Zwei Spalten (#42): links Grafik, rechts Tageszeit, Wetter,
+Jahreszeit und Fenster – so passt das Menü in 1280 × 720 und ins Halbbild. Unten „Schließen“, in der Fahrt „Fahrt beenden“ (zurück ins
 Startmenü) und „Beenden“ (beendet das Spiel; im Browser ausgeblendet) – `Esc` beendet nicht mehr direkt (#19).
 
 | Option | Auswahl | Standard |
@@ -432,6 +461,7 @@ Startmenü) und „Beenden“ (beendet das Spiel; im Browser ausgeblendet) – `
 | VSync | An, Aus | An |
 | fps-Limit | Ohne, 30, 60, 120, 144 | Ohne |
 | Schatten | Niedrig/Mittel/Hoch (Schattenatlas 2048/4096/8192, Weichzeichnung) | Mittel (wie bisher) |
+| Tempo-Effekte | An, Aus – Geschwindigkeitslinien und Sichtfeld-Kick ab 35 km/h (#42) | An |
 | Tageszeit | Echtzeit (Mallorca), feste Uhrzeit 6:00/9:00/12:00/15:00/18:00/20:30/22:00/0:00, Zeitraffer 12/24/48 min je Tag (startet bei der aktuellen Uhrzeit des Spiels) | wie `config.cfg [sky]` (Echtzeit) |
 | Wetter | Wechselnd (meist sonnig), Klar, Leicht bewölkt, Bewölkt, Regen (fest) – sofort, ohne Überblendung | wie `config.cfg [sky]` (Wechselnd) |
 | Jahreszeit | Nach Datum (Mallorca), Mandelblüte, Frühling, Sommer, Herbst, Winter (fest) – sofort (#39) | Nach Datum |
@@ -763,9 +793,10 @@ src/world_motion.gd     WorldMotion: bewegte Szenen und Effekte (G3) – Mühlen
 src/day_night.gd        DayNight: Uhr (Mallorca-Ortszeit, Modi), Sonnenstand, Auf-/Untergang – reine Logik
 src/season.gd           Season: Jahreszeit aus dem Datum (Mallorca), Farben je Jahreszeit – reine Logik (#39)
 src/weather.gd          Weather: simuliertes Wetter, Zustände und Übergänge – reine Logik
-src/sky_controller.gd   SkyController: Sonne, Mond, Himmel, Environment, Regen, Sterne, Web-Lichtprofil (G6)
+src/sky_controller.gd   SkyController: Sonne, Mond, Himmel, Environment, Regen, Sterne, Web-Lichtprofil (G6); Farbstimmung, Höhennebel (#42)
 src/night_lights.gd     NightLights: Laternen, Leuchtfeuer, Fahrradlicht bei Nacht
-src/shaders/            Wind (Vegetation), Meer (Wellen, Flachwasser, Brandung), Lichtkegel, Leuchtpunkte
+src/speed_effects.gd    SpeedEffects: Geschwindigkeitslinien und Sichtfeld-Kick ab 35 km/h, abschaltbar (#42)
+src/shaders/            Wind (Vegetation), Meer (Wellen, Flachwasser, Brandung), Lichtkegel, Leuchtpunkte, Geschwindigkeitslinien
 src/graybox_track.gd    GrayboxTrack: Rundkurs ~900 m, flach → +6 % → Kuppe → −6 % → flach (`[world] track="graybox"`)
 tests/                  GUT-Tests, support/ (Fake-Bus, Basisklasse, Hook), fixtures/
 tools/                  E2E-Prüfhilfe gegen die echte Bridge, Sichtprüfung/fps (view_probe.gd), Fenstermodi (window_probe.gd)

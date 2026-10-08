@@ -4,6 +4,7 @@
 ## Jede Änderung wirkt sofort und wird in `settings_path` gespeichert (GraphicsSettings, `user://settings.cfg`).
 ## Beim Start wendet das Menü die gespeicherten Einstellungen an; die Fenstergeometrie (auch nach Ziehen oder
 ## Windows-Snap) wird beim Beenden gemerkt. Das Spiel läuft weiter, solange das Menü offen ist.
+## Tempo-Effekte (#42, Geschwindigkeitslinien und Sichtfeld-Kick) schaltet die Hauptszene über `settings_changed` um.
 ## Tageszeit, Wetter (G8) und Jahreszeit (#39) stehen in denselben Einstellungen (`[sky]`); auf die Welt wirken sie über
 ## `settings_changed`, das die Hauptszene an den SkyController weitergibt.
 ## Im Browser (`web`) gibt es keine Fenstermodi/-größen und kein VSync; im Compatibility-Renderer nur MSAA und
@@ -195,11 +196,12 @@ func _build() -> void:
 	title.text = "Grafik und Fenster"
 	title.add_theme_font_size_override("font_size", 26)
 	box.add_child(title)
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 16)
-	grid.add_theme_constant_override("v_separation", 4)  # alle Felder passen auch in 1280×720
-	box.add_child(grid)
+	# Zwei Spalten (#42): links Grafik, rechts Tageszeit, Wetter, Jahreszeit und Fenster – so passt das Menü auch in
+	# 1280×720 und ins Halbbild.
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 32)
+	box.add_child(columns)
+	var grid := _add_grid(columns)
 	var aa_modes := GraphicsSettings.AA_MODES_COMPATIBILITY if compatibility else GraphicsSettings.AA_MODES
 	_add_row(grid, "aa", "Kantenglättung", aa_modes.map(func(m): return AA_LABELS[m]), aa_modes,
 			func(v): settings.aa = v)
@@ -214,6 +216,8 @@ func _build() -> void:
 			GraphicsSettings.MAX_FPS_CHOICES, func(v): settings.max_fps = v)
 	_add_row(grid, "shadows", "Schatten", GraphicsSettings.SHADOW_QUALITIES.map(func(s): return SHADOW_LABELS[s]),
 			GraphicsSettings.SHADOW_QUALITIES, func(v): settings.shadows = v)
+	_add_row(grid, "speed_effects", "Tempo-Effekte", ["An", "Aus"], [true, false], func(v): settings.speed_effects = v)
+	grid = _add_grid(columns)
 	var times: Array = [_time_value(DayNight.MODE_REALTIME, 0.0)]
 	times.append_array(GraphicsSettings.FIXED_HOURS.map(func(h): return _time_value(DayNight.MODE_FIXED, h)))
 	times.append_array(GraphicsSettings.TIMELAPSE_DAY_MINS.map(
@@ -263,6 +267,15 @@ func _build() -> void:
 func _on_end_ride() -> void:
 	close()
 	ride_end_requested.emit()
+
+
+func _add_grid(parent: Container) -> GridContainer:
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 16)
+	grid.add_theme_constant_override("v_separation", 4)
+	parent.add_child(grid)
+	return grid
 
 
 func _add_row(grid: GridContainer, key: String, text: String, labels: Array, values: Array, setter: Callable) -> void:
@@ -379,6 +392,7 @@ func _refresh() -> void:
 	_select("vsync", settings.vsync)
 	_select("max_fps", settings.max_fps)
 	_select("shadows", settings.shadows)
+	_select("speed_effects", settings.speed_effects)
 	_select("window_mode", settings.window_mode)
 	var number := settings.fixed_hour if settings.time_mode == DayNight.MODE_FIXED 			else settings.timelapse_day_min if settings.time_mode == DayNight.MODE_TIMELAPSE else 0.0
 	_select_or_add("time", _time_value(settings.time_mode, number), _time_label)

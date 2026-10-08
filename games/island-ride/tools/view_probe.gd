@@ -6,7 +6,7 @@
 ##         [--advance=1.5] [--time=21:30] [--date=2026-06-21] [--weather=rain] [--season=summer] [--profile=forward|compat]
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
 ##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4] [--logbook] [--rewards]
-##         [--training] [--ccw] [--wardrobe=trikot_gelb,radfarbe_blau,helm_schwarz] [--fauna]
+##         [--training] [--ccw] [--wardrobe=trikot_gelb,radfarbe_blau,helm_schwarz] [--fauna] [--effects-kmh=55] [--intro]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -57,6 +57,10 @@
 ## (`fauna_<Art>.png`, Kamera wenige Meter neben dem Tier, Blick von der Straße) und 2,5 s Tieranimation später ein
 ## zweites Bild (`fauna_<Art>_b.png`). Die Ziegenquerung zeigen `--shots` 100–35 m vor IslandFauna.CROSSINGS_M.
 ## Delfine und Fische (#41) im Sprung, das zweite Bild 0,25 s später; ausgeblendete Arten (Tag/Nacht, Wetter) fehlen.
+## Tempo-Effekte (#42): `--effects-kmh=V` zeigt Geschwindigkeitslinien und Sichtfeld-Kick in `--shots` wie bei V km/h
+## (SpeedEffects.hold_kmh); die fps-Fahrt (`--fps-*`) zeigt sie immer mit ihrem Tempo, wie im Spiel (Standard: an).
+## Kamera-Intro (#42): `--intro` startet vor den Streckenbildern eine Fahrt wie „Losfahren“ (mit `--ccw` gegen den
+## Uhrzeigersinn) und speichert `intro_0.png` (0,3 s), `intro_1.png` (1,5 s) und `intro_2.png` (nach dem Intro).
 extends SceneTree
 
 ## Beispiel-Rundenzeiten (s) für `--laps`: gespeicherte Bestzeit vorher, dann die Runden der Fahrt.
@@ -89,6 +93,9 @@ var _rewards := false
 var _training := false
 ## Garderobe: gewählte Teile (`--wardrobe`; null = ohne).
 var _outfit = null
+## Tempo der Tempo-Effekte in `--shots` (`--effects-kmh`; NAN = wie die Fahrt) und Kamera-Intro (`--intro`).
+var _effects_kmh := NAN
+var _intro := false
 
 
 func _initialize() -> void:
@@ -169,6 +176,10 @@ func _initialize() -> void:
 			_fauna = true
 		elif arg == "--ccw":
 			_ccw = true
+		elif arg.begins_with("--effects-kmh="):
+			_effects_kmh = float(value)
+		elif arg == "--intro":
+			_intro = true
 		elif arg.begins_with("--crop="):
 			var p := value.split(",")
 			_crop = Rect2i(int(p[0]), int(p[1]), int(p[2]), int(p[3]))
@@ -244,6 +255,9 @@ func _initialize() -> void:
 	_model = _ride.rider_model  # erst nach `_ready` der Hauptszene gesetzt
 	var dummy := RiderModel.new()
 	_ride.rider_model = dummy
+	if _intro:
+		await _intro_shots(out_dir)
+	_ride.speed_effects.hold_kmh = _effects_kmh
 	for d in shots:
 		_place(d)
 		_pedal(1.0)
@@ -313,6 +327,19 @@ func _title_shots(out_dir: String) -> void:
 	while Time.get_ticks_msec() - start < 3000:
 		await process_frame
 	_save_image(out_dir.path_join("title_b.png"))
+
+
+## Kamera-Intro wie nach „Losfahren“: Bilder 0,3 s und 1,5 s nach dem Start und nach dem Intro.
+func _intro_shots(out_dir: String) -> void:
+	_ride.start_ride(SaveGame.MODE_ROUND_TRIP, 1, "", {}, Track.DIRECTION_CCW if _ccw else Track.DIRECTION_CW)
+	_ride.get_node("Hud").visible = _hud
+	var start := Time.get_ticks_msec()
+	for shot in [[0.3, "intro_0.png"], [1.5, "intro_1.png"], [_ride.CAMERA_INTRO_S + 0.3, "intro_2.png"]]:
+		while Time.get_ticks_msec() - start < shot[0] * 1000.0:
+			await process_frame
+		_pedal(0.1)
+		await _frames(1)
+		_save_image(out_dir.path_join(shot[1]))
 
 
 ## Fahrtenbuch mit Beispielstand (nur im Speicher): je Seite ein Bild.
@@ -589,9 +616,10 @@ func _frames(count: int) -> void:
 
 
 ## Fährt von `from` bis `to` mit `speed` m/s (eigener Vorschub, das Fahrmodell steht ohne Bus) und misst die
-## Frame-Zeiten. Die erste Sekunde (Aufwärmen) zählt nicht.
+## Frame-Zeiten. Die erste Sekunde (Aufwärmen) zählt nicht. Tempo-Effekte wie im Spiel bei diesem Tempo.
 func _measure(from: float, to: float, speed: float) -> void:
 	_place(from)
+	_ride.speed_effects.hold_kmh = speed * 3.6
 	if not is_nan(_ghost_s):  # Ghost im Tempo der Messfahrt; die Rundenwertung läuft mit, damit er mitfährt
 		_ride.ghost = _sample_ghost(speed)
 		_ride.lap_timing = LapTiming.new(_ride.track.length_m(), 0.0, 1)
@@ -627,6 +655,7 @@ func _measure(from: float, to: float, speed: float) -> void:
 	for t in times:
 		if t > 1.0 / 50.0:
 			slow += 1
-	print("FPS from=%.0f to=%.0f speed_kmh=%.0f frames=%d mean=%.1f min=%.1f low1pct=%.1f below50=%d size=%s vsync=%s adapter=%s" % [
+	print("FPS from=%.0f to=%.0f speed_kmh=%.0f frames=%d mean=%.1f min=%.1f low1pct=%.1f below50=%d size=%s vsync=%s adapter=%s effects=%.2f" % [
 		from, to, speed * 3.6, times.size(), times.size() / total, 1.0 / worst, 1.0 / low_1, slow,
-		DisplayServer.window_get_size(), DisplayServer.window_get_vsync_mode(), RenderingServer.get_video_adapter_name()])
+		DisplayServer.window_get_size(), DisplayServer.window_get_vsync_mode(), RenderingServer.get_video_adapter_name(),
+		_ride.speed_effects.strength])
