@@ -10,7 +10,8 @@
 ##   Stations  je Station ein Node3D (Name = id) am Abschnittsbeginn mit Label3D; Metadaten `station_name`,
 ##             `distance_m`; dazu `aussichtspunkt` (Landmarke)
 ##   Props     je Station ein Node3D (Name = id) mit der Deko
-##   Segments  je Segment ein Torbogen am Start (Name = id, #33)
+##   Segments  je Segment ein Torbogen am Start (Name = id, #33), im Uhrzeigersinn; SegmentsCcw dasselbe gegen den
+##             Uhrzeigersinn (#34). Sichtbar sind nur die Bögen der gewählten Richtung (`set_direction`).
 ##   Landmarks Sehenswürdigkeiten (Leuchtturm, Talaia, Ermita, …), Details Kleindetails – siehe IslandLandmarks (G2)
 ##   Vegetation Gras, Unterholz und Sträucher je Station; Gelände und Fahrbahn mit Detailtextur – siehe
 ##             IslandVegetation (#38)
@@ -177,6 +178,30 @@ func _beside_road(distance_m: float, meters: float) -> Vector3:
 	return p
 
 
+## Fahrtrichtung (#34, nach Track.set_direction): Torbögen und Kilometersteine der Richtung zeigen; die Stationsschilder
+## stehen am Beginn ihrer Station in Fahrtrichtung, mit dem Namen in dieser Richtung (Track.ride_stations), der Pfosten
+## rechts. Im Uhrzeigersinn steht alles wie beim Aufbau.
+func set_direction(direction: String) -> void:
+	var ccw := direction == Track.DIRECTION_CCW
+	get_node("Segments").visible = not ccw
+	get_node("SegmentsCcw").visible = ccw
+	var details := get_node_or_null("Details")
+	if details != null:
+		details.get_node("Kilometersteine").visible = not ccw
+		details.get_node("KilometersteineCcw").visible = ccw
+	var stations := get_node("Stations")
+	for station in track.ride_stations():
+		var marker := stations.get_node_or_null(NodePath(station["id"])) as Node3D
+		if marker == null:
+			continue
+		var path_m := track.path_distance(station["start_m"], direction)
+		marker.set_meta("station_name", station["name"])
+		marker.set_meta("distance_m", path_m)
+		marker.position = track.position_at(path_m)
+		(marker.get_node("Label") as Label3D).text = station["name"]
+		(marker.get_node("Post") as Node3D).position = _side_offset(path_m, -4.2 if ccw else 4.2) + Vector3(0.0, 3.5, 0.0)
+
+
 func _station_range(id: String) -> Vector2:
 	var stations := track.stations
 	for i in range(stations.size()):
@@ -313,33 +338,45 @@ func _build_harbour() -> void:
 
 
 ## Torbögen am Start jedes Segments (#33, Track.segments) im Stil des Start/Ziel-Bogens, blau statt rot, mit dem Namen
-## des Segments auf dem Banner (zur anfahrenden Kamera hin). Knoten `Segments/<id>` mit Metadaten `segment_name`,
-## `distance_m`.
+## des Segments auf dem Banner (zur anfahrenden Kamera hin). Knoten `Segments/<id>` (im Uhrzeigersinn) und
+## `SegmentsCcw/<id>` (gegen ihn, #34: am Start in dieser Richtung, Banner zur Gegenrichtung) mit Metadaten
+## `segment_name`, `distance_m` (Fahrtposition in ihrer Richtung).
 func _build_segment_gates() -> void:
-	var gates := Node3D.new()
-	gates.name = "Segments"
-	add_child(gates)
+	for direction in [Track.DIRECTION_CW, Track.DIRECTION_CCW]:
+		var gates := Node3D.new()
+		gates.name = "Segments" if direction == Track.DIRECTION_CW else "SegmentsCcw"
+		gates.visible = direction == track.direction
+		add_child(gates)
+		var segments: Array = track.segments_by_direction.get(direction,
+				track.segments if direction == Track.DIRECTION_CW else [])
+		for segment in segments:
+			var path_m := track.path_distance(segment["start_m"], direction)
+			_segment_gate(gates, segment, track.position_at(path_m),
+					_yaw_at(path_m) + (PI if direction == Track.DIRECTION_CCW else 0.0))
+
+
+## Ein Torbogen für `segment` an `at` mit Drehung `yaw` (Banner-Name zur anfahrenden Kamera).
+func _segment_gate(gates: Node3D, segment: Dictionary, at: Vector3, yaw: float) -> void:
 	var blue := Color(0.12, 0.3, 0.62)
-	for segment in track.segments:
-		var arch := Node3D.new()
-		arch.name = segment["id"]
-		arch.set_meta("segment_name", segment["name"])
-		arch.set_meta("distance_m", segment["start_m"])
-		arch.position = track.position_at(segment["start_m"])
-		arch.rotation.y = _yaw_at(segment["start_m"])
-		gates.add_child(arch)
-		_box(arch, "PfostenL", Vector3(0.5, 5.5, 0.5), Vector3(-4.0, 0.0, 0.0), blue)
-		_box(arch, "PfostenR", Vector3(0.5, 5.5, 0.5), Vector3(4.0, 0.0, 0.0), blue)
-		_box(arch, "Banner", Vector3(8.5, 1.2, 0.3), Vector3(0.0, 5.0, 0.0), Color(0.95, 0.95, 0.95))
-		var label := Label3D.new()
-		label.name = "Name"
-		label.text = segment["name"]
-		label.font_size = 72
-		label.pixel_size = 0.01
-		label.outline_size = 0
-		label.modulate = blue
-		label.position = Vector3(0.0, 5.6, 0.16)
-		arch.add_child(label)
+	var arch := Node3D.new()
+	arch.name = segment["id"]
+	arch.set_meta("segment_name", segment["name"])
+	arch.set_meta("distance_m", segment["start_m"])
+	arch.position = at
+	arch.rotation.y = yaw
+	gates.add_child(arch)
+	_box(arch, "PfostenL", Vector3(0.5, 5.5, 0.5), Vector3(-4.0, 0.0, 0.0), blue)
+	_box(arch, "PfostenR", Vector3(0.5, 5.5, 0.5), Vector3(4.0, 0.0, 0.0), blue)
+	_box(arch, "Banner", Vector3(8.5, 1.2, 0.3), Vector3(0.0, 5.0, 0.0), Color(0.95, 0.95, 0.95))
+	var label := Label3D.new()
+	label.name = "Name"
+	label.text = segment["name"]
+	label.font_size = 72
+	label.pixel_size = 0.01
+	label.outline_size = 0
+	label.modulate = blue
+	label.position = Vector3(0.0, 5.6, 0.16)
+	arch.add_child(label)
 
 
 ## Küstenstraße (#15): seeseitig (links in Fahrtrichtung) eine niedrige Natursteinmauer am Straßenrand, Büsche und

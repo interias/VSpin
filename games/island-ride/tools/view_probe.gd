@@ -6,7 +6,7 @@
 ##         [--advance=1.5] [--time=21:30] [--date=2026-06-21] [--weather=rain] [--profile=forward|compat]
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
 ##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4] [--logbook] [--rewards]
-##         [--training]
+##         [--training] [--ccw]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -47,6 +47,8 @@
 ## Training (#37): `--title --training` speichert zusätzlich `title_training.png` (Seite „Training“); `--hud --training`
 ## fährt nach den Streckenbildern die Einheit „Intervalle kurz“ bis kurz vor die erste harte Phase (HUD mit
 ## Trainingszeile und Ansage, `training.png`) und dann zu Ende, mit Treffern je nach Phase (`training_result.png`).
+## Gegenrichtung (#34): `--ccw` fährt gegen den Uhrzeigersinn – `--shots`, `--segments`, `--laps` und `--ghost` dann in
+## Fahrtposition dieser Richtung, mit `--title` ist die Richtung auf der Seite „Rundfahrt“ gewählt.
 extends SceneTree
 
 ## Beispiel-Rundenzeiten (s) für `--laps`: gespeicherte Bestzeit vorher, dann die Runden der Fahrt.
@@ -58,6 +60,8 @@ var _model: RiderModel
 var _cadence := 85.0
 ## Bildausschnitt für `crop_<m>.png` (leer = keiner).
 var _crop := Rect2i()
+## Gegen den Uhrzeigersinn fahren (#34)?
+var _ccw := false
 ## HUD mit Beispielwerten zeigen (`--hud`).
 var _hud := false
 ## Debug-Anzeige (F3) zeigen (`--debug`).
@@ -146,6 +150,8 @@ func _initialize() -> void:
 			_rewards = true
 		elif arg == "--training":
 			_training = true
+		elif arg == "--ccw":
+			_ccw = true
 		elif arg.begins_with("--crop="):
 			var p := value.split(",")
 			_crop = Rect2i(int(p[0]), int(p[1]), int(p[2]), int(p[3]))
@@ -191,14 +197,19 @@ func _initialize() -> void:
 	_set_sky(hour, date, weather)
 	if weather == Weather.RAIN:
 		await _frames(100)
+	if _ccw:
+		_ride._set_direction(Track.DIRECTION_CCW)
+		(_ride.start_menu.options["direction"] as OptionButton).select(1)
+		_ride._new_lap_timing()
+		_ride._update_round_trip_menu()
 	if _laps >= 0:
-		_ride.save_game.record_best_time(config.track, LapTiming.DIRECTION_CW, LAP_SAMPLES_S[0])
+		_ride.save_game.record_best_time(config.track, _ride.track.direction, LAP_SAMPLES_S[0])
 		_ride.laps = _laps
 		_ride._update_round_trip_menu()
 		(_ride.start_menu.options["laps"] as OptionButton).select(_ride.start_menu.LAP_CHOICES.find(_laps))
 		if not is_nan(_ghost_s):
 			for kind in [Ghost.BEST, Ghost.LAST]:
-				_ride.save_game.record_ghost(config.track, LapTiming.DIRECTION_CW, kind, _sample_ghost(22.0 / 3.6))
+				_ride.save_game.record_ghost(config.track, _ride.track.direction, kind, _sample_ghost(22.0 / 3.6))
 			_ride._update_round_trip_menu()
 	if title:
 		if _logbook:

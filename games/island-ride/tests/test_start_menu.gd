@@ -327,6 +327,8 @@ func _check_both_pages(menu: CanvasLayer, label: String) -> void:
 	_assert_menu_inside(menu, label + " (Fahren)")
 	menu.show_round_trip()
 	await wait_process_frames(2)
+	for key in ["laps", "direction", "time", "ghost"]:  # Richtung (#34) als viertes Feld
+		assert_true((menu.options[key] as Control).is_visible_in_tree(), "%s: Feld %s auf der Seite „Rundfahrt“" % [label, key])
 	_assert_menu_inside(menu, label + " (Rundfahrt)")
 	menu.show_training()
 	await wait_process_frames(2)

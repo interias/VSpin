@@ -71,6 +71,7 @@ func build() -> void:
 	var detail_rng := RandomNumberGenerator.new()
 	detail_rng.seed = 1508
 	_kilometre_stones(details)
+	_kilometre_stones(details, Track.DIRECTION_CCW)
 	_plants_and_animals(details, detail_rng)
 	_cove_boats(details, detail_rng)
 	_bus_stop(details)
@@ -428,22 +429,27 @@ func _cala(parent: Node3D, rng: RandomNumberGenerator) -> void:
 	_mesh_node(node, "Strand", parts)
 
 
-## Kilometersteine rechts am Straßenrand (weiß, rote Kappe, Kilometerzahl zum Fahrer hin).
-func _kilometre_stones(parent: Node3D) -> void:
+## Kilometersteine rechts am Straßenrand (weiß, rote Kappe, Kilometerzahl zum Fahrer hin) je Richtung: `Kilometersteine`
+## im Uhrzeigersinn, `KilometersteineCcw` gegen ihn (#34, Kilometer in dieser Richtung, anfangs verborgen;
+## IslandWorld.set_direction schaltet um).
+func _kilometre_stones(parent: Node3D, direction: String = Track.DIRECTION_CW) -> void:
+	var ccw := direction == Track.DIRECTION_CCW
 	var node := Node3D.new()
-	node.name = "Kilometersteine"
+	node.name = "KilometersteineCcw" if ccw else "Kilometersteine"
+	node.visible = direction == world.track.direction
 	parent.add_child(node)
+	var right := -1.0 if ccw else 1.0
 	for km in range(1, 10):
-		var d := km * 1000.0
+		var d := world.track.path_distance(km * 1000.0, direction)
 		var side := 4.8
-		var at := world._beside_road(d, side)
+		var at := world._beside_road(d, side * right)
 		while not _clear_of_road(at, 0.4):
 			side += 0.5
-			at = world._beside_road(d, side)
+			at = world._beside_road(d, side * right)
 		var stone := Node3D.new()
 		stone.name = "Km%d" % km
 		stone.position = at
-		stone.rotation.y = world._yaw_at(d)
+		stone.rotation.y = world._yaw_at(d) + (PI if ccw else 0.0)
 		node.add_child(stone)
 		var parts := Parts.new()
 		parts.box(Vector3(0.5, 0.7, 0.25), Transform3D(Basis(), Vector3(0.0, 0.35, 0.0)), WHITEWASH)

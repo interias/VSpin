@@ -25,6 +25,14 @@ gefahren im Uhrzeigersinn über West → Nord → Ost:
 Steigung überall ≤ 10 %, ohne Sprünge (≤ 1 Prozentpunkt je 5 m). Exakte Werte prüfen die Tests
 (`tests/test_island_course.gd`); die Tabelle ist gerundet.
 
+**Gegenrichtung (#34):** Im Menü „Rundfahrt“ lässt sich die Runde auch **gegen den Uhrzeigersinn** fahren – derselbe
+Pfad rückwärts, gleiche Länge, Steigung gespiegelt: ab dem Hafen der lange Anstieg über den Osthang (Station heißt
+dann **Osthang**, Ø ~7,5 %, bis 8,8 %), Bergdorf, Hain, die Serpentinen als Abfahrt, Küstenstraße, Ziel im Hafen.
+Gespiegelt wird nur in `Track` (Fahrtposition d → Pfadposition L − d, Vorzeichen der Steigung); Rundenwertung,
+Segmente und Ghost sehen in beiden Richtungen eine steigende Fahrtposition. Stationsschilder, Kilometersteine und
+Segment-Torbögen stehen je Richtung richtig; Minikarte und Höhenprofil zeigen die Fahrtrichtung. Das Training fährt
+im Uhrzeigersinn (`tests/test_counter_direction.gd`, `tests/test_counter_direction_ride.gd`).
+
 **Aufbau ohne Plugin (Abweichung von ADR-0006, siehe dort „Nachtrag“):** Terrain3D war in der Build-Umgebung nicht
 verfügbar, daher nur Godot-Bordmittel:
 
@@ -259,7 +267,7 @@ Enter/Leertaste):
 | Punkt | Wirkung |
 |---|---|
 | **Fahren** | Modus-Auswahl: **Rundfahrt**, **Training**, *Arcade – bald* ausgegraut, „Zurück“ |
-| **Fahren → Rundfahrt** | **Runden** 1–20 oder *Endlos* (Standard 1), **Tageszeit** (dieselbe Auswahl wie im Einstellungsmenü, Standard *Echtzeit*; wirkt und bleibt wie dort gewählt), **Ghost** (*Aus*, *Bestzeit*, *Letzte Fahrt*; ohne Aufzeichnung ausgegraut, Standard *Bestzeit*, sobald es sie gibt, #32), die **Bestzeit** der Strecke; **Losfahren** startet die Fahrt (#31) |
+| **Fahren → Rundfahrt** | **Runden** 1–20 oder *Endlos* (Standard 1), **Richtung** (*Im Uhrzeigersinn*, *Gegen den Uhrzeigersinn*, #34), **Tageszeit** (dieselbe Auswahl wie im Einstellungsmenü, Standard *Echtzeit*; wirkt und bleibt wie dort gewählt), **Ghost** (*Aus*, *Bestzeit*, *Letzte Fahrt*; ohne Aufzeichnung ausgegraut, Standard *Bestzeit*, sobald es sie gibt, #32), die **Bestzeit** der Strecke in der gewählten Richtung; **Losfahren** startet die Fahrt (#31) |
 | **Fahren → Training** | **Einheit** (*Intervalle kurz*, *Pyramide*, *Tempo-Blöcke*) mit Beschreibung und Dauer; **Losfahren** startet das Training (#37, siehe unten) |
 | **Fahrtenbuch** | Statistik, Bestzeiten, Segmentzeiten, Medaillen, Erfolge und die letzten Fahrten (#35, siehe unten) |
 | *Garderobe – bald* | ausgegraut |
@@ -290,7 +298,8 @@ und `title_b.png` (3 s später); mit `--laps=3` zusätzlich `title_round_trip.pn
 zeigt das HUD in Runde 2 und speichert danach `result.png` (Ergebnis mit allen Rundenzeiten, Medaillen und Segmenten).
 `--hud --segments` speichert je Segment `segment_<id>.png` (Live-Zeit) und `segment_<id>_result.png` (Ergebnis beim
 Verlassen); die Torbögen zeigt `--shots=466,2326,5686`. `--ghost=1.4` lässt einen Beispiel-Ghost mitfahren, gegen den
-der Fahrer 1,4 s zurückliegt (mit `--hud` Abstand im HUD, mit `--title --laps=1` in der Ghost-Auswahl).
+der Fahrer 1,4 s zurückliegt (mit `--hud` Abstand im HUD, mit `--title --laps=1` in der Ghost-Auswahl). `--ccw` fährt
+gegen den Uhrzeigersinn (#34; `--shots` dann in Metern dieser Richtung, Torbögen z. B. `--shots=300,3150,6930`).
 
 ### Tasten
 
@@ -409,7 +418,7 @@ Das HUD zeigt unten die Runde („Runde 2 / 3“, endlos „Runde 2“, bei eine
 die Bestzeit, Ø Kadenz (zeitgewichtet) und Ø Tempo (Strecke/Fahrzeit). „Fahrt beenden“ nach mindestens einer vollen
 Runde zeigt erst dieses Ergebnis („Fahrt beendet“), `Enter` führt ins Menü.
 
-**Bestzeit:** schnellste volle Runde je Strecke und Richtung (vorerst nur im Uhrzeigersinn, `cw`); jede Runde zählt,
+**Bestzeit:** schnellste volle Runde je Strecke und Richtung (`cw`/`ccw`); jede Runde zählt,
 eine angefangene nicht. Sie steht im Spielstand und im Menü „Rundfahrt“; eine neue Bestzeit blendet das HUD kurz ein
 („Neue Bestzeit! 14:44.7“). Rundenzeiten und Bestzeit rechnet die Rundenwertung (`src/lap_timing.gd`) nur aus
 Streckenposition und Fahrzeit – also nur aus Kadenz und Steigung (ADR-0010).
@@ -419,15 +428,16 @@ Start/Ziel-Linie wird anteilig aufgeteilt (`src/ride_stats.gd`, `src/lap_timing.
 
 ### Segmente und Medaillen (#33)
 
-Drei **Segmente** im Uhrzeigersinn mit eigener Zeit, je mit blauem Torbogen am Start (Name auf dem Banner):
+Drei **Segmente** je Richtung mit eigener Zeit, je mit blauem Torbogen am Start (Name auf dem Banner):
 
-| Segment | Strecke (km) | in der Station |
-|---|---|---|
-| Küstenwelle | 0,48–2,24 | Küstenstraße (die drei Wellen) |
-| Bergwertung | 2,34–4,59 | Serpentinen, bis zur Kuppe am Aussichtspunkt |
-| Dorfsprint | 5,70–6,01 | Bergdorf |
+| Segment | im Uhrzeigersinn (km) | gegen den Uhrzeigersinn (km) | in der Station |
+|---|---|---|---|
+| Küstenwelle | 0,48–2,24 | 6,97–8,73 | Küstenstraße (die drei Wellen) |
+| Bergwertung | 2,34–4,59 | 0,33–3,18 | cw: Serpentinen bis zur Kuppe am Aussichtspunkt; ccw: Osthang bis vor das Bergdorf |
+| Dorfsprint | 5,70–6,01 | 3,20–3,51 | Bergdorf |
 
-Segmente sind Daten (`IslandCourse.SEGMENTS`, Start- und Endmeter je Richtung; die Gegenrichtung kommt mit #34). Im
+Segmente sind Daten (`IslandCourse.SEGMENTS`, Start- und Endmeter je Richtung in Fahrtrichtung). Namen und IDs sind
+in beiden Richtungen gleich, Bestzeiten und Medaillen stehen je Richtung im Spielstand. Im
 Segment steht über dem unteren Panel dessen Name mit Live-Zeit („Bergwertung 3:01.8“), beim Verlassen blendet das HUD das
 Ergebnis ein („Bergwertung 7:34.5 · Silber – neue Bestzeit!“). Gewertet wird nur ein ganz durchfahrenes Segment, jede
 Runde neu, Ein- und Ausfahrt anteilig wie bei den Runden (`src/segment_timing.gd`, von `LapTiming.advance` mitgeführt).
@@ -681,7 +691,7 @@ src/graphics_settings.gd GraphicsSettings: Grafik-/Fenstereinstellungen, Tagesze
 scenes/settings_menu.*  Menü „Grafik und Fenster“ (F2, F11), von der Hauptszene eingehängt
 scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt- und Training-Auswahl, Radstatus (#30, #31, #37)
 src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Bestzeiten, Segment-Bestzeiten, Medaillen, Ghosts, Hochstufung
-src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz), stations, station_at(), road_mesh()
+src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz), stations, station_at(), road_mesh(); Richtung (#34): set_direction(), path_distance(), ride_position_at(), ride_stations()
 src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil, Stationen, Segmente (reine Daten/Logik)
 src/island_terrain.gd   IslandTerrain: Höhenfeld (prozedural oder Höhenkarte), unter die Straße geformt, Mesh
 src/island_world.gd     IslandWorld: Gelände, Meer, Fahrbahn, Stationsmarker, Deko aller Stationen mit Modellen (#15, #16)

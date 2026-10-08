@@ -33,7 +33,7 @@
 ## Runden (#31): Start an `start_distance_m`, jede Runde endet beim Überfahren der Start/Ziel-Linie (Streckenposition
 ## = Vielfaches der Rundenlänge), das Ziel nach `laps` Runden (0 = endlos). Rundenzeiten und Bestzeit führt die
 ## Rundenwertung (LapTiming) allein aus Streckenposition und Fahrzeit – also nur aus Kadenz und Steigung (ADR-0010).
-## Die Bestzeit gilt je Strecke und Richtung (vorerst nur im Uhrzeigersinn) und steht im Spielstand; eine neue
+## Die Bestzeit gilt je Strecke und Richtung und steht im Spielstand; eine neue
 ## Bestzeit blendet das HUD kurz ein. Fahrzeit und Durchschnitte (RideStats) zählen nur Zeit im Zustand `riding` –
 ## Pausen nicht.
 ##
@@ -48,6 +48,13 @@
 ## ihrem Start neu mit, halbtransparent (`Track/Ghost`, RiderModel als Ghost) und seitlich versetzt; das HUD zeigt den
 ## Abstand in Sekunden (positiv = hinter dem Ghost). Er wirkt nicht auf die eigene Fahrt. Die Rundenwertung schneidet
 ## jede volle Runde mit; am Fahrtende gehen Bestzeit-Runde (nur bei neuer Bestzeit) und letzte Runde in den Spielstand.
+##
+## Gegenrichtung (#34): Auf der Seite „Rundfahrt“ wählbar (im / gegen den Uhrzeigersinn). Die Strecke spiegelt die
+## Fahrtposition auf den Pfad (Track.set_direction, path_distance) – Fahrmodell, Rundenwertung, Segmente und Ghost
+## sehen in beiden Richtungen eine steigende Fahrtposition. Fahrer, Kamera und Ghost-Mitfahrer schauen in
+## Fahrtrichtung, der Ghost fährt links daneben; Minikarte, Höhenprofil, Torbögen und Stationsschilder folgen der
+## Richtung. Bestzeit, Segmentzeiten, Medaillen und Ghosts stehen je Richtung im Spielstand. Das Training fährt im
+## Uhrzeigersinn.
 ##
 ## Erfolge und Fahrerlevel (#35): Die Fahrt meldet Ereignisse an die Erfolge (Achievements) – je volle Runde `lap`, je
 ## voller Kilometer (gesamt über alle Fahrten) `distance`, `weather` und `time_of_day`. Ein neuer Erfolg und ein
@@ -206,6 +213,7 @@ func _ready() -> void:
 	start_menu.settings_requested.connect(settings_menu.open)
 	start_menu.quit_requested.connect(_on_quit_requested)
 	start_menu.logbook_requested.connect(open_logbook)
+	start_menu.direction_changed.connect(func(_direction): _update_round_trip_menu())
 	add_child(start_menu)
 	logbook = LOGBOOK.new()
 	logbook.name = "Logbook"
@@ -319,7 +327,7 @@ func _setup_ghost_rider() -> void:
 
 ## Abschnitt (Station) an der Fahrerposition, "" ohne Stationen (Graybox).
 func current_station() -> String:
-	return track.station_at(model.distance_m).get("name", "")
+	return track.ride_station_at(model.distance_m).get("name", "")
 
 
 ## Kamera ruhig hinter dem Fahrer: Zielposition hinter ihm auf der Strecke (folgt Kurven und Kehren, statt
@@ -327,8 +335,8 @@ func current_station() -> String:
 func _update_camera(delta: float, snap: bool = false) -> void:
 	var d := model.distance_m
 	var up := Vector3.UP
-	var target := track.to_global(track.position_at(d - config.camera_behind_m)) + up * config.camera_height_m
-	var look := track.to_global(track.position_at(d + config.camera_look_ahead_m)) + up * config.camera_look_height_m
+	var target := track.to_global(track.ride_position_at(d - config.camera_behind_m)) + up * config.camera_height_m
+	var look := track.to_global(track.ride_position_at(d + config.camera_look_ahead_m)) + up * config.camera_look_height_m
 	if world != null:
 		target.y = maxf(target.y, world.terrain.height_at(target.x, target.z) + CAMERA_TERRAIN_CLEARANCE_M)
 	_aim_camera(target, look, 1.0 if snap else 1.0 - exp(-delta / CAMERA_SMOOTHING_S))
@@ -356,16 +364,19 @@ func _aim_camera(target: Vector3, look: Vector3, follow: float) -> void:
 ## „Losfahren“: neue Fahrt ab `start_distance_m` über `lap_count` Runden (0 = endlos) mit Ghost `ghost_kind`
 ## (Ghost.BEST/LAST, "" = aus; ohne Aufzeichnung aus) – Fahrmodell, Statistik, Rundenwertung und Pausen
 ## zurückgesetzt; gefahren wird, sobald das Rad Daten liefert (wie bisher beim Start). Mit `training_unit` (wie
-## Training.load_file) ein Training: endlos, ohne Ghost.
+## Training.load_file) ein Training: endlos, ohne Ghost, im Uhrzeigersinn. `direction` = Fahrtrichtung
+## (Track.DIRECTION_*, #34).
 func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, ghost_kind: String = "",
-		training_unit: Dictionary = {}) -> void:
+		training_unit: Dictionary = {}, direction: String = Track.DIRECTION_CW) -> void:
 	ride_mode = mode
 	training = Training.new(training_unit) if not training_unit.is_empty() else null
 	if training != null:
 		lap_count = 0
 		ghost_kind = ""
+		direction = Track.DIRECTION_CW
 	laps = lap_count
-	ghost = save_game.ghost(config.track, LapTiming.DIRECTION_CW, ghost_kind) if not ghost_kind.is_empty() else null
+	_set_direction(direction)
+	ghost = save_game.ghost(config.track, track.direction, ghost_kind) if not ghost_kind.is_empty() else null
 	model = RideModel.new(config, start_distance_m)
 	stats = RideStats.new()
 	_new_lap_timing()
@@ -393,7 +404,20 @@ func _on_ride_requested(mode: String) -> void:
 	if mode == SaveGame.MODE_TRAINING:
 		start_ride(mode, 0, "", start_menu.training_unit())
 		return
-	start_ride(mode, start_menu.round_trip_laps(), start_menu.ghost_choice())
+	start_ride(mode, start_menu.round_trip_laps(), start_menu.ghost_choice(), {}, start_menu.ride_direction())
+
+
+## Fahrtrichtung der Strecke setzen (#34): Fahrer und Ghost-Mitfahrer schauen in Fahrtrichtung (gegen den
+## Uhrzeigersinn um 180° gedreht), der Ghost bleibt links in Fahrtrichtung; Welt und HUD (Profil, Minikarte) folgen.
+func _set_direction(direction: String) -> void:
+	track.set_direction(direction)
+	var turn := PI if track.reversed() else 0.0
+	rider_model.rotation.y = turn
+	ghost_model.rotation.y = turn
+	ghost_rider.h_offset = -GHOST_OFFSET_M if track.reversed() else GHOST_OFFSET_M
+	if world != null:
+		world.set_direction(direction)
+	hud.setup(track, world)
 
 
 ## Neue Rundenwertung ab `start_distance_m` mit `laps` Runden, den Segmenten der Strecke und den gespeicherten
@@ -404,8 +428,8 @@ func _new_lap_timing() -> void:
 		lap_timing = LapTiming.new(track.length_m(), start_distance_m, laps)
 	else:
 		lap_timing = LapTiming.new(track.length_m(), start_distance_m, laps,
-				save_game.best_time_s(config.track, LapTiming.DIRECTION_CW), track.segments,
-				save_game.segment_best_times(config.track, LapTiming.DIRECTION_CW))
+				save_game.best_time_s(config.track, track.direction), track.segments,
+				save_game.segment_best_times(config.track, track.direction))
 	finish_distance_m = lap_timing.finish_m()
 	medal_limits = Medals.thresholds(track, config)
 
@@ -469,13 +493,14 @@ func _on_settings_visibility_changed() -> void:
 
 
 ## Seite „Rundfahrt“ im Startmenü: Tageszeiten wie im Einstellungsmenü, die gespeicherten Ghosts und die Bestzeit der
-## Strecke.
+## Strecke in der gewählten Richtung.
 func _update_round_trip_menu() -> void:
 	var times: Array = settings_menu.time_choices()
 	start_menu.set_time_choices(times[0], times[1])
-	start_menu.set_ghost_choices(save_game.ghost(config.track, LapTiming.DIRECTION_CW, Ghost.BEST) != null,
-			save_game.ghost(config.track, LapTiming.DIRECTION_CW, Ghost.LAST) != null)
-	var best := save_game.best_time_s(config.track, LapTiming.DIRECTION_CW)
+	var direction: String = start_menu.ride_direction()
+	start_menu.set_ghost_choices(save_game.ghost(config.track, direction, Ghost.BEST) != null,
+			save_game.ghost(config.track, direction, Ghost.LAST) != null)
+	var best := save_game.best_time_s(config.track, direction)
 	start_menu.show_best_time(format_time(best, true) if is_finite(best) else "")
 
 
@@ -490,7 +515,7 @@ func return_to_menu() -> void:
 		_finish_ride()
 		return
 	_save_ride()
-	_flight_m = model.distance_m
+	_flight_m = track.path_distance(model.distance_m)
 	_enter_menu()
 
 
@@ -552,16 +577,17 @@ func _save_ride() -> void:
 ## Rundfahrt: neue Bestzeit samt Ghost, letzte Runde als Ghost, Medaillen und Segmentzeiten in den Spielstand.
 func _record_round_trip() -> void:
 	var best_ghost := lap_timing.best_ghost
-	if save_game.record_best_time(config.track, LapTiming.DIRECTION_CW, lap_timing.ride_best_s()) \
+	var direction := track.direction
+	if save_game.record_best_time(config.track, direction, lap_timing.ride_best_s()) \
 			and best_ghost != null and is_equal_approx(best_ghost.time_s, lap_timing.ride_best_s()):
-		save_game.record_ghost(config.track, LapTiming.DIRECTION_CW, Ghost.BEST, best_ghost)
+		save_game.record_ghost(config.track, direction, Ghost.BEST, best_ghost)
 	if lap_timing.last_ghost != null:
-		save_game.record_ghost(config.track, LapTiming.DIRECTION_CW, Ghost.LAST, lap_timing.last_ghost)
+		save_game.record_ghost(config.track, direction, Ghost.LAST, lap_timing.last_ghost)
 	for i in range(lap_timing.lap_times.size()):
-		save_game.record_medal(config.track, LapTiming.DIRECTION_CW, Medals.LAP, lap_medal(i))
+		save_game.record_medal(config.track, direction, Medals.LAP, lap_medal(i))
 	for result in lap_timing.segments.results:
-		save_game.record_segment_time(config.track, LapTiming.DIRECTION_CW, result["id"], result["time_s"])
-		save_game.record_medal(config.track, LapTiming.DIRECTION_CW, result["id"], segment_medal(result))
+		save_game.record_segment_time(config.track, direction, result["id"], result["time_s"])
+		save_game.record_medal(config.track, direction, result["id"], segment_medal(result))
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -615,10 +641,10 @@ func current_curvature() -> float:
 	return curvature_at(model.distance_m)
 
 
-## Krümmung der Strecke an Streckenposition `d` (1/m, positiv = Linkskurve).
+## Krümmung der Strecke an Fahrtposition `d` (1/m, positiv = Linkskurve in Fahrtrichtung).
 func curvature_at(d: float) -> float:
-	return RiderMotion.signed_curvature(track.position_at(d - RiderMotion.CURVE_SAMPLE_M), track.position_at(d),
-			track.position_at(d + RiderMotion.CURVE_SAMPLE_M))
+	return RiderMotion.signed_curvature(track.ride_position_at(d - RiderMotion.CURVE_SAMPLE_M),
+			track.ride_position_at(d), track.ride_position_at(d + RiderMotion.CURVE_SAMPLE_M))
 
 
 ## Fährt ein Ghost mit? (Abfrage für spätere Pakete, z. B. keine Panorama-Momente mit Ghost, #43.)
@@ -921,14 +947,14 @@ func _show_training() -> void:
 
 
 func _update_view() -> void:
-	rider.progress = track.wrap_distance(model.distance_m)
+	rider.progress = track.path_distance(model.distance_m)
 	var grade := current_grade()
 	hud.show_ride(bus.cadence, model.speed_kmh(), stats.distance_m, format_time(lap_time_s()), grade,
 			format_grade(grade), current_station(), format_power(bus.power_w(), bus.power_estimated()))
-	hud.show_lap(model.distance_m, lap_timing.lap_start_m(), lap_timing.lap_end_m(), rider.progress)
+	hud.show_lap(model.distance_m, lap_timing.lap_start_m(), lap_timing.lap_end_m(), track.wrap_distance(model.distance_m))
 	hud.show_lap_count(lap_timing.lap_number(), laps, format_time(lap_timing.lap_time_s))
 	if ghost != null:
-		ghost_rider.progress = track.wrap_distance(ghost_distance_m())
+		ghost_rider.progress = track.path_distance(ghost_distance_m())
 		var gap := ghost_gap_s()
 		hud.show_ghost(format_gap(gap), gap > 0.0)
 	else:
