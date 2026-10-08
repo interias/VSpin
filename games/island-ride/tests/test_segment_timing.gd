@@ -105,4 +105,4 @@ func test_island_segments_are_data_inside_their_stations() -> void:
 	var bergwertung: Dictionary = track.segments[1]
 	assert_almost_eq(bergwertung["end_m"], IslandCourse.landmarks()[0]["distance_m"], 5.0,
 			"Bergwertung endet an der Kuppe mit dem Aussichtspunkt")
-	assert_eq(IslandCourse.segments("ccw"), [], "Gegenrichtung erst mit #34")
+	assert_eq(IslandCourse.segments("ccw").size(), 3, "Gegenrichtung (#34): drei Segmente, siehe test_counter_direction.gd")

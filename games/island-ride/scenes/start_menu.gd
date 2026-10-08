@@ -1,7 +1,8 @@
 ## Startmenü der Inselfahrt (#30): Titel über dem Kameraflug, Menüpunkte und unten dauerhaft der Status des Rads.
 ##   Fahren        → Modus-Auswahl: Rundfahrt, Training, Arcade noch ausgegraut („bald“)
-##   Rundfahrt     → Rundenzahl (1–n oder endlos), Tageszeit (wie im Einstellungsmenü), Ghost (aus, Bestzeit,
-##                   letzte Fahrt; ohne Aufzeichnung ausgegraut, #32), Bestzeit; „Losfahren“ (#31)
+##   Rundfahrt     → Rundenzahl (1–n oder endlos), Richtung (im / gegen den Uhrzeigersinn, #34), Tageszeit (wie im
+##                   Einstellungsmenü), Ghost (aus, Bestzeit, letzte Fahrt; ohne Aufzeichnung ausgegraut, #32), Bestzeit
+##                   der gewählten Richtung; „Losfahren“ (#31)
 ##   Training      → Einheit (aus `res://trainings`, Training.load_all) mit Beschreibung und Dauer; „Losfahren“ (#37)
 ##   Fahrtenbuch   öffnet das Fahrtenbuch (Statistik, Bestzeiten, Erfolge, letzte Fahrten; #35)
 ##   Garderobe     ausgegraut („bald“)
@@ -13,9 +14,11 @@
 extends CanvasLayer
 
 ## „Fahren → Rundfahrt → Losfahren“ gewählt (Modus wie SaveGame.MODE_*); Rundenzahl und Tageszeit siehe
-## `round_trip_laps()`, `time_index()` und `ghost_choice()`. „Fahren → Training → Losfahren“: Modus
+## `round_trip_laps()`, `ride_direction()`, `time_index()` und `ghost_choice()`. „Fahren → Training → Losfahren“: Modus
 ## SaveGame.MODE_TRAINING, die Einheit liefert `training_unit()`.
 signal ride_requested(mode: String)
+## Richtung auf der Seite „Rundfahrt“ gewechselt (Track.DIRECTION_*): Bestzeit und Ghosts gelten je Richtung (#34).
+signal direction_changed(direction: String)
 ## „Fahrtenbuch“ gewählt (#35).
 signal logbook_requested
 ## „Einstellungen“ gewählt.
@@ -33,6 +36,8 @@ const COLOR_ERROR := Color(1.0, 0.45, 0.4)
 const BRIDGE_START_HINT := "Bridge starten: vspin-bridge --source sim"
 ## Rundenzahlen zur Auswahl; 0 = endlos.
 const LAP_CHOICES := [1, 2, 3, 4, 5, 6, 8, 10, 15, 20, 0]
+## Richtungen zur Auswahl (#34): im Uhrzeigersinn (Standard), gegen den Uhrzeigersinn.
+const DIRECTION_CHOICES := [Track.DIRECTION_CW, Track.DIRECTION_CCW]
 ## Ghost-Auswahl (#32): aus, Bestzeit-Runde, letzte Fahrt.
 const GHOST_CHOICES := ["", Ghost.BEST, Ghost.LAST]
 
@@ -42,7 +47,7 @@ var web := OS.has_feature("web")
 ## Knöpfe je Menüpunkt (Schlüssel: drive, round_trip, training, arcade, back, logbook, wardrobe, settings, quit;
 ## auf der Seite „Rundfahrt“: start, trip_back; auf der Seite „Training“: training_start, training_back).
 var buttons := {}
-## Auswahlfelder der Seite „Rundfahrt“ (Schlüssel: laps, time, ghost) und der Seite „Training“ (unit).
+## Auswahlfelder der Seite „Rundfahrt“ (Schlüssel: laps, direction, time, ghost) und der Seite „Training“ (unit).
 var options := {}
 ## Einheiten zur Auswahl auf der Seite „Training“ (wie Training.load_file).
 var training_units: Array = []
@@ -124,6 +129,11 @@ func focus_default() -> void:
 ## Gewählte Rundenzahl (0 = endlos).
 func round_trip_laps() -> int:
 	return LAP_CHOICES[maxi((options["laps"] as OptionButton).selected, 0)]
+
+
+## Gewählte Fahrtrichtung (Track.DIRECTION_*).
+func ride_direction() -> String:
+	return DIRECTION_CHOICES[maxi((options["direction"] as OptionButton).selected, 0)]
 
 
 ## Tageszeit-Auswahl der Seite „Rundfahrt“: Beschriftungen wie im Einstellungsmenü und der gewählte Eintrag.
@@ -296,11 +306,13 @@ func _build() -> void:
 	trip_heading.add_theme_font_size_override("font_size", 26)
 	_trip_page.add_child(trip_heading)
 	var grid := GridContainer.new()
-	grid.columns = 2
+	grid.columns = 4  # zwei Felder je Zeile: mit der Richtung (#34) passten vier Zeilen nicht mehr in 1152×648
 	grid.add_theme_constant_override("h_separation", 16)
 	grid.add_theme_constant_override("v_separation", 10)
 	_trip_page.add_child(grid)
 	_add_option(grid, "laps", "Runden", LAP_CHOICES.map(func(n): return "Endlos" if n == 0 else str(n)))
+	_add_option(grid, "direction", "Richtung", ["Im Uhrzeigersinn", "Gegen den Uhrzeigersinn"])
+	options["direction"].item_selected.connect(func(_index): direction_changed.emit(ride_direction()))
 	_add_option(grid, "time", "Tageszeit", ["Echtzeit (Mallorca)"])
 	_add_option(grid, "ghost", "Ghost", ["Aus", "Bestzeit", "Letzte Fahrt"])
 	options["ghost"].item_selected.connect(func(_index): _ghost_picked = true)

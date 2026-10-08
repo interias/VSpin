@@ -2,8 +2,10 @@
 ## Fahrerposition und der gefahrene Teil hinterlegt.
 ## Das Profil wird nur bei `setup()` und Größenänderung gezeichnet; pro Frame bewegen sich nur Marker und
 ## Hinterlegung (eigene Knoten), und auch nur, wenn sich ihre Pixelposition ändert.
-##   setup(track)               Profil aus der Strecke abtasten (Höhe = y des Pfads), Stationen übernehmen
-##   distance_m = d             Fahrerposition innerhalb der Runde
+##   setup(track)               Profil aus der Strecke abtasten (Höhe = y des Pfads), Stationen übernehmen – beides in
+##                              Fahrtrichtung (Track.ride_position_at, ride_stations; gegen den Uhrzeigersinn
+##                              gespiegelt, #34)
+##   distance_m = d             Fahrerposition (Fahrtposition) innerhalb der Runde
 ##   profile_point(...)         reine Rechnung Streckenposition/Höhe → Punkt im Zeichenbereich (Tests)
 class_name HudProfile
 extends Control
@@ -26,7 +28,7 @@ var length_m := 0.0
 var heights := PackedFloat32Array()
 var min_height_m := 0.0
 var max_height_m := 1.0
-## [{name, start_m}] wie Track.stations.
+## [{name, start_m}] wie Track.ride_stations().
 var stations: Array = []
 ## Fahrerposition innerhalb der Runde (m).
 var distance_m := 0.0:
@@ -53,11 +55,11 @@ func _ready() -> void:
 
 func setup(track: Track) -> void:
 	length_m = track.length_m()
-	stations = track.stations
+	stations = track.ride_stations()
 	heights.clear()
 	var count := maxi(int(ceil(length_m / SAMPLE_M)), 1)
 	for i in range(count + 1):
-		heights.append(track.position_at(length_m * i / count).y)
+		heights.append(track.ride_position_at(length_m * i / count).y)
 	min_height_m = heights[0]
 	max_height_m = heights[0]
 	for h in heights:

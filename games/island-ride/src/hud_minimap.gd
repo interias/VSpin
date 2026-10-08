@@ -3,7 +3,8 @@
 ## Insel und Strecke werden nur bei `setup()` und Größenänderung gezeichnet (das Inselbild einmal je Gelände
 ## berechnet und gecacht); pro Frame bewegt sich nur der Fahrer-Pfeil (eigener Knoten, nur Position/Drehung).
 ##   setup(track, world)   Strecke abtasten; mit Insel-Welt (sonst null) Inselbild und Landmarken
-##   show_rider(d)         Fahrer an Streckenposition d (innerhalb der Runde)
+##   show_rider(d)         Fahrer an Fahrtposition d (innerhalb der Runde, Track.ride_position_at – der Pfeil zeigt
+##                         auch gegen den Uhrzeigersinn in Fahrtrichtung, #34)
 ##   map_point(...)        reine Rechnung Weltposition (x, z) → Punkt auf der Karte (Tests)
 class_name HudMinimap
 extends Control
@@ -93,14 +94,14 @@ static func heading_rotation(direction: Vector2) -> float:
 	return atan2(direction.x, -direction.y)
 
 
-## Fahrer an Streckenposition `d`: Pfeil an die Kartenposition, in Fahrtrichtung gedreht.
+## Fahrer an Fahrtposition `d`: Pfeil an die Kartenposition, in Fahrtrichtung gedreht.
 func show_rider(d: float) -> void:
 	_rider_d = d
 	if _track == null or _rider == null:
 		return
-	var here := _track.to_global(_track.position_at(d))
-	var ahead := _track.to_global(_track.position_at(d + 3.0))
-	var behind := _track.to_global(_track.position_at(d - 3.0))
+	var here := _track.to_global(_track.ride_position_at(d))
+	var ahead := _track.to_global(_track.ride_position_at(d + 3.0))
+	var behind := _track.to_global(_track.ride_position_at(d - 3.0))
 	var at := map_point(Vector2(here.x, here.z), bounds, size) - _rider.pivot_offset
 	var turn := heading_rotation(Vector2(ahead.x - behind.x, ahead.z - behind.z))
 	if not _rider.position.is_equal_approx(at) or not is_equal_approx(_rider.rotation, turn):
