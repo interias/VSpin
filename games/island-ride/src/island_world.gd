@@ -12,7 +12,8 @@
 ##   Props     je Station ein Node3D (Name = id) mit der Deko
 ##   Segments  je Segment ein Torbogen am Start (Name = id, #33), im Uhrzeigersinn; SegmentsCcw dasselbe gegen den
 ##             Uhrzeigersinn (#34). Sichtbar sind nur die Bögen der gewählten Richtung (`set_direction`).
-##   Landmarks Sehenswürdigkeiten (Leuchtturm, Talaia, Ermita, …), Details Kleindetails – siehe IslandLandmarks (G2)
+##   Landmarks Sehenswürdigkeiten (Leuchtturm, Talaia, Ermita, …), Details Kleindetails – siehe IslandLandmarks (G2);
+##             mit dem Aussichtspunkt die Orte der Panorama-Momente (`panorama_spots`, #43)
 ##   Vegetation Gras, Unterholz und Sträucher je Station; Gelände und Fahrbahn mit Detailtextur – siehe
 ##             IslandVegetation (#38)
 ##   Fauna     Weide- und Dorftiere (Herden, Ziegen auf der Straße, Esel, Katzen) – siehe IslandFauna (#40)
@@ -47,6 +48,8 @@ const CYPRESS := "tree_tall"
 ## Bergdorf: Kantenlänge eines Fantasy-Town-Moduls (Wand 1 × 1) in m für Häuser und Kirche.
 const HOUSE_MODULE_M := 3.2
 const CHURCH_MODULE_M := 4.2
+## Panorama am Aussichtspunkt (#43): Blickziel so weit links der Straße, über die Plattform hinaus aufs Meer (m).
+const VIEWPOINT_OUTLOOK_M := 80.0
 ## Nature-Kit-Materialfarben (Türkis/Orange) → mediterrane Töne, nach Materialname.
 const NATURE_COLORS := {
 	"leafsGreen": Color(0.22, 0.38, 0.18),
@@ -180,6 +183,22 @@ func _side_offset(distance_m: float, meters: float) -> Vector3:
 	var b := track.position_at(distance_m + 1.0)
 	var dir := Vector3(b.x - a.x, 0.0, b.z - a.z).normalized()
 	return Vector3(-dir.z, 0.0, dir.x) * meters
+
+
+## Sehenswürdigkeiten für die Panorama-Momente (#43): [{id, name, path_m (Pfadposition), at (Weltpunkt)}] – der
+## Aussichtspunkt (Blick über die Plattform hinaus aufs Meer) und jede Landmarke unter `Landmarks` (Gruppen wie die
+## Windmühlen über ihr mittleres Glied). Keine neuen Orte.
+func panorama_spots() -> Array:
+	var spots := []
+	for landmark in IslandCourse.landmarks():
+		var d: float = landmark["distance_m"]
+		spots.append({"id": landmark["id"], "name": landmark["name"], "path_m": d,
+				"at": track.to_global(track.position_at(d) + _side_offset(d, -VIEWPOINT_OUTLOOK_M))})
+	for node in get_node("Landmarks").get_children():
+		var part: Node3D = node if node.has_meta("distance_m") else node.get_child(node.get_child_count() / 2)
+		spots.append({"id": String(node.name), "name": node.get_meta("landmark_name"),
+				"path_m": part.get_meta("distance_m"), "at": part.global_position})
+	return spots
 
 
 ## Weltpunkt neben der Straße auf Geländehöhe.

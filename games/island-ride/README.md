@@ -120,7 +120,8 @@ verfügbar, daher nur Godot-Bordmittel:
 - Kamera (`scenes/main.gd`): sitzt 5,5 m hinter dem Fahrer **auf der Strecke** (schwenkt in Kehren nicht seitlich
   aus), 2,4 m hoch, blickt 10 m voraus, beides exponentiell geglättet (0,45 s), mindestens 1,5 m über dem Gelände.
   Abstand, Höhe und Vorausblick in `config.cfg` (`[camera]`, siehe Konfiguration); vor G5 9 m / 3,5 m / 14 m.
-  Beim Fahrtstart ein **Kamera-Intro** (#42, siehe „Farbstimmung, Höhennebel und Tempo“).
+  Beim Fahrtstart ein **Kamera-Intro** (#42, siehe „Farbstimmung, Höhennebel und Tempo“), an Sehenswürdigkeiten
+  **Panorama-Momente** (#43, ebenda).
 - HUD zeigt zusätzlich den aktuellen Abschnitt, Höhenprofil und Minikarte der Insel (siehe HUD).
 
 Weltaufbau beim Start ca. 0,6 s (mit der Vegetation aus #38 ca. 1,1 s), beim allerersten Start (oder nach Änderung
@@ -285,12 +286,23 @@ Fahrmodell, Zeiten und Wertung sehen davon nichts (ADR-0010).
 
 **Kamera-Intro:** Nach „Losfahren“ (Rundfahrt in beiden Richtungen und Training) schwenkt die Kamera in 3 s von
 schräg vor dem Fahrer über seine rechte Seite hinter ihn. Die Fahrt und die Zeitmessung laufen dabei normal. Die
-Kamera hat dafür einen Modus (`camera_mode`: `CAMERA_FOLLOW`, `CAMERA_INTRO`) an einer Stelle (`_update_camera`);
-weitere Einstellungen (Panorama-Momente, #43) hängen sich dort als eigener Modus ein.
+Kamera hat dafür einen Modus (`camera_mode`: `CAMERA_FOLLOW`, `CAMERA_INTRO`, `CAMERA_PANORAMA`) an einer Stelle
+(`_update_camera`).
+
+**Panorama-Momente (#43):** An den acht vorhandenen Sehenswürdigkeiten (Aussichtspunkt, Leuchtturm, Cala, Talaia,
+Ermita, Burgruine, Aquädukt, Windmühlen; `IslandWorld.panorama_spots`) schwenkt die Kamera beim Vorbeifahren 4 s lang
+weich auf die abgewandte Seite des Fahrers, etwas erhöht, und blickt über ihn zur Sehenswürdigkeit; oben im HUD steht
+dezent ihr Name. Danach gleitet sie ohne Sprung zurück hinter den Fahrer. Auslösepunkt ist die Fahrtposition der
+Sehenswürdigkeit, also in beiden Richtungen (gegen den Uhrzeigersinn liegt der Aussichtspunkt am Ende der
+Serpentinen-Abfahrt; der Blick aufs Meer funktioniert auch dort). Je Sehenswürdigkeit höchstens einmal je Runde. Kein
+Panorama mit Ghost, im Training, während des Intros oder eines anderen Panoramas. Abschaltbar im Grafikmenü
+(*Panorama-Momente*). Das Stationsschild am Aussichtspunkt blendet im Schwenk aus. Auch das ist nur Kamera: Fahrmodell
+und Zeiten laufen unverändert (ADR-0010).
 
 **Sichtprüfung:** `view_probe.gd -- --shots=3000 --time=08:45` (bzw. 13:00, 18:30, `--weather=rain`),
 `--effects-kmh=55` (Tempo-Effekte in `--shots` wie bei 55 km/h), `--intro [--ccw]` (`intro_0.png`, `intro_1.png`,
-`intro_2.png`). Die fps-Fahrt zeigt die Tempo-Effekte bei ihrem Tempo.
+`intro_2.png`), `--hud --panorama[=aussichtspunkt,burg]` (`panorama_<id>.png` mitten im Schwenk, ohne Liste alle,
+mit `--ccw` in Gegenrichtung). Die fps-Fahrt zeigt die Tempo-Effekte bei ihrem Tempo; Panoramen löst sie nicht aus.
 **Kosten:** fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070), Tempo-Effekte an (Stärke 0,65), Frühling:
 13:00 klar Mittel 60,0 fps, 1-%-Tief 58,4 fps, 31 von 39 714 Frames < 50 fps (vorher nach #41: 60,0 / 58,1 / 7);
 7:30 Regen mit Höhennebel 60,0 / 53,1 / 21 von 39 718.
@@ -462,6 +474,7 @@ Startmenü) und „Beenden“ (beendet das Spiel; im Browser ausgeblendet) – `
 | fps-Limit | Ohne, 30, 60, 120, 144 | Ohne |
 | Schatten | Niedrig/Mittel/Hoch (Schattenatlas 2048/4096/8192, Weichzeichnung) | Mittel (wie bisher) |
 | Tempo-Effekte | An, Aus – Geschwindigkeitslinien und Sichtfeld-Kick ab 35 km/h (#42) | An |
+| Panorama-Momente | An, Aus – Kameraschwenk mit Namen an Sehenswürdigkeiten (#43) | An |
 | Tageszeit | Echtzeit (Mallorca), feste Uhrzeit 6:00/9:00/12:00/15:00/18:00/20:30/22:00/0:00, Zeitraffer 12/24/48 min je Tag (startet bei der aktuellen Uhrzeit des Spiels) | wie `config.cfg [sky]` (Echtzeit) |
 | Wetter | Wechselnd (meist sonnig), Klar, Leicht bewölkt, Bewölkt, Regen (fest) – sofort, ohne Überblendung | wie `config.cfg [sky]` (Wechselnd) |
 | Jahreszeit | Nach Datum (Mallorca), Mandelblüte, Frühling, Sommer, Herbst, Winter (fest) – sofort (#39) | Nach Datum |

@@ -15,6 +15,7 @@
 ##   Training   (#37) im unteren Panel über der Runde: Phase, Zielkadenz, Restzeit der Phase und die nächste Phase;
 ##                die Ansage zum Widerstandsknopf („In 8 s: Widerstand 2 Stufen hoch, 100 rpm halten“) steht groß über
 ##                der Einblendung
+##   Landmark     Panorama-Moment (#43): Name der Sehenswürdigkeit oben im freien Feld, blendet weich ein und aus
 ##   Message/Hint/Debug  Zustandsmeldung (mittig zwischen oben und unten), `set_grade`-Hinweis (über dem unteren
 ##                Panel), Debug-Anzeige F3 (unter dem Werte-Panel) – Inhalte setzt die Hauptszene.
 ## Layout nur über Anker und Container (kein fester Bildschirmort): passt in 960×1040 wie in 1920×1080, mit und
@@ -36,6 +37,8 @@ const COLOR_DOWN := Color(0.5, 0.82, 1.0)
 const OVERLAY_GAP_PX := 8.0
 ## Dauer der Einblendung „Neue Bestzeit!“ (s), davon die letzte Sekunde Ausblenden.
 const CELEBRATION_S := 4.0
+## Ein- und Ausblenden des Namens einer Sehenswürdigkeit (s, #43).
+const LANDMARK_FADE_S := 0.6
 ## Farbe des Ghost-Abstands: hinter dem Ghost bzw. vor ihm (#32).
 const COLOR_BEHIND := Color(1.0, 0.55, 0.45)
 const COLOR_AHEAD := Color(0.5, 0.92, 0.55)
@@ -66,6 +69,7 @@ const COLOR_AHEAD := Color(0.5, 0.92, 0.55)
 @onready var _remaining_value: Label = %RemainingValue
 @onready var _next_value: Label = %NextValue
 @onready var _announcement: Label = %Announcement
+@onready var _landmark: Label = %Landmark
 @onready var _lap_bar: ProgressBar = %LapBar
 @onready var _lap_percent: Label = %LapPercent
 @onready var _lap_remaining: Label = %LapRemaining
@@ -79,6 +83,7 @@ var _grade_color := COLOR_FLAT
 ## Laufendes Segment für `readout()` („Bergwertung: 3:12.4“, "" = keins).
 var _segment_line := ""
 var _celebration_tween: Tween
+var _landmark_tween: Tween
 ## Eingereihte Einblendungen, die nach der laufenden folgen (#35).
 var _celebration_queue: Array = []
 
@@ -167,6 +172,28 @@ func show_training(phase_text: String, target_text: String, remaining_text: Stri
 func show_announcement(text: String) -> void:
 	_announcement.visible = not text.is_empty()
 	_announcement.text = text
+
+
+## Name einer Sehenswürdigkeit im Panorama-Moment (#43): blendet ein, steht und ist nach `seconds` wieder weg; ""
+## blendet sofort aus.
+func show_landmark(text: String, seconds: float = 4.0) -> void:
+	if _landmark_tween != null:
+		_landmark_tween.kill()
+	_landmark.text = text
+	_landmark.visible = not text.is_empty()
+	if text.is_empty():
+		return
+	_landmark.modulate.a = 0.0
+	_landmark_tween = create_tween()
+	_landmark_tween.tween_property(_landmark, "modulate:a", 1.0, LANDMARK_FADE_S)
+	_landmark_tween.tween_interval(maxf(seconds - 2.0 * LANDMARK_FADE_S, 0.0))
+	_landmark_tween.tween_property(_landmark, "modulate:a", 0.0, LANDMARK_FADE_S)
+	_landmark_tween.tween_callback(_landmark.hide)
+
+
+## Eingeblendeter Name einer Sehenswürdigkeit ("" = keiner).
+func landmark() -> String:
+	return _landmark.text if _landmark.visible else ""
 
 
 ## Beschriftung des Rundenfortschritts: „Runde“ bei einer Runde, „Runde 2 / 3“, endlos „Runde 2“.

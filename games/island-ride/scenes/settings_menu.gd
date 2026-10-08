@@ -4,7 +4,8 @@
 ## Jede Änderung wirkt sofort und wird in `settings_path` gespeichert (GraphicsSettings, `user://settings.cfg`).
 ## Beim Start wendet das Menü die gespeicherten Einstellungen an; die Fenstergeometrie (auch nach Ziehen oder
 ## Windows-Snap) wird beim Beenden gemerkt. Das Spiel läuft weiter, solange das Menü offen ist.
-## Tempo-Effekte (#42, Geschwindigkeitslinien und Sichtfeld-Kick) schaltet die Hauptszene über `settings_changed` um.
+## Tempo-Effekte (#42, Geschwindigkeitslinien und Sichtfeld-Kick) und Panorama-Momente (#43) schaltet die Hauptszene über
+## `settings_changed` um.
 ## Tageszeit, Wetter (G8) und Jahreszeit (#39) stehen in denselben Einstellungen (`[sky]`); auf die Welt wirken sie über
 ## `settings_changed`, das die Hauptszene an den SkyController weitergibt.
 ## Im Browser (`web`) gibt es keine Fenstermodi/-größen und kein VSync; im Compatibility-Renderer nur MSAA und
@@ -196,8 +197,8 @@ func _build() -> void:
 	title.text = "Grafik und Fenster"
 	title.add_theme_font_size_override("font_size", 26)
 	box.add_child(title)
-	# Zwei Spalten (#42): links Grafik, rechts Tageszeit, Wetter, Jahreszeit und Fenster – so passt das Menü auch in
-	# 1280×720 und ins Halbbild.
+	# Zwei Spalten (#42): links Grafik (mit Panorama-Momenten, #43), rechts Tageszeit, Wetter, Jahreszeit und Fenster –
+	# so passt das Menü auch in 1280×720 und ins Halbbild.
 	var columns := HBoxContainer.new()
 	columns.add_theme_constant_override("separation", 32)
 	box.add_child(columns)
@@ -217,6 +218,7 @@ func _build() -> void:
 	_add_row(grid, "shadows", "Schatten", GraphicsSettings.SHADOW_QUALITIES.map(func(s): return SHADOW_LABELS[s]),
 			GraphicsSettings.SHADOW_QUALITIES, func(v): settings.shadows = v)
 	_add_row(grid, "speed_effects", "Tempo-Effekte", ["An", "Aus"], [true, false], func(v): settings.speed_effects = v)
+	_add_row(grid, "panorama", "Panorama-Momente", ["An", "Aus"], [true, false], func(v): settings.panorama = v)
 	grid = _add_grid(columns)
 	var times: Array = [_time_value(DayNight.MODE_REALTIME, 0.0)]
 	times.append_array(GraphicsSettings.FIXED_HOURS.map(func(h): return _time_value(DayNight.MODE_FIXED, h)))
@@ -393,6 +395,7 @@ func _refresh() -> void:
 	_select("max_fps", settings.max_fps)
 	_select("shadows", settings.shadows)
 	_select("speed_effects", settings.speed_effects)
+	_select("panorama", settings.panorama)
 	_select("window_mode", settings.window_mode)
 	var number := settings.fixed_hour if settings.time_mode == DayNight.MODE_FIXED 			else settings.timelapse_day_min if settings.time_mode == DayNight.MODE_TIMELAPSE else 0.0
 	_select_or_add("time", _time_value(settings.time_mode, number), _time_label)
