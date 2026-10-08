@@ -6,7 +6,8 @@
 ##   Sonne `Sun`     Richtung aus Höhe/Azimut, Farbe (Abendrot) und Energie, unter dem Horizont aus
 ##   Mond `Moon`     schwaches bläuliches Gegenlicht nachts (ohne Schatten, Stand vereinfacht gegenüber der Sonne)
 ##   Himmel/Env      Farben des ProceduralSky, Umgebungslicht, Nebel (Dunst/Regen), Belichtung, Sättigung
-##   Welt            Wolkenbedeckung und -tönung, Wind, Meer, Leuchtturm, Vögel, nasse Straße (WorldMotion-Setter)
+##   Welt            Wolkenbedeckung und -tönung, Wind, Meer, Leuchtturm, Vögel, nasse Straße (WorldMotion-Setter),
+##                   Tiere an Meer, Himmel und Wegrand (IslandFauna.set_conditions, #41)
 ##   Lichter         Laternen, Leuchtfeuer, Fahrradlicht (NightLights) nachts und in der Dämmerung
 ##   Regen           Tropfen um die Kamera (GPU-Partikel; im Compatibility-Renderer CPU-Partikel), Sterne nachts
 ## Web-Export (Compatibility-Renderer): eigenes Lichtprofil (`COMPAT_*`) – dort wirkt `vertex_color_is_srgb` nicht
@@ -304,6 +305,8 @@ func _apply(v: Dictionary) -> void:
 		motion.set_beacon(v["beacon"])
 		motion.set_birds_visible(v["birds"])
 		motion.set_road_wetness(v["rain"])
+		if is_instance_valid(world.fauna):
+			world.fauna.set_conditions(sun_angles.x, weather.params(), applied_season)
 	rain.visible = v["rain"] > 0.05
 	_set_emitting(v["rain"] > 0.05)
 	var drops: Color = v["rain_color"]

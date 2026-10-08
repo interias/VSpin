@@ -103,6 +103,17 @@ verfügbar, daher nur Godot-Bordmittel:
     Sichtprüfung: `view_probe --fauna`. Kosten: fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080,
     13:00, Frühling, VSync an (RTX 4070): Mittel 60,0 fps, 1-%-Tief 58,2 fps, 8 von 39 712 Frames < 50 fps –
     vorher auf derselben Fahrt 60,0 / 58,2 / 4.
+  - **Tiere an Meer, Himmel und Wegrand (#41, `src/island_fauna.gd`, Gruppen `World/Fauna/<Art>`):** reine Deko,
+    Low-Poly aus Grundkörpern. Delfinschulen kreisen in der Hafenbucht und vor der Westküste und springen
+    nacheinander, Fische springen mit Spritzern nah am Kai und unter der Küstenstraße, vier Mönchsgeier kreisen in
+    der Thermik über den Serpentinen (der einzelne Greifvogel aus WorldMotion bleibt als Milan), Schmetterlinge
+    flattern paarweise über Gras am Wegrand, Eidechsen sonnen sich auf der Mauer an Küstenstraße und Serpentinen und
+    huschen ein Stück. Wann sie sich zeigen, regelt `IslandFauna.SHOWN_WHEN` (der SkyController stellt es über
+    `set_conditions`): Schmetterlinge nur tagsüber ohne Regen und nicht im Winter, Eidechsen nur bei Sonne, Geier
+    tagsüber ohne Regen, Fische nicht im Regen, Delfine bei jedem Wetter – nachts keine. Im Browser halb so viele
+    Fische, Schmetterlinge und Eidechsen. Sichtprüfung: `view_probe --fauna` (Delfine und Fische im Sprung).
+    Kosten: fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, 13:00, Frühling, VSync an (RTX 4070): Mittel 60,0 fps,
+    1-%-Tief 58,1 fps, 7 von 39 718 Frames < 50 fps – vorher (nach #40) 60,0 / 58,2 / 8.
   - Modelle: Kenney Watercraft Kit, City Kit (Suburban), Nature Kit, Fantasy Town Kit (CC0) unter `assets/kenney/`,
     nur die benutzten `.glb` (~1,4 MB) – Nachweis in `ASSETS.md`. Wiederholte Modelle (Bäume, Büsche, Felsen,
     Mauern, Hausmodule) als `MultiMeshInstance3D`. Sichtprüfung/fps: `tools/view_probe.gd` (Screenshots an Streckenpositionen, fps-Fahrt).

@@ -56,6 +56,7 @@
 ## Tiere (#40): `--fauna` speichert nach den Streckenbildern je Tierart (IslandFauna.KINDS) eine Nahaufnahme
 ## (`fauna_<Art>.png`, Kamera wenige Meter neben dem Tier, Blick von der Straße) und 2,5 s Tieranimation später ein
 ## zweites Bild (`fauna_<Art>_b.png`). Die Ziegenquerung zeigen `--shots` 100–35 m vor IslandFauna.CROSSINGS_M.
+## Delfine und Fische (#41) im Sprung, das zweite Bild 0,25 s später; ausgeblendete Arten (Tag/Nacht, Wetter) fehlen.
 extends SceneTree
 
 ## Beispiel-Rundenzeiten (s) für `--laps`: gespeicherte Bestzeit vorher, dann die Runden der Fahrt.
@@ -466,15 +467,26 @@ func _fauna_shots(out_dir: String) -> void:
 		_ride.set_process(false)
 		var road := track.position_at(d)
 		var towards := Vector3(road.x - target.x, 0.0, road.z - target.z).normalized()
-		var distance: float = {"Schafe": 6.0, "Ziegen": 6.0, "Esel": 4.5, "Katzen": 2.2}[kind]
+		var distance: float = {"Schafe": 6.0, "Ziegen": 6.0, "Esel": 4.5, "Katzen": 2.2, "Delfine": 12.0, "Fische": 3.5,
+				"Geier": 9.0, "Schmetterlinge": 1.0, "Eidechsen": 0.9}[kind]
+		var small: bool = kind in ["Schmetterlinge", "Eidechsen"]
 		var camera: Camera3D = _ride.camera
-		var eye := target + towards * distance + Vector3.UP * (0.9 if kind == "Katzen" else 1.8)
+		var eye := target + towards * distance + Vector3.UP * (0.9 if kind == "Katzen" else 0.4 if small else 1.8)
 		eye.y = maxf(eye.y, _ride.world.terrain.height_at(eye.x, eye.z) + 0.8)
+		# Springende Tiere (#41): erstes Bild im Sprung, zweites 0,25 s später; sonst 2,5 s Tieranimation dazwischen.
+		var t := 2.0
+		var leaping: bool = kind in ["Delfine", "Fische"]
+		fauna.apply(t, fauna.rider_path_m)
+		while leaping and fauna.positions(kind)[0].y < 0.2 and t < 30.0:
+			t += 0.05
+			fauna.apply(t, fauna.rider_path_m)
 		for suffix in ["", "_b"]:
-			fauna.apply(2.0 if suffix.is_empty() else 4.5, fauna.rider_path_m)
+			fauna.apply(t if suffix.is_empty() else t + (0.25 if leaping else 2.5), fauna.rider_path_m)
 			var now: Vector3 = fauna.positions(kind)[0]
+			if small and suffix.is_empty():
+				eye = now + towards * distance + Vector3.UP * 0.4
 			camera.global_position = eye
-			camera.look_at(now + Vector3.UP * (0.15 if kind == "Katzen" else 0.6), Vector3.UP)
+			camera.look_at(now + Vector3.UP * (0.15 if kind == "Katzen" else 0.0 if small or leaping else 0.6), Vector3.UP)
 			await _frames(4)
 			_save(out_dir.path_join("fauna_%s%s.png" % [kind, suffix]))
 		_ride.set_process(true)
