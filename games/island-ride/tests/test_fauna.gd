@@ -1,13 +1,17 @@
-## Weide- und Dorftiere (#40): alle vier Arten stehen an passenden Orten (Station, Abstand zur Fahrbahn, nicht auf
-## Feldern, nicht in Häusern), bewegen sich als Funktion der Zeit, die Ziegen räumen die Fahrbahn rechtzeitig vor dem
+## Weide- und Dorftiere (#40): alle Arten (mit denen aus #41, Einzelheiten in test_wild_animals.gd) stehen an
+## passenden Orten (Station, Abstand zur Fahrbahn, nicht auf Feldern, nicht in Häusern), bewegen sich als Funktion der Zeit, die Ziegen räumen die Fahrbahn rechtzeitig vor dem
 ## Fahrer – in beiden Richtungen –, die Tiere wirken nicht auf die Fahrt (ADR-0010) und der Browser-Pfad baut ohne
 ## Fehler. Geprüft über die Lagen in IslandFauna (headless liefern MultiMeshes keine Transforms).
 extends "res://tests/support/bus_test.gd"
 
 ## Stationen je Art.
 const STATIONS := {"Schafe": ["hain", "abfahrt"], "Ziegen": ["serpentinen", "kueste"], "Esel": ["abfahrt"],
-		"Katzen": ["bergdorf"]}
-const MIN_COUNT := {"Schafe": 10, "Ziegen": 10, "Esel": 3, "Katzen": 6}
+		"Katzen": ["bergdorf"], "Delfine": ["hafen", "kueste"], "Fische": ["hafen", "kueste"], "Geier": ["serpentinen"],
+		"Schmetterlinge": ["kueste", "serpentinen", "hain", "abfahrt"], "Eidechsen": ["kueste", "serpentinen"]}
+const MIN_COUNT := {"Schafe": 10, "Ziegen": 10, "Esel": 3, "Katzen": 6, "Delfine": 6, "Fische": 6, "Geier": 3,
+		"Schmetterlinge": 12, "Eidechsen": 10}
+## Eidechsen sitzen auf der Mauer am Straßenrand (Innenkante 3,55 m von der Mitte) – neben, nicht auf der Fahrbahn.
+const WALL_INNER_M := 3.5
 ## Spätestens so weit (m) vor dem Fahrer ist die Fahrbahn frei – fest, unabhängig von IslandFauna.CROSSING_CLEAR_M.
 const ROAD_FREE_AHEAD_M := 30.0
 
@@ -27,7 +31,7 @@ func _field_distance(world: IslandWorld, at: Vector3) -> float:
 	return best
 
 
-func test_all_four_kinds_stand_at_fitting_places() -> void:
+func test_all_kinds_stand_at_fitting_places() -> void:
 	var world := _world()
 	var fauna := world.fauna
 	var village := world._station_range("bergdorf")
@@ -43,7 +47,7 @@ func test_all_four_kinds_stand_at_fitting_places() -> void:
 			if station not in STATIONS[kind]:
 				wrong.append("%s bei %s auf %s" % [kind, at, station])
 			var clearance := world.landmarks.road_clearance(at) - radius
-			if clearance < IslandVegetation.ROAD_CLEARANCE_M:
+			if clearance < (WALL_INNER_M if kind == "Eidechsen" else IslandVegetation.ROAD_CLEARANCE_M):
 				wrong.append("%s bei %s auf der Fahrbahn (%.1f m)" % [kind, at, clearance])
 			if station == "abfahrt" and _field_distance(world, at) < radius:
 				wrong.append("%s bei %s auf einem Feld" % [kind, at])
