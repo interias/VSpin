@@ -87,7 +87,8 @@ verfügbar, daher nur Godot-Bordmittel:
     (prozedural, weltfest projiziert): Boden mit Flecken aus Erde und Gras und Körnung, Straße mit Asphaltkorn und
     ausgebesserten Stellen. **Browser:** halb so viel Gras und Unterholz, 70 % der Sichtweite. Alle Farben in
     `IslandVegetation.PALETTE`; `IslandVegetation.set_palette()` färbt Vegetation und Bodentextur zentral um
-    (Einhängepunkt für die Jahreszeiten, #39). Eigene Seeds 1511–1516.
+    (Einhängepunkt für die Jahreszeiten, #39). Eigene Seeds 1511–1516. Dazu die Arten der Jahreszeiten (#39, siehe
+    „Jahreszeiten“): Mohn am Wegrand, Mandelbäume im Hain und an der Abfahrt, Getreidefelder an der Abfahrt.
     Kosten: fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070): Mittel 60,0 fps, 1-%-Tief 53,1 fps,
     24 von 39 724 Frames < 50 fps – vorher auf derselben Fahrt 60,0 / 53,2 / 18; im Compatibility-Renderer 59,9 /
     59,3 / 66.
@@ -210,7 +211,7 @@ einfarbige Flächen) ×0,78, Sonne/Mond ×0,8, Belichtung ×0,92, Umgebungslicht
 `MODE_FIXED`, `MODE_TIMELAPSE` (Stunde = Ortszeit 0–24) und `sky.set_weather_mode(mode, state = "")` mit
 `Weather.MODE_CHANGING`/`MODE_FIXED` und `Weather.CLEAR`, `LIGHT_CLOUDS`, `OVERCAST`, `RAIN`. Lesen: `sky.clock`
 (`local_hour()`, `timelapse_day_min`), `sky.weather.state`, `sky.sun_angles`. `set_compatibility(bool)` schaltet das
-Lichtprofil (Tests, Vergleich). Im Grafikmenü (`Esc`/`F2`, G8) lassen sich Tageszeit und Wetter umstellen; die Auswahl
+Lichtprofil (Tests, Vergleich). Im Grafikmenü (`Esc`/`F2`, G8) lassen sich Tageszeit, Wetter und Jahreszeit umstellen; die Auswahl
 liegt in `user://settings.cfg [sky]` über `config.cfg [sky]` (siehe „Grafik und Fenster“).
 
 **Sichtprüfung:** `view_probe.gd -- --time=21:30 --date=2026-06-21 --weather=rain` (feste Ortszeit/Datum/Wetter
@@ -219,6 +220,30 @@ Compatibility-Renderer: `godot --rendering-method gl_compatibility …`).
 **Kosten:** fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070), Datum 21.06.: Tag (13:30, klar) Mittel
 59,9 / min 7,2 / 1-%-Tief 53,2 / 61 Frames < 50 fps; Nacht (23:30) 60,0 / 36,4 / 52,2 / 342; Regen (14:00) 60,0 /
 8,8 / 52,6 / 30 – jeweils ~39 700 Frames (Einzelhänger wie vor G6, siehe oben).
+
+### Jahreszeiten (#39)
+
+Die **Jahreszeit** folgt wie die Tageszeit dem echten Datum auf Mallorca (dieselbe Uhr, `sky.clock`; Ortsdatum) –
+oder steht fest (Grafikmenü, Feld *Jahreszeit*: *Nach Datum (Mallorca)* oder eine Phase; gespeichert in
+`settings.cfg [sky]` als `season_mode`/`season`). Fünf Phasen (`src/season.gd`, `Season`, reine Logik):
+
+| Phase | Datum | Insel |
+|---|---|---|
+| Mandelblüte (`almond`) | 25.01.–09.03. | Mandelbäume weiß-rosa, Wiesen und junges Getreide grün |
+| Frühling (`spring`) | 10.03.–31.05. | saftig grün, roter Mohn am Wegrand |
+| Sommer (`summer`) | 01.06.–15.09. | Gras, Unterholz und Felder goldgelb und trocken, Boden heller, Licht warm |
+| Herbst (`autumn`) | 16.09.–30.11. | ockerfarbenes Gras, Stoppelfelder, Licht warm und milder |
+| Winter (`winter`) | 01.12.–24.01. | grün (Regenzeit), Mandelbäume kahl, Licht kühler und blasser |
+
+Ein Wechsel färbt die Welt um, ohne sie neu zu bauen (`IslandWorld.set_season`): Vegetation und Boden über
+`IslandVegetation.set_palette()`, die Kenney-Vegetation über `IslandWorld.tint_nature()` (Faktor je Materialname
+`grass`/`leafsGreen` auf die Farben vom Laden), der Mohn blendet ein/aus. Die Farben je Phase stehen in
+`Season.LOOKS`, die dezente Farbstimmung des Lichts (Sonne, Umgebungslicht, Sättigung) in
+`SkyController.SEASON_MOOD`. Für die Erfolge zählt die Mandelblüte als Frühling (Erfolg *Mandelblüte*).
+Schnittstelle: `sky.set_season_mode(Season.MODE_REAL | MODE_FIXED, phase)`, `sky.season()`.
+**Sichtprüfung:** `view_probe.gd -- --season=summer` (ohne Angabe nach `--date` bzw. heute).
+**Kosten:** fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070), Frühling (Mohn sichtbar): Mittel
+60,0 fps, 1-%-Tief 53,0 fps, 2 von 39 723 Frames < 50 fps (vorher 60,0 / 53,2 / 2).
 
 ## Fahrer und Rad
 
@@ -387,6 +412,7 @@ Startmenü) und „Beenden“ (beendet das Spiel; im Browser ausgeblendet) – `
 | Schatten | Niedrig/Mittel/Hoch (Schattenatlas 2048/4096/8192, Weichzeichnung) | Mittel (wie bisher) |
 | Tageszeit | Echtzeit (Mallorca), feste Uhrzeit 6:00/9:00/12:00/15:00/18:00/20:30/22:00/0:00, Zeitraffer 12/24/48 min je Tag (startet bei der aktuellen Uhrzeit des Spiels) | wie `config.cfg [sky]` (Echtzeit) |
 | Wetter | Wechselnd (meist sonnig), Klar, Leicht bewölkt, Bewölkt, Regen (fest) – sofort, ohne Überblendung | wie `config.cfg [sky]` (Wechselnd) |
+| Jahreszeit | Nach Datum (Mallorca), Mandelblüte, Frühling, Sommer, Herbst, Winter (fest) – sofort (#39) | Nach Datum |
 | Fenstermodus | Fenster (mit Rahmen, frei skalierbar), Randloses Fenster, Vollbild | Fenster 1600 × 900, mittig |
 | Fenstergröße | 960 × 1040, 1280 × 720, 1600 × 900, 1920 × 1080, 2560 × 1440 (im Vollbild: Bildschirmauflösung) | 1600 × 900 |
 
@@ -401,7 +427,7 @@ geht es dabei zurück ins Fenster. Alternativ wie gewohnt Win+←/→. HUD, Meld
 schmalen Hochformat lesbar (die Mittelmeldung bricht um), die 3D-Sicht wird nicht verzerrt (vertikaler Blickwinkel
 fest, seitlich sieht man entsprechend weniger). Ohne Fokus läuft das Spiel mit voller Bildrate weiter.
 
-Tageszeit und Wetter landen erst nach einer Auswahl im Menü als Abschnitt `[sky]` in `settings.cfg`; beim Start
+Tageszeit, Wetter und Jahreszeit landen erst nach einer Auswahl im Menü als Abschnitt `[sky]` in `settings.cfg`; beim Start
 gilt zuerst `config.cfg [sky]`, ein gespeicherter `[sky]`-Abschnitt liegt darüber. Eine Uhrzeit aus `config.cfg`, die
 nicht in der Liste steht (z. B. 13:00), zeigt das Menü als zusätzlichen Eintrag.
 
@@ -492,8 +518,8 @@ nicht mit Ghost, #43) fragt man `ghost_active()` der Hauptszene ab.
 gesamt, 20/50 km in einer Fahrt), Rundenzahl (1/10/50 gesamt, 3/10 in einer Fahrt), Tageszeit (5–8, 12–15, 18–21,
 22–5 Uhr Ortszeit), Wetter (je Zustand), Jahreszeit und Training. Jeder Erfolg ist nur Daten (Name, Text, Ereignis,
 Bedingung); ausgewertet werden **Ereignisse der Fahrt**: je volle Runde `lap`, je voller Kilometer (gesamt) `distance`,
-`weather` und `time_of_day`. Jahreszeit (`season`, #39) und Training (`training_finished`, #37) sind im Ereignisvertrag
-angelegt; `training_finished` sendet das Training (#37), `season` folgt mit #39. Ein neuer Erfolg blendet im HUD ein („Erfolg: Regenfahrer – Im
+`weather`, `time_of_day` und `season` (#39; die Mandelblüte zählt als Frühling); am Trainingsende
+`training_finished` (#37). Ein neuer Erfolg blendet im HUD ein („Erfolg: Regenfahrer – Im
 Regen gefahren“); mehrere Einblendungen (Bestzeit, Segment, Erfolg, Level) laufen nacheinander statt sich zu
 überschreiben. Am Fahrtende prüft das Spiel Strecke und Runden gesamt noch einmal – ein Spielstand von vor #35 holt so
 nach, was er schon erfüllt. Das Ergebnis nennt die neuen Erfolge und das neue Level in der Kopfzeile.
@@ -710,9 +736,10 @@ src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil
 src/island_terrain.gd   IslandTerrain: Höhenfeld (prozedural oder Höhenkarte), unter die Straße geformt, Mesh
 src/island_world.gd     IslandWorld: Gelände, Meer, Fahrbahn, Stationsmarker, Deko aller Stationen mit Modellen (#15, #16)
 src/island_landmarks.gd IslandLandmarks: Sehenswürdigkeiten und Kleindetails (G2), Platzierungsdaten für Tests
-src/island_vegetation.gd IslandVegetation: Gras, Unterholz, Sträucher, Bodentexturen, Farbpalette (#38)
+src/island_vegetation.gd IslandVegetation: Gras, Unterholz, Sträucher, Bodentexturen, Farbpalette (#38); Mohn, Mandelbäume, Felder (#39)
 src/world_motion.gd     WorldMotion: bewegte Szenen und Effekte (G3) – Mühlen, Leuchtturm, Boote, Vögel, Wolken, Brunnen
 src/day_night.gd        DayNight: Uhr (Mallorca-Ortszeit, Modi), Sonnenstand, Auf-/Untergang – reine Logik
+src/season.gd           Season: Jahreszeit aus dem Datum (Mallorca), Farben je Jahreszeit – reine Logik (#39)
 src/weather.gd          Weather: simuliertes Wetter, Zustände und Übergänge – reine Logik
 src/sky_controller.gd   SkyController: Sonne, Mond, Himmel, Environment, Regen, Sterne, Web-Lichtprofil (G6)
 src/night_lights.gd     NightLights: Laternen, Leuchtfeuer, Fahrradlicht bei Nacht

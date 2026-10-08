@@ -111,6 +111,7 @@ func test_palette_recolours_vegetation_and_ground_centrally() -> void:
 	var world := _world()
 	var material := IslandVegetation.mesh("Gras").surface_get_material(0) as ShaderMaterial
 	var texture := (world.get_node("Terrain") as MeshInstance3D).material_override.detail_albedo as Texture2D
+	IslandVegetation.set_palette(IslandVegetation.PALETTE)  # Palette ist statisch: die Welt startet in der Jahreszeit des Datums (#39)
 	var before := IslandVegetation.ground_image.get_pixel(10, 10)
 	IslandVegetation.set_palette({"Gras": Color(0.8, 0.6, 0.2), "Boden_Erde": Color(0.95, 0.8, 0.6),
 			"Boden_Gras": Color(0.95, 0.85, 0.6)})
