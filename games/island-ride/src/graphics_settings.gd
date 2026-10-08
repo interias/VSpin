@@ -1,5 +1,5 @@
 ## Grafik- und Fenstereinstellungen der Inselfahrt (Menü `F2`, G4): Kantenglättung, Render-Auflösung, VSync,
-## fps-Limit, Schatten, Tempo-Effekte (#42), Fenstermodus und -geometrie; dazu Tageszeit, Wetter und Jahreszeit (G8, #39; Abschnitt `[sky]`, nur geschrieben,
+## fps-Limit, Schatten, Tempo-Effekte (#42), Panorama-Momente (#43), Fenstermodus und -geometrie; dazu Tageszeit, Wetter und Jahreszeit (G8, #39; Abschnitt `[sky]`, nur geschrieben,
 ## sobald im Menü gewählt – sonst gilt `config.cfg [sky]`). Gespeichert in `user://settings.cfg` (ConfigFile), getrennt von
 ## der Spiel-Konfiguration `config.cfg` (Bus, Fahrmodell). Fehlende Datei oder Schlüssel, ungültige Werte → Standard.
 ## Logik und Werte hier; das Menü (`scenes/settings_menu.gd`) zeigt sie an und wendet sie an.
@@ -66,6 +66,8 @@ var max_fps := 0
 var shadows := SHADOWS_MEDIUM
 ## Geschwindigkeitslinien und Sichtfeld-Kick (#42, SpeedEffects).
 var speed_effects := true
+## Panorama-Momente an den Sehenswürdigkeiten (#43).
+var panorama := true
 var window_mode := WINDOW_WINDOWED
 var window_size := Vector2i(1600, 900)
 ## Position der Client-Fläche (ohne Rahmen); POSITION_CENTERED = mittig.
@@ -100,6 +102,7 @@ static func load_file(path: String = DEFAULT_PATH) -> GraphicsSettings:
 	settings.shadows = _choice(file.get_value("graphics", "shadows", settings.shadows), SHADOW_QUALITIES,
 			settings.shadows)
 	settings.speed_effects = bool(file.get_value("graphics", "speed_effects", settings.speed_effects))
+	settings.panorama = bool(file.get_value("graphics", "panorama", settings.panorama))
 	settings.window_mode = _choice(file.get_value("window", "mode", settings.window_mode), WINDOW_MODES,
 			settings.window_mode)
 	var size = file.get_value("window", "size", settings.window_size)
@@ -134,6 +137,7 @@ func save_file(path: String = DEFAULT_PATH) -> Error:
 	file.set_value("graphics", "max_fps", max_fps)
 	file.set_value("graphics", "shadows", shadows)
 	file.set_value("graphics", "speed_effects", speed_effects)
+	file.set_value("graphics", "panorama", panorama)
 	file.set_value("window", "mode", window_mode)
 	file.set_value("window", "size", window_size)
 	file.set_value("window", "position", window_position)

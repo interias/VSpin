@@ -10,6 +10,11 @@
 ## Richtungen und im Training). Die Fahrt und ihre Zeitmessung laufen dabei unverändert. Ab etwa 35 km/h ziehen
 ## Geschwindigkeitslinien und das Sichtfeld weitet sich leicht (SpeedEffects, im Einstellungsmenü abschaltbar). Beides
 ## ist nur Darstellung (ADR-0010).
+## Panorama-Momente (#43): Fährt der Fahrer an einer Sehenswürdigkeit vorbei (IslandWorld.panorama_spots, Auslösepunkt
+## ist ihre Fahrtposition `track.path_distance(path_m)`, in beiden Richtungen), schwenkt die Kamera kurz aus und das HUD
+## blendet den Namen ein – je Sehenswürdigkeit höchstens einmal je Runde, nicht mit Ghost, nicht im Training, nicht
+## während des Intros oder eines anderen Panoramas, im Einstellungsmenü abschaltbar. Auch das ist nur Kamera: Fahrmodell
+## und Zeitmessung laufen unverändert (ADR-0010).
 ## HUD (`Hud`, RideHud, Szene `scenes/hud.tscn`): bekommt pro Frame die Werte, Rundenfortschritt und Position.
 ##
 ## Szenenfluss (#30): Titel → Modus-Auswahl → Fahrt → Ergebnis → Menü. Nach dem Start (`start_in_menu`) steht das
@@ -124,10 +129,10 @@ const TITLE_FLIGHT_HEIGHT_M := 38.0
 const TITLE_LOOK_AHEAD_M := 170.0
 const TITLE_TERRAIN_CLEARANCE_M := 22.0
 const TITLE_SMOOTHING_S := 2.5
-## Kamera-Modus (#42): folgen (Standard) oder Intro beim Fahrtstart. Weitere Einstellungen (z. B. Panorama-Momente, #43)
-## kommen als eigener Modus in `_update_camera` dazu.
+## Kamera-Modus (#42): folgen (Standard), Intro beim Fahrtstart oder Panorama-Moment an einer Sehenswürdigkeit (#43).
 const CAMERA_FOLLOW := "follow"
 const CAMERA_INTRO := "intro"
+const CAMERA_PANORAMA := "panorama"
 ## Kamera-Intro: Dauer (s), Ausgangslage schräg vor dem Fahrer (Winkel um ihn herum ab „dahinter“, über seine rechte
 ## Seite), Abstand längs und seitlich (m; seitlich innerhalb der Torbogen-Pfosten am Start) und Höhe (m).
 const CAMERA_INTRO_S := 3.0
@@ -135,6 +140,16 @@ const CAMERA_INTRO_ANGLE_DEG := 150.0
 const CAMERA_INTRO_DISTANCE_M := 6.5
 const CAMERA_INTRO_SIDE_M := 3.0
 const CAMERA_INTRO_HEIGHT_M := 1.3
+## Panorama-Moment (#43): Dauer (s), Anteil davon für das Aus- und das Zurückschwenken, Lage der Kamera auf der der
+## Sehenswürdigkeit abgewandten Seite des Fahrers (Abstand, zurück entlang der Strecke – so steht der Schildpfosten
+## am Aussichtspunkt am Bildrand statt mitten im Bild – und Höhe, m) und Blickpunkt in ihre Richtung (m ab Fahrer, Höhe).
+const CAMERA_PANORAMA_S := 4.0
+const CAMERA_PANORAMA_SWING := 0.3
+const CAMERA_PANORAMA_DISTANCE_M := 9.0
+const CAMERA_PANORAMA_BACK_M := 6.0
+const CAMERA_PANORAMA_HEIGHT_M := 4.5
+const CAMERA_PANORAMA_LOOK_M := 12.0
+const CAMERA_PANORAMA_LOOK_HEIGHT_M := 2.0
 ## Ghost: seitlicher Versatz zum Fahrer auf der Straße (m, nach links), damit beide nebeneinander fahren.
 const GHOST_OFFSET_M := -1.3
 
@@ -200,9 +215,16 @@ var speed_effects: SpeedEffects
 ## Kamera-Modus (CAMERA_*) und Zeit seit seinem Beginn (s).
 var camera_mode := CAMERA_FOLLOW
 var camera_shot_s := 0.0
+## Panorama-Momente (#43): Sehenswürdigkeiten der Strecke (IslandWorld.panorama_spots; leer bei der Graybox), an/aus
+## laut Einstellungsmenü und die laufende ({} = keine).
+var panorama_spots: Array = []
+var panorama_enabled := true
+var panorama: Dictionary = {}
 
 var _manual_pause := false
 var _camera_look := Vector3.ZERO
+## Fahrtposition, bis zu der die Panorama-Auslösepunkte geprüft sind.
+var _panorama_m := 0.0
 ## Telemetrie seit dem letzten Verbindungsverlust empfangen? Erst dann wird weitergefahren.
 var _data_since_loss := false
 var _ever_connected := false
@@ -265,6 +287,7 @@ func _ready() -> void:
 	add_child(speed_effects)
 	speed_effects.setup(camera)
 	speed_effects.enabled = settings_menu.settings.speed_effects
+	panorama_enabled = settings_menu.settings.panorama
 	bus = BusClient.from_config(config)
 	bus.telemetry_received.connect(_on_telemetry)
 	bus.status_changed.connect(_on_status_changed)
@@ -316,6 +339,8 @@ func _setup_sky_settings() -> void:
 func _on_settings_changed(key: String) -> void:
 	if key == "speed_effects":
 		speed_effects.enabled = settings_menu.settings.speed_effects
+	if key == "panorama":
+		panorama_enabled = settings_menu.settings.panorama
 	if key in ["time", "weather", "season"]:
 		settings_menu.settings.apply_sky(sky)
 	if key == "time" and state == STATE_MENU:
@@ -350,6 +375,7 @@ func _setup_track() -> void:
 	world.name = "World"
 	add_child(world)
 	world.build(track)
+	panorama_spots = world.panorama_spots()
 
 
 ## Mitfahrer für den Ghost neben dem Fahrer: eigene Kopie des Fahrermodells, halbtransparent; ausgeblendet ohne Ghost.
@@ -374,7 +400,8 @@ func current_station() -> String:
 
 ## Kamera ruhig hinter dem Fahrer: Zielposition hinter ihm auf der Strecke (folgt Kurven und Kehren, statt
 ## seitlich auszuschwenken), Blick auf einen Punkt voraus; beides exponentiell geglättet. `snap` springt sofort.
-## Im Modus CAMERA_INTRO stattdessen der Schwenk des Intros, danach wieder folgen (#42).
+## Im Modus CAMERA_INTRO stattdessen der Schwenk des Intros, danach wieder folgen (#42); ebenso ein Panorama-Moment
+## (CAMERA_PANORAMA, #43), den das Vorbeifahren an einer Sehenswürdigkeit auslöst.
 func _update_camera(delta: float, snap: bool = false) -> void:
 	var d := model.distance_m
 	var up := Vector3.UP
@@ -382,6 +409,7 @@ func _update_camera(delta: float, snap: bool = false) -> void:
 	var look := track.to_global(track.ride_position_at(d + config.camera_look_ahead_m)) + up * config.camera_look_height_m
 	if world != null:
 		target.y = maxf(target.y, world.terrain.height_at(target.x, target.z) + CAMERA_TERRAIN_CLEARANCE_M)
+	_check_panorama(d, snap)
 	if camera_mode == CAMERA_INTRO:
 		camera_shot_s += delta
 		if camera_shot_s < CAMERA_INTRO_S:
@@ -389,7 +417,15 @@ func _update_camera(delta: float, snap: bool = false) -> void:
 			_aim_camera(shot[0], shot[1], 1.0)
 			return
 		_set_camera_mode(CAMERA_FOLLOW)
-	_aim_camera(target, look, 1.0 if snap else 1.0 - exp(-delta / CAMERA_SMOOTHING_S))
+	var follow := 1.0 if snap else 1.0 - exp(-delta / CAMERA_SMOOTHING_S)
+	if camera_mode == CAMERA_PANORAMA:
+		camera_shot_s += delta
+		if camera_shot_s < CAMERA_PANORAMA_S:
+			var view := _panorama_shot(d, target, look, camera_shot_s / CAMERA_PANORAMA_S)
+			_aim_camera(view[0], view[1], follow)
+			return
+		_end_panorama()
+	_aim_camera(target, look, follow)
 
 
 ## Kamera-Modus wechseln (CAMERA_*); die Zeit im Modus beginnt bei 0.
@@ -416,6 +452,67 @@ func _intro_shot(d: float, target: Vector3, look: Vector3, t: float) -> Array:
 		orbit.y = maxf(orbit.y, world.terrain.height_at(orbit.x, orbit.z) + CAMERA_TERRAIN_CLEARANCE_M)
 	var rider_eye := at + Vector3.UP * 1.1
 	return [orbit.lerp(target, smoothstep(0.6, 1.0, t)), rider_eye.lerp(look, ease)]
+
+
+## Panorama-Moment auslösen, wenn der Fahrer seit der letzten Prüfung den Auslösepunkt einer Sehenswürdigkeit (ihre
+## Fahrtposition in einer Runde) überfahren hat – nur beim Fahren mit Folgekamera (nicht im Intro), ohne Ghost, ohne
+## Training und eingeschaltet. Überfahrene Punkte gelten als geprüft, auch wenn kein Panorama kommt; so kommt jede
+## Sehenswürdigkeit höchstens einmal je Runde. `snap` (Sprung der Fahrtposition) prüft nichts.
+func _check_panorama(d: float, snap: bool) -> void:
+	var before := _panorama_m
+	_panorama_m = d
+	if snap or d <= before or state != STATE_RIDING or camera_mode != CAMERA_FOLLOW or not panorama_enabled \
+			or ghost_active() or training_active():
+		return
+	var length := track.length_m()
+	for spot in panorama_spots:
+		var ride_m := track.path_distance(spot["path_m"])
+		if floorf((d - ride_m) / length) > floorf((before - ride_m) / length):
+			panorama = spot
+			_set_camera_mode(CAMERA_PANORAMA)
+			hud.show_landmark(spot["name"], CAMERA_PANORAMA_S)
+			return
+
+
+## Panorama vorbei (oder abgebrochen): Folgekamera, Stationsschild wieder voll sichtbar.
+func _end_panorama() -> void:
+	_fade_spot_sign(1.0)
+	panorama = {}
+	if camera_mode == CAMERA_PANORAMA:
+		_set_camera_mode(CAMERA_FOLLOW)
+
+
+## Ein Stationsschild am Ort des Panoramas (der Aussichtspunkt hat eins über der Straße) blendet im Schwenk aus – es
+## stünde sonst groß vor der Kamera; den Namen zeigt dann das HUD.
+func _fade_spot_sign(alpha: float) -> void:
+	if world == null or panorama.is_empty():
+		return
+	var sign := world.get_node_or_null("Stations/%s/Label" % panorama["id"]) as Label3D
+	if sign != null:
+		sign.modulate.a = alpha
+		sign.outline_modulate.a = alpha
+
+
+## Panorama-Moment beim Anteil `t` (0..1) an Fahrtposition `d`: die Kamera schwenkt weich aus der Folgekamera
+## (`target`, `look`) auf die der Sehenswürdigkeit abgewandte Seite des Fahrers, etwas erhöht, und blickt über ihn zu
+## ihr hin; zum Ende wieder genau in die Folgekamera. Ein Stationsschild dort blendet so lange aus. Ergebnis: [Position,
+## Blickpunkt].
+func _panorama_shot(d: float, target: Vector3, look: Vector3, t: float) -> Array:
+	var at := track.to_global(track.ride_position_at(d)) + Vector3.UP * 1.5
+	var to: Vector3 = panorama["at"] - at
+	var flat := Vector3(to.x, 0.0, to.z)
+	if flat.length() < 0.001:
+		return [target, look]
+	var forward := track.to_global(track.ride_position_at(d + 1.0)) - track.to_global(track.ride_position_at(d))
+	forward.y = 0.0
+	var wide := at - flat.normalized() * CAMERA_PANORAMA_DISTANCE_M - forward.normalized() * CAMERA_PANORAMA_BACK_M \
+			+ Vector3.UP * CAMERA_PANORAMA_HEIGHT_M
+	if world != null:
+		wide.y = maxf(wide.y, world.terrain.height_at(wide.x, wide.z) + CAMERA_TERRAIN_CLEARANCE_M)
+	var swing := smoothstep(0.0, CAMERA_PANORAMA_SWING, t) * (1.0 - smoothstep(1.0 - CAMERA_PANORAMA_SWING, 1.0, t))
+	_fade_spot_sign(1.0 - swing)
+	var view := at + to.normalized() * CAMERA_PANORAMA_LOOK_M + Vector3.UP * CAMERA_PANORAMA_LOOK_HEIGHT_M
+	return [target.lerp(wide, swing), look.lerp(view, swing)]
 
 
 ## Titelbild: die Kamera fliegt langsam hoch über dem Rundkurs voraus und blickt weit nach vorn. `snap` springt.
@@ -470,6 +567,8 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 	state_changed.emit(state)
 	_update_state()
 	_update_view()
+	_end_panorama()
+	hud.show_landmark("")
 	_set_camera_mode(CAMERA_INTRO)
 	_update_camera(0.0, true)
 
@@ -630,7 +729,9 @@ func _enter_menu() -> void:
 	rider.visible = false
 	ghost_rider.visible = false
 	settings_menu.set_ride_active(false)
+	_end_panorama()
 	_set_camera_mode(CAMERA_FOLLOW)
+	hud.show_landmark("")
 	speed_effects.reset()
 	_update_round_trip_menu()
 	start_menu.open()
@@ -752,12 +853,12 @@ func curvature_at(d: float) -> float:
 			track.ride_position_at(d), track.ride_position_at(d + RiderMotion.CURVE_SAMPLE_M))
 
 
-## Fährt ein Ghost mit? (Abfrage für spätere Pakete, z. B. keine Panorama-Momente mit Ghost, #43.)
+## Fährt ein Ghost mit? (Dann keine Panorama-Momente, #43.)
 func ghost_active() -> bool:
 	return ghost != null and state != STATE_MENU
 
 
-## Läuft ein Training? (Abfrage für spätere Pakete, z. B. keine Panorama-Momente im Training, #43.)
+## Läuft ein Training? (Dann keine Panorama-Momente, #43.)
 func training_active() -> bool:
 	return training != null and state != STATE_MENU
 

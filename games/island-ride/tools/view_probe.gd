@@ -7,6 +7,7 @@
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
 ##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4] [--logbook] [--rewards]
 ##         [--training] [--ccw] [--wardrobe=trikot_gelb,radfarbe_blau,helm_schwarz] [--fauna] [--effects-kmh=55] [--intro]
+##         [--panorama=aussichtspunkt,burg]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -61,6 +62,10 @@
 ## (SpeedEffects.hold_kmh); die fps-Fahrt (`--fps-*`) zeigt sie immer mit ihrem Tempo, wie im Spiel (Standard: an).
 ## Kamera-Intro (#42): `--intro` startet vor den Streckenbildern eine Fahrt wie „Losfahren“ (mit `--ccw` gegen den
 ## Uhrzeigersinn) und speichert `intro_0.png` (0,3 s), `intro_1.png` (1,5 s) und `intro_2.png` (nach dem Intro).
+## Panorama-Momente (#43): `--panorama=ID,…` stellt den Fahrer an den Auslösepunkt jeder genannten Sehenswürdigkeit
+## (IslandWorld.panorama_spots; `--panorama` ohne Liste = alle, mit `--ccw` in dieser Richtung), startet dort das
+## Panorama und speichert `panorama_<id>.png` mitten im Schwenk (mit `--hud` samt Namen) vor den Streckenbildern; der
+## Fahrer fährt dabei mit dem Tempo des Fahrmodells zu `--cadence` weiter.
 extends SceneTree
 
 ## Beispiel-Rundenzeiten (s) für `--laps`: gespeicherte Bestzeit vorher, dann die Runden der Fahrt.
@@ -96,6 +101,8 @@ var _outfit = null
 ## Tempo der Tempo-Effekte in `--shots` (`--effects-kmh`; NAN = wie die Fahrt) und Kamera-Intro (`--intro`).
 var _effects_kmh := NAN
 var _intro := false
+## Sehenswürdigkeiten für Panorama-Bilder (`--panorama`; null = keine, leer = alle).
+var _panorama = null
 
 
 func _initialize() -> void:
@@ -180,6 +187,8 @@ func _initialize() -> void:
 			_effects_kmh = float(value)
 		elif arg == "--intro":
 			_intro = true
+		elif arg.begins_with("--panorama"):
+			_panorama = Array(value.split(",", false)) if arg.contains("=") else []
 		elif arg.begins_with("--crop="):
 			var p := value.split(",")
 			_crop = Rect2i(int(p[0]), int(p[1]), int(p[2]), int(p[3]))
@@ -257,6 +266,8 @@ func _initialize() -> void:
 	_ride.rider_model = dummy
 	if _intro:
 		await _intro_shots(out_dir)
+	if _panorama != null:
+		await _panorama_shots(out_dir)
 	_ride.speed_effects.hold_kmh = _effects_kmh
 	for d in shots:
 		_place(d)
@@ -340,6 +351,29 @@ func _intro_shots(out_dir: String) -> void:
 		_pedal(0.1)
 		await _frames(1)
 		_save_image(out_dir.path_join(shot[1]))
+
+
+## Panorama-Moment an jeder gewählten Sehenswürdigkeit: Fahrer an ihren Auslösepunkt, Panorama wie im Spiel gestartet,
+## Bild mitten im Schwenk (die Hauptszene führt die Kamera mit der echten Bildzeit, der Fahrer rollt weiter).
+func _panorama_shots(out_dir: String) -> void:
+	for spot in _ride.panorama_spots:
+		if not _panorama.is_empty() and spot["id"] not in _panorama:
+			continue
+		_place(_ride.track.path_distance(spot["path_m"]))
+		_ride.panorama = spot
+		_ride._set_camera_mode(_ride.CAMERA_PANORAMA)
+		_ride.hud.show_landmark(spot["name"], _ride.CAMERA_PANORAMA_S)
+		var start := Time.get_ticks_msec()
+		var last := start
+		while Time.get_ticks_msec() - start < _ride.CAMERA_PANORAMA_S * 500.0:
+			await process_frame
+			var now := Time.get_ticks_msec()
+			_ride.model.distance_m += _ride.model.target_speed_mps(_cadence, _ride.current_grade()) * (now - last) / 1000.0
+			last = now
+		_pedal(0.1)
+		await _frames(1)
+		_save_image(out_dir.path_join("panorama_%s.png" % spot["id"]))
+		_ride._end_panorama()
 
 
 ## Fahrtenbuch mit Beispielstand (nur im Speicher): je Seite ein Bild.
