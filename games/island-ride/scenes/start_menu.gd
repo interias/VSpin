@@ -5,7 +5,7 @@
 ##                   der gewählten Richtung; „Losfahren“ (#31)
 ##   Training      → Einheit (aus `res://trainings`, Training.load_all) mit Beschreibung und Dauer; „Losfahren“ (#37)
 ##   Fahrtenbuch   öffnet das Fahrtenbuch (Statistik, Bestzeiten, Erfolge, letzte Fahrten; #35)
-##   Garderobe     ausgegraut („bald“)
+##   Garderobe     öffnet die Garderobe (Trikot, Radfarbe, Helm mit Vorschau; #36)
 ##   Einstellungen öffnet das Menü „Grafik und Fenster“ (wie F2)
 ##   Beenden       beendet das Spiel (nicht im Browser; nur Enter oder Klick, nie die Leertaste – #19)
 ## Bedienung mit Maus und Tastatur (Pfeiltasten/Tab, Enter/Leertaste); beim Öffnen liegt der Fokus auf dem ersten
@@ -21,6 +21,8 @@ signal ride_requested(mode: String)
 signal direction_changed(direction: String)
 ## „Fahrtenbuch“ gewählt (#35).
 signal logbook_requested
+## „Garderobe“ gewählt (#36).
+signal wardrobe_requested
 ## „Einstellungen“ gewählt.
 signal settings_requested
 ## „Beenden“ gewählt.
@@ -284,7 +286,7 @@ func _build() -> void:
 	_main_page = _page(pages, "Main")
 	_add_button(_main_page, "drive", "Fahren", show_page.bind(true))
 	_add_button(_main_page, "logbook", "Fahrtenbuch", logbook_requested.emit)
-	_add_button(_main_page, "wardrobe", "Garderobe – bald", Callable(), true)
+	_add_button(_main_page, "wardrobe", "Garderobe", wardrobe_requested.emit)
 	_add_button(_main_page, "settings", "Einstellungen", settings_requested.emit)
 	var quit := _add_button(_main_page, "quit", "Beenden", quit_requested.emit)
 	quit.visible = not web  # im Browser nicht

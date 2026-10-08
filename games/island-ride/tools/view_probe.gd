@@ -6,7 +6,7 @@
 ##         [--advance=1.5] [--time=21:30] [--date=2026-06-21] [--weather=rain] [--profile=forward|compat]
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
 ##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4] [--logbook] [--rewards]
-##         [--training] [--ccw]
+##         [--training] [--ccw] [--wardrobe=trikot_gelb,radfarbe_blau,helm_schwarz]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -49,6 +49,9 @@
 ## Trainingszeile und Ansage, `training.png`) und dann zu Ende, mit Treffern je nach Phase (`training_result.png`).
 ## Gegenrichtung (#34): `--ccw` fährt gegen den Uhrzeigersinn – `--shots`, `--segments`, `--laps` und `--ghost` dann in
 ## Fahrtposition dieser Richtung, mit `--title` ist die Richtung auf der Seite „Rundfahrt“ gewählt.
+## Garderobe (#36): `--wardrobe=TEIL,…` gibt dem Spielstand (nur im Speicher) Kilometer bis Level 12 und wählt die Teile
+## (Wardrobe.PARTS; leer = Standard) – der Fahrer trägt sie in `--shots`/`--close`. Mit `--title` öffnet die Probe die
+## Garderobe aus dem Startmenü und speichert `wardrobe.png` statt der Titelbilder.
 extends SceneTree
 
 ## Beispiel-Rundenzeiten (s) für `--laps`: gespeicherte Bestzeit vorher, dann die Runden der Fahrt.
@@ -77,6 +80,8 @@ var _logbook := false
 var _rewards := false
 ## Trainingsseite bzw. Training im HUD (`--training`).
 var _training := false
+## Garderobe: gewählte Teile (`--wardrobe`; null = ohne).
+var _outfit = null
 
 
 func _initialize() -> void:
@@ -150,6 +155,8 @@ func _initialize() -> void:
 			_rewards = true
 		elif arg == "--training":
 			_training = true
+		elif arg.begins_with("--wardrobe"):
+			_outfit = Array(value.split(",", false)) if arg.contains("=") else []
 		elif arg == "--ccw":
 			_ccw = true
 		elif arg.begins_with("--crop="):
@@ -211,8 +218,12 @@ func _initialize() -> void:
 			for kind in [Ghost.BEST, Ghost.LAST]:
 				_ride.save_game.record_ghost(config.track, _ride.track.direction, kind, _sample_ghost(22.0 / 3.6))
 			_ride._update_round_trip_menu()
+	if _outfit != null:
+		_dress()
 	if title:
-		if _logbook:
+		if _outfit != null:
+			await _wardrobe_shot(out_dir)
+		elif _logbook:
 			await _logbook_shots(out_dir)
 		else:
 			await _title_shots(out_dir)
@@ -315,6 +326,27 @@ func _logbook_shots(out_dir: String) -> void:
 		_ride.logbook.show_page(page)
 		await _frames(4)
 		_save_image(out_dir.path_join("logbook_%s.png" % page))
+
+
+## Garderobe (nur im Speicher): Kilometer bis Level 12, dann die Teile aus `--wardrobe` wählen; der Fahrer trägt sie.
+func _dress() -> void:
+	var stats := RideStats.new()
+	var km := DriverLevel.km_for(12)
+	stats.add(km * 150.0, 85.0, km * 1000.0)
+	_ride.save_game.add_ride(SaveGame.ride_entry(SaveGame.MODE_ROUND_TRIP, RideConfig.TRACK_ISLAND, false, 0, stats,
+			"2026-09-20T18:00:00Z"))
+	for item in _outfit:
+		if not Wardrobe.choose(_ride.save_game, item):
+			push_warning("view_probe: Teil %s unbekannt oder gesperrt" % item)
+	_ride._apply_wardrobe()
+
+
+## Garderobe aus dem Startmenü mit Vorschau.
+func _wardrobe_shot(out_dir: String) -> void:
+	await _frames(20)
+	_ride.start_menu.buttons["wardrobe"].pressed.emit()
+	await _frames(30)
+	_save_image(out_dir.path_join("wardrobe.png"))
 
 
 ## Einblendungen wie in der Fahrt: ein neuer Erfolg, danach ein Levelaufstieg (die laufende Einblendung beendet).

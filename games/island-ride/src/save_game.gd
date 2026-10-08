@@ -9,7 +9,8 @@
 ##                                 "segment_best_times": {"<strecke>": {"<richtung>": {"<segment>": <sekunden>}}},
 ##                                 "medals": {"<strecke>": {"<richtung>": {"lap"|"<segment>": "gold"|…}}},
 ##                                 "ghosts": {"<strecke>": {"<richtung>": {"best"|"last": {Ghost.to_dict()}}}},
-##                                 "achievements": {"<erfolg>": "…Z"}}}}
+##                                 "achievements": {"<erfolg>": "…Z"},
+##                                 "wardrobe": {"trikot"|"radfarbe"|"helm": "<teil-id>"}}}}
 ##
 ## Bestzeiten (#31): schnellste Runde je Strecke und Richtung (LapTiming.DIRECTION_*), in Sekunden.
 ## Segment-Bestzeiten (#33): schnellste Zeit je Strecke, Richtung und Segment-ID, in Sekunden.
@@ -20,12 +21,14 @@
 ## es folgt aus den Gesamt-Kilometern, und die ergeben sich wie Fahrzeit und Runden gesamt aus den Fahrten
 ## (`total_km`, `total_time_s`, `total_laps`). Ein älterer Stand ohne `achievements` bekommt den leeren Bereich; was er
 ## schon erfüllt, fällt beim nächsten Fahrtende.
+## Garderobe (#36): das gewählte Teil je Kategorie (Wardrobe.CATEGORIES); prüfen und wählen macht Wardrobe. Fehlt eine
+## Kategorie, gilt ihr Standard (der Look vor der Garderobe). Nur Kosmetik (ADR-0010).
 ##
 ## Training (#37): eine Fahrt im Modus MODE_TRAINING trägt zusätzlich den Namen der Einheit (`training`) und die
 ## Gesamtbewertung (`training_score`, Treffer der Zielkadenz 0..1); `finished` heißt dort: Einheit zu Ende gefahren.
 ## Bestzeit, Segmentzeiten, Medaillen und Ghosts schreibt das Training nicht.
 ##
-## Erweitern (Garderobe – spätere Pakete) geht additiv:
+## Erweitern (spätere Pakete) geht additiv:
 ## neue Bereiche in PROFILE_DEFAULTS bekommen beim Laden ihren Standardwert. Ändert sich das Format, steigt
 ## VERSION und `_upgrade_steps()` bekommt einen Schritt von der alten Version aus – alte Stände werden beim Laden
 ## hochgestuft, nie verworfen. Ein Stand aus einer neueren Version bleibt unverändert erhalten (unbekannte
@@ -41,7 +44,7 @@ const MODE_ROUND_TRIP := "rundfahrt"
 const MODE_TRAINING := "training"
 ## Bereiche je Fahrerprofil mit Standardwert (fehlende werden beim Laden ergänzt).
 const PROFILE_DEFAULTS := {"rides": [], "best_times": {}, "segment_best_times": {}, "medals": {}, "ghosts": {},
-		"achievements": {}}
+		"achievements": {}, "wardrobe": {}}
 ## Endung, unter der eine unlesbare Datei beiseitegelegt wird.
 const BROKEN_SUFFIX := ".defekt"
 
@@ -187,6 +190,11 @@ func unlock_achievement(id: String, date: String = utc_now()) -> bool:
 		return false
 	profile()["achievements"][id] = date
 	return true
+
+
+## Garderobe: Kategorie → gewählte Teil-ID, wie gespeichert (ungeprüft; Wardrobe.selection prüft). Schreibbar.
+func wardrobe() -> Dictionary:
+	return profile()["wardrobe"]
 
 
 ## Gefahrene Kilometer aller Fahrten (jeder Modus).

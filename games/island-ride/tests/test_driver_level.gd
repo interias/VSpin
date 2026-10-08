@@ -62,7 +62,8 @@ func test_level_unlocks_only_cosmetics() -> void:
 		assert_between(level, 1, DriverLevel.MAX_LEVEL)
 		assert_false(DriverLevel.unlocked(item, level - 1), "%s vor Level %d gesperrt" % [item, level])
 		assert_true(DriverLevel.unlocked(item, level), "%s ab Level %d frei" % [item, level])
-	assert_eq(DriverLevel.unlock_level("trikot_weiss"), 1, "Grundausstattung ab Level 1")
+	for item in Wardrobe.DEFAULTS.values():
+		assert_eq(DriverLevel.unlock_level(item), 1, "Grundausstattung %s ab Level 1" % item)
 	assert_eq(DriverLevel.unlock_level("unbekannt"), 1, "unbekannte Teile ab Level 1")
 
 
