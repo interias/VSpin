@@ -5,6 +5,11 @@
 ## Fahrer und Rad (`Track/Rider/Model`, RiderModel): Kurbel und Beine drehen mit der Kadenz, Räder rollen mit dem
 ## Tempo, Schräglage in Kurven, Vorbeuge bergauf; außerhalb von `riding` steht alles still.
 ## Grafik und Fenster: eigenes Menü (`settings_menu`, Esc/F2, F11), hier nur eingehängt; dort auch „Beenden“.
+## Kamera und Tempo (#42): Die Kamera hat einen Modus (`camera_mode`, eine Stelle in `_update_camera`): folgen oder das
+## Kamera-Intro beim Fahrtstart – ein Schwenk von schräg vorn um den Fahrer herum hinter ihn (CAMERA_INTRO_S, in beiden
+## Richtungen und im Training). Die Fahrt und ihre Zeitmessung laufen dabei unverändert. Ab etwa 35 km/h ziehen
+## Geschwindigkeitslinien und das Sichtfeld weitet sich leicht (SpeedEffects, im Einstellungsmenü abschaltbar). Beides
+## ist nur Darstellung (ADR-0010).
 ## HUD (`Hud`, RideHud, Szene `scenes/hud.tscn`): bekommt pro Frame die Werte, Rundenfortschritt und Position.
 ##
 ## Szenenfluss (#30): Titel → Modus-Auswahl → Fahrt → Ergebnis → Menü. Nach dem Start (`start_in_menu`) steht das
@@ -119,6 +124,17 @@ const TITLE_FLIGHT_HEIGHT_M := 38.0
 const TITLE_LOOK_AHEAD_M := 170.0
 const TITLE_TERRAIN_CLEARANCE_M := 22.0
 const TITLE_SMOOTHING_S := 2.5
+## Kamera-Modus (#42): folgen (Standard) oder Intro beim Fahrtstart. Weitere Einstellungen (z. B. Panorama-Momente, #43)
+## kommen als eigener Modus in `_update_camera` dazu.
+const CAMERA_FOLLOW := "follow"
+const CAMERA_INTRO := "intro"
+## Kamera-Intro: Dauer (s), Ausgangslage schräg vor dem Fahrer (Winkel um ihn herum ab „dahinter“, über seine rechte
+## Seite), Abstand längs und seitlich (m; seitlich innerhalb der Torbogen-Pfosten am Start) und Höhe (m).
+const CAMERA_INTRO_S := 3.0
+const CAMERA_INTRO_ANGLE_DEG := 150.0
+const CAMERA_INTRO_DISTANCE_M := 6.5
+const CAMERA_INTRO_SIDE_M := 3.0
+const CAMERA_INTRO_HEIGHT_M := 1.3
 ## Ghost: seitlicher Versatz zum Fahrer auf der Straße (m, nach links), damit beide nebeneinander fahren.
 const GHOST_OFFSET_M := -1.3
 
@@ -179,6 +195,11 @@ var finish_distance_m := 0.0
 var world: IslandWorld = null
 ## Tag/Nacht und Wetter (G6), Kind `Sky`.
 var sky: SkyController = null
+## Geschwindigkeitslinien und Sichtfeld-Kick (#42), Kind `SpeedEffects`.
+var speed_effects: SpeedEffects
+## Kamera-Modus (CAMERA_*) und Zeit seit seinem Beginn (s).
+var camera_mode := CAMERA_FOLLOW
+var camera_shot_s := 0.0
 
 var _manual_pause := false
 var _camera_look := Vector3.ZERO
@@ -240,6 +261,10 @@ func _ready() -> void:
 	add_child(sky)
 	sky.setup(self)
 	_setup_sky_settings()
+	speed_effects = SpeedEffects.new()
+	add_child(speed_effects)
+	speed_effects.setup(camera)
+	speed_effects.enabled = settings_menu.settings.speed_effects
 	bus = BusClient.from_config(config)
 	bus.telemetry_received.connect(_on_telemetry)
 	bus.status_changed.connect(_on_status_changed)
@@ -274,6 +299,7 @@ func _process(delta: float) -> void:
 	_update_view()
 	_update_rider(delta)
 	_update_camera(delta)
+	speed_effects.update(model.speed_kmh() if state == STATE_RIDING else 0.0, delta)
 
 
 ## Tageszeit/Wetter aus dem Menü: gespeicherte Werte (`settings.cfg [sky]`) über `config.cfg` legen, sonst den
@@ -288,6 +314,8 @@ func _setup_sky_settings() -> void:
 
 
 func _on_settings_changed(key: String) -> void:
+	if key == "speed_effects":
+		speed_effects.enabled = settings_menu.settings.speed_effects
 	if key in ["time", "weather", "season"]:
 		settings_menu.settings.apply_sky(sky)
 	if key == "time" and state == STATE_MENU:
@@ -346,6 +374,7 @@ func current_station() -> String:
 
 ## Kamera ruhig hinter dem Fahrer: Zielposition hinter ihm auf der Strecke (folgt Kurven und Kehren, statt
 ## seitlich auszuschwenken), Blick auf einen Punkt voraus; beides exponentiell geglättet. `snap` springt sofort.
+## Im Modus CAMERA_INTRO stattdessen der Schwenk des Intros, danach wieder folgen (#42).
 func _update_camera(delta: float, snap: bool = false) -> void:
 	var d := model.distance_m
 	var up := Vector3.UP
@@ -353,7 +382,40 @@ func _update_camera(delta: float, snap: bool = false) -> void:
 	var look := track.to_global(track.ride_position_at(d + config.camera_look_ahead_m)) + up * config.camera_look_height_m
 	if world != null:
 		target.y = maxf(target.y, world.terrain.height_at(target.x, target.z) + CAMERA_TERRAIN_CLEARANCE_M)
+	if camera_mode == CAMERA_INTRO:
+		camera_shot_s += delta
+		if camera_shot_s < CAMERA_INTRO_S:
+			var shot := _intro_shot(d, target, look, camera_shot_s / CAMERA_INTRO_S)
+			_aim_camera(shot[0], shot[1], 1.0)
+			return
+		_set_camera_mode(CAMERA_FOLLOW)
 	_aim_camera(target, look, 1.0 if snap else 1.0 - exp(-delta / CAMERA_SMOOTHING_S))
+
+
+## Kamera-Modus wechseln (CAMERA_*); die Zeit im Modus beginnt bei 0.
+func _set_camera_mode(mode: String) -> void:
+	camera_mode = mode
+	camera_shot_s = 0.0
+
+
+## Kamera-Intro beim Anteil `t` (0..1): auf einem flachen Bogen um den Fahrer an Fahrtposition `d` von schräg vorn
+## rechts nach hinten, Blick vom Fahrer nach vorn; zum Ende hin genau in die Folgekamera (`target`, `look`).
+## Ergebnis: [Position, Blickpunkt].
+func _intro_shot(d: float, target: Vector3, look: Vector3, t: float) -> Array:
+	var at := track.to_global(track.ride_position_at(d))
+	var forward := track.to_global(track.ride_position_at(d + 1.0)) - at
+	forward.y = 0.0
+	forward = forward.normalized() if forward.length() > 0.001 else Vector3.FORWARD
+	var right := forward.cross(Vector3.UP)
+	var ease := smoothstep(0.0, 1.0, t)
+	var angle := deg_to_rad(CAMERA_INTRO_ANGLE_DEG) * (1.0 - ease)
+	var radius := lerpf(CAMERA_INTRO_DISTANCE_M, config.camera_behind_m, ease)
+	var height := lerpf(CAMERA_INTRO_HEIGHT_M, config.camera_height_m, ease)
+	var orbit := at - forward * cos(angle) * radius + right * sin(angle) * CAMERA_INTRO_SIDE_M + Vector3.UP * height
+	if world != null:
+		orbit.y = maxf(orbit.y, world.terrain.height_at(orbit.x, orbit.z) + CAMERA_TERRAIN_CLEARANCE_M)
+	var rider_eye := at + Vector3.UP * 1.1
+	return [orbit.lerp(target, smoothstep(0.6, 1.0, t)), rider_eye.lerp(look, ease)]
 
 
 ## Titelbild: die Kamera fliegt langsam hoch über dem Rundkurs voraus und blickt weit nach vorn. `snap` springt.
@@ -379,7 +441,7 @@ func _aim_camera(target: Vector3, look: Vector3, follow: float) -> void:
 ## (Ghost.BEST/LAST, "" = aus; ohne Aufzeichnung aus) – Fahrmodell, Statistik, Rundenwertung und Pausen
 ## zurückgesetzt; gefahren wird, sobald das Rad Daten liefert (wie bisher beim Start). Mit `training_unit` (wie
 ## Training.load_file) ein Training: endlos, ohne Ghost, im Uhrzeigersinn. `direction` = Fahrtrichtung
-## (Track.DIRECTION_*, #34).
+## (Track.DIRECTION_*, #34). Die Kamera beginnt mit dem Intro (#42); die Fahrt wartet nicht darauf.
 func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, ghost_kind: String = "",
 		training_unit: Dictionary = {}, direction: String = Track.DIRECTION_CW) -> void:
 	ride_mode = mode
@@ -408,6 +470,7 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 	state_changed.emit(state)
 	_update_state()
 	_update_view()
+	_set_camera_mode(CAMERA_INTRO)
 	_update_camera(0.0, true)
 
 
@@ -567,6 +630,8 @@ func _enter_menu() -> void:
 	rider.visible = false
 	ghost_rider.visible = false
 	settings_menu.set_ride_active(false)
+	_set_camera_mode(CAMERA_FOLLOW)
+	speed_effects.reset()
 	_update_round_trip_menu()
 	start_menu.open()
 	state_changed.emit(state)
