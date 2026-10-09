@@ -97,25 +97,12 @@
 ## (GatePlacement.LOCK_AHEAD_M, LOCK_S); das durchfahrene bleibt stehen, bis es hinter der Kamera liegt. Beides ist
 ## nur Anzeige – Fahrmodell und Bewertung sehen es nicht (ADR-0010).
 ##
-## Arcade (#46): „Fahren → Arcade“ startet einen Arcade-Lauf (ArcadeRun) auf der gewählten Stufe (ArcadeTiers) im
-## persönlichen Kadenzbereich (CadenceRange) als eigenen Modus (SaveGame.MODE_ARCADE): endlos, im Uhrzeigersinn, ohne
-## Ghost. Je Abschnitt und Runde würfelt der Lauf 1–2 Herausforderungen (Encounters, Daten; hier Zone halten). Das HUD
-## zeigt Herausforderung, Zielzone, Restzeit und Punkte, während Zone halten den Zonenbalken mit dem Fortschritt; vor
-## jeder steht ein Starttor auf der Strecke, das Zieltor dort, wo der Fahrer beim aktuellen Tempo das Zeitfenster
-## erreicht (GatePlacement). Geschafft und verfehlt blenden ein; verfehlt ist weich – die Fahrt geht weiter. In Pausen
-## läuft keine Herausforderung weiter und keine scheitert (der Lauf rechnet nur in `_ride`). „Fahrt beenden“ zeigt die
-## Zusammenfassung (Punkte, Herausforderungen, beste Punktzahl je Stufe im Spielstand). Arcade-km zählen für
-## Fahrtenbuch, Fahrerlevel und Erfolge, aber Runden im Arcade schreiben nie Bestzeit, Segmentzeit, Medaille oder Ghost
-## (ADR-0010).
-##
-## Beute und Ausrüstung (#49): Jede beendete Herausforderung würfelt im Arcade-Lauf Beute (geschafft sicher, verfehlt nur
-## mit Chance nach dem Fortschritt). Ein Fund zeigt sich als Lichtsäule in der Farbe seiner Seltenheit kurz vor dem
-## Fahrer (LootBeam unter `Track`) und als Popup im HUD, Punkte ebenso („+100“); die Zusammenfassung nennt die Funde, am
-## Fahrtende kommen sie ins Inventar (Inventory, Spielstand). Verwaltet wird nur im Menü („Fahren → Arcade →
-## Ausrüstung“, `scenes/gear_menu.gd`). Die angelegten Teile wirken nur im Arcade-Lauf (`arcade.gear`: breitere Zone,
-## Fortschritt in der Zone, Punkte, Beute-Glück – ohne Kadenz in der Zone nichts) und zeigen sich nur dort am Fahrer:
-## Im Arcade überdeckt jedes angelegte Teil die Garderobe an seinem Platz, sonst gilt die Garderobe (ADR-0010:
-## Rundfahrt und Training sehen und spüren keine Ausrüstung).
+## Arcade (#46, #47, #49, #63): „Fahren → Arcade“ startet einen Arcade-Lauf als eigenen Modus (SaveGame.MODE_ARCADE):
+## endlos, im Uhrzeigersinn, ohne Ghost, auf der gewählten Stufe im persönlichen Kadenzbereich. Alles Szenische des Arcade
+## (HUD, Tore, Requisiten, Beute, Zusammenfassung, Ausrüstung am Fahrer) liegt in `ArcadeStage` (`src/arcade_stage.gd`,
+## Kind `ArcadeStage`); die Hauptszene reicht nur durch: Start, Fahrschritt, Anzeige, Speichern, Ergebnis. Arcade-km zählen
+## für Fahrtenbuch, Fahrerlevel und Erfolge, aber Runden im Arcade schreiben nie Bestzeit, Segmentzeit, Medaille oder Ghost
+## (`records_count`, ADR-0010). Die Ausrüstung wird im Menü verwaltet („Fahren → Arcade → Ausrüstung“, `gear_menu`).
 ##
 ## Bridge aus dem Spiel (#25, BridgeLauncher, nur Windows-Desktop): Ist beim Start keine Bridge auf der Bus-Adresse
 ## erreichbar, startet das Spiel sie unsichtbar mit der Quelle aus `config.cfg [bridge]`; eine laufende wird nur
@@ -189,8 +176,8 @@ const CAMERA_PANORAMA_LOOK_HEIGHT_M := 2.0
 const GHOST_OFFSET_M := -1.3
 ## Intervall-Tore (#58): so weit hinter dem Fahrer (m) bleibt ein durchfahrenes Tor noch stehen (hinter der Kamera).
 const GATE_KEEP_BEHIND_M := 20.0
-## Beute (#49): so weit vor dem Fahrer (m) steht die Lichtsäule eines Fundes.
-const LOOT_AHEAD_M := 18.0
+## Beute (#49): so weit vor dem Fahrer (m) steht die Lichtsäule eines Fundes (Tests lesen sie hier).
+const LOOT_AHEAD_M := ArcadeStage.LOOT_AHEAD_M
 
 const BRIDGE_START_HINT := "Bridge starten: vspin-bridge --source sim"
 const RESISTANCE_NOT_SUPPORTED := "Widerstand: nicht unterstützt"
@@ -228,20 +215,31 @@ var ride_achievements: Array = []
 var ride_level := 1
 ## Trainingseinheit der laufenden Fahrt (null = kein Training).
 var training: Training = null
-## Arcade-Lauf der laufenden Fahrt (null = kein Arcade, #46).
-var arcade: ArcadeRun = null
-## Würfel des Arcade-Laufs (< 0 = zufällig; Tests setzen ihn fest) und die Herausforderungen, aus denen er würfelt.
-var arcade_seed := -1
-var arcade_pool: Array = Encounters.CHALLENGES
-## Start- und Zieltor der Arcade-Herausforderungen (Kinder von `Track`) und die Lage des Zieltors.
-var arcade_start_gate: CourseGate
-var arcade_finish_gate: CourseGate
-var arcade_gate_placement := GatePlacement.new()
-## Zugbrücke des Durchbruchs und Verfolger der Jagd (#47, Kinder von `Track`) und der Baustein, dem sie gerade gelten.
-var arcade_bridge: Drawbridge
-var arcade_pursuer: Pursuer
-## Lichtsäule des letzten Fundes (#49, Kind von `Track`).
-var loot_beam: LootBeam
+## Bühne des Arcade-Laufs (#63, Kind `ArcadeStage`): hält den Lauf, die Tore, Requisiten und die Lichtsäule.
+var arcade_stage: ArcadeStage
+## Weiterleitungen an die Bühne für Tests und Prüfhilfen (unverändert benannt, #63): Lauf der Fahrt (null = kein Arcade),
+## Würfel und Pool des Laufs (Tests setzen sie), Tore, Zugbrücke, Verfolger, Lichtsäule.
+var arcade: ArcadeRun:
+	get: return arcade_stage.run
+	set(value): arcade_stage.run = value
+var arcade_seed: int:
+	get: return arcade_stage.seed_value
+	set(value): arcade_stage.seed_value = value
+var arcade_pool: Array:
+	get: return arcade_stage.pool
+	set(value): arcade_stage.pool = value
+var arcade_start_gate: CourseGate:
+	get: return arcade_stage.start_gate
+var arcade_finish_gate: CourseGate:
+	get: return arcade_stage.finish_gate
+var arcade_gate_placement: GatePlacement:
+	get: return arcade_stage.gate_placement
+var arcade_bridge: Drawbridge:
+	get: return arcade_stage.bridge
+var arcade_pursuer: Pursuer:
+	get: return arcade_stage.pursuer
+var loot_beam: LootBeam:
+	get: return arcade_stage.loot_beam
 ## Mitfahrer des Ghosts auf der Strecke und sein halbtransparentes Fahrermodell.
 var ghost_rider: PathFollow3D
 var ghost_model: RiderModel
@@ -297,10 +295,6 @@ var _gates_of: Training = null
 var _gate_index := -1
 ## Laufende Fahrt schon im Spielstand?
 var _ride_saved := false
-## Baustein, dem das Arcade-Zieltor gerade gilt; neue beste Punktzahl der Stufe in diesem Lauf?
-var _arcade_gate_block: ChallengeBlock = null
-var _arcade_prop_block: ChallengeBlock = null
-var _arcade_new_best := false
 ## Streckenposition des Kameraflugs im Titelbild.
 var _flight_m := 0.0
 ## Vor der Fahrt: Kilometer und volle Runden gesamt, Fahrerlevel; nächster voller Kilometer (gesamt) für die Ereignisse.
@@ -360,16 +354,9 @@ func _ready() -> void:
 	_setup_ghost_rider()
 	gate_next = _new_gate("IntervalGate")
 	gate_passed = _new_gate("IntervalGatePassed")
-	arcade_start_gate = _new_gate("ArcadeStartGate")
-	arcade_finish_gate = _new_gate("ArcadeFinishGate")
-	arcade_bridge = Drawbridge.new()
-	arcade_bridge.visible = false
-	track.add_child(arcade_bridge)
-	arcade_pursuer = Pursuer.new()
-	track.add_child(arcade_pursuer)
-	loot_beam = LootBeam.new()
-	loot_beam.visible = false
-	track.add_child(loot_beam)
+	arcade_stage = ArcadeStage.new()
+	add_child(arcade_stage)
+	arcade_stage.setup(track, hud, format_time, GATE_KEEP_BEHIND_M)
 	_apply_wardrobe()
 	sky = SkyController.new()
 	add_child(sky)
@@ -386,6 +373,7 @@ func _ready() -> void:
 	sound.apply_settings(settings_menu.settings.sound_enabled, settings_menu.settings.sound_volume)
 	hud.celebration_shown.connect(func(_text): sound.play_ui(RideSound.UI_CELEBRATION))
 	bus = BusClient.from_config(config)
+	arcade_stage.bus = bus
 	bus.telemetry_received.connect(_on_telemetry)
 	bus.status_changed.connect(_on_status_changed)
 	bus.bus_connection_changed.connect(_on_bus_connection_changed)
@@ -681,24 +669,8 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 		direction = Track.DIRECTION_CW
 	laps = lap_count
 	_set_direction(direction)
-	arcade = null
-	if mode == SaveGame.MODE_ARCADE and training == null:
-		arcade = ArcadeRun.new(tier, CadenceRange.selection(save_game),
-				ArcadeRun.sections_from_stations(track.ride_stations(), track.length_m()), track.length_m(),
-				start_distance_m, arcade_seed, arcade_pool)
-		arcade.gear = Inventory.modifiers(save_game)  # angelegte Ausrüstung wirkt nur hier (ADR-0010)
+	arcade_stage.begin(mode == SaveGame.MODE_ARCADE and training == null, tier, save_game, start_distance_m)
 	_apply_wardrobe()
-	loot_beam.visible = false
-	loot_beam.ride_m = NAN
-	hud.clear_popups()
-	_arcade_gate_block = null
-	_arcade_prop_block = null
-	_arcade_new_best = false
-	arcade_start_gate.ride_m = NAN
-	arcade_finish_gate.ride_m = NAN
-	arcade_bridge.ride_m = NAN
-	arcade_bridge.visible = false
-	arcade_pursuer.reset(0.0)
 	ghost = save_game.ghost(config.track, track.direction, ghost_kind) if not ghost_kind.is_empty() else null
 	model = RideModel.new(config, start_distance_m)
 	stats = RideStats.new()
@@ -809,7 +781,7 @@ func _km_events() -> Array:
 ## Zählen die Runden dieser Fahrt für Bestzeit, Medaillen, Segmentzeiten und Ghost? Nur in der Rundfahrt – im Training
 ## wechselt die Vorgabe, im Arcade wirken Arcade-Werte (ADR-0010).
 func records_count() -> bool:
-	return training == null and arcade == null
+	return training == null and not arcade_stage.is_active()
 
 
 ## Seite „Arcade“ im Startmenü geändert (oder Losfahren): Stufe und Kadenzbereich in den Spielstand, die beste Punktzahl
@@ -863,8 +835,7 @@ func _on_part_chosen(_item: String) -> void:
 func _apply_wardrobe() -> void:
 	rider_model.reset_look()
 	rider_model.wear(Wardrobe.outfit(Wardrobe.selection(save_game)))
-	if arcade != null:
-		rider_model.wear(Loot.appearance(Inventory.equipped(save_game)))
+	arcade_stage.dress(rider_model, save_game)
 
 
 ## Ausrüstung (#49) aus der Seite „Arcade“ öffnen (das Menü tritt so lange zurück).
@@ -915,8 +886,8 @@ func return_to_menu() -> void:
 	var has_result := not lap_timing.lap_times.is_empty()
 	if training != null:
 		has_result = training.elapsed_s > 0.0
-	elif arcade != null:
-		has_result = arcade.elapsed_s > 0.0
+	elif arcade_stage.is_active():
+		has_result = arcade_stage.has_result()
 	if state != STATE_FINISHED and has_result:
 		_finish_ride()
 		return
@@ -938,12 +909,10 @@ func _enter_menu() -> void:
 	_end_panorama()
 	_set_camera_mode(CAMERA_FOLLOW)
 	hud.show_landmark("")
-	hud.clear_popups()
-	loot_beam.visible = false
+	arcade_stage.enter_menu()
 	speed_effects.reset()
 	_update_round_trip_menu()
 	_update_arcade_menu()
-	_update_arcade_gates()
 	start_menu.open()
 	state_changed.emit(state)
 	_fly_title(0.0, true)
@@ -989,11 +958,7 @@ func _save_ride() -> void:
 		var score := training.total_score()
 		entry["training"] = training.unit["name"]
 		entry["training_score"] = snappedf(score, 0.001) if not is_nan(score) else 0.0
-	if arcade != null:
-		entry["arcade"] = arcade.to_entry()
-		_arcade_new_best = save_game.record_arcade_points(arcade.tier, arcade.points)
-		for item in arcade.found:  # Beute ins Inventar (#49)
-			Inventory.add(save_game, item)
+	arcade_stage.save(entry, save_game)
 	save_game.add_ride(entry)
 	if records_count():
 		_record_round_trip()
@@ -1142,7 +1107,7 @@ func status_message() -> String:
 		STATE_FINISHED:
 			if training != null:
 				return training_result()
-			if arcade != null:
+			if arcade_stage.is_active():
 				return arcade_result()
 			var rewards := rewards_result()  # in der Kopfzeile: als eigene Zeile passten 20 Runden nicht mehr in 1152×648
 			return "%s%s\nZeit: %s\n%s\nØ Kadenz: %d rpm\nØ Tempo: %.1f km/h\nEnter: zurück ins Menü · Esc: Einstellungen" % [
@@ -1207,27 +1172,10 @@ func training_result() -> String:
 			stats.avg_speed_kmh(), "Enter: zurück ins Menü · Esc: Einstellungen"]
 
 
-## Zusammenfassung eines Arcade-Laufs (#46): Stufe, Zeit, Runden, Strecke, Punkte (mit neuer Bestpunktzahl der Stufe),
-## Herausforderungen geschafft/verfehlt und je Herausforderung, z. B. „Arcade beendet · Stufe 1\nZeit: 12:04.3 · Runden: 1
-## · Strecke: 5.21 km\nPunkte: 340 – neue Bestpunktzahl!\nHerausforderungen: 3 geschafft · 1 verfehlt\nZone halten 3/4 …“.
+## Zusammenfassung eines Arcade-Laufs (#46): Text der Bühne mit den Werten der Fahrt.
 func arcade_result() -> String:
-	var rewards := rewards_result()
-	var lines: Array = arcade.summary_lines()
-	if _arcade_new_best:
-		lines[0] += " – neue Bestpunktzahl!"
-	return "Arcade beendet · %s%s\nZeit: %s · Runden: %d · Strecke: %.2f km\n%s\nØ Kadenz: %d rpm · Ø Tempo: %.1f km/h\n%s" % [
-			ArcadeTiers.get_tier(arcade.tier)["name"], " · " + rewards if not rewards.is_empty() else "",
-			format_time(lap_time_s(), true), lap_timing.lap_times.size(), stats.distance_m / 1000.0,
-			"\n".join(lines), roundi(stats.avg_cadence()), stats.avg_speed_kmh(),
-			"Enter: zurück ins Menü · Esc: Einstellungen"]
-
-
-## Einblendung, wenn eine Herausforderung endet: „Zone halten geschafft! +100 Punkte“ oder „Zone halten verfehlt –
-## weiter geht's“ (weich: die Fahrt geht weiter).
-static func arcade_result_text(result: Dictionary) -> String:
-	if result["succeeded"]:
-		return "%s geschafft!  +%d Punkte" % [result["name"], result["points"]]
-	return "%s verfehlt – weiter geht's" % result["name"]
+	return arcade_stage.result_text(rewards_result(), format_time(lap_time_s(), true), lap_timing.lap_times.size(),
+			stats.distance_m / 1000.0, roundi(stats.avg_cadence()), stats.avg_speed_kmh())
 
 
 ## Neue Erfolge und Levelaufstieg dieser Fahrt fürs Ergebnis in einer Zeile, z. B. „Neuer Erfolg: Erste Runde ·
@@ -1301,10 +1249,7 @@ func _ride(delta: float) -> void:
 	stats.add(used, bus.cadence, model.distance_m - before)
 	if training != null:
 		training.advance(bus.cadence, used)
-	if arcade != null:
-		for result in arcade.advance(model.distance_m, bus.cadence, used):
-			hud.celebrate(arcade_result_text(result))
-			_show_loot(result)
+	arcade_stage.advance(model.distance_m, used)
 	var segments_before := lap_timing.segments.results.size()
 	var laps_done := lap_timing.advance(model.distance_m, used)
 	if laps_done > 0 and records_count() and lap_timing.last_lap_is_new_best():
@@ -1418,139 +1363,6 @@ func _show_training() -> void:
 	sound.announce(announcement, training.phase_index())
 
 
-## Arcade-Zeile und Zonenbalken im HUD (#46): während einer Herausforderung ihr Name, die Zielzone, die Restzeit, die
-## Punkte und der Zonenbalken mit dem Fortschritt; davor die nächste Herausforderung mit dem Weg bis zu ihrem Start.
-## Ohne Arcade und im Ergebnis aus (den Zonenbalken blendet dann schon `_show_training` aus).
-func _show_arcade() -> void:
-	if arcade == null or state == STATE_FINISHED:
-		hud.show_arcade("", "", "", "")
-		return
-	var points := str(arcade.points)
-	if not arcade.active.is_empty():
-		var block: ChallengeBlock = arcade.active["block"]
-		var zone := block.zone()
-		hud.show_arcade(arcade.active["definition"]["name"], Encounters.target_text(arcade.active["definition"], zone),
-				format_time(ceilf(block.remaining_s())), points)
-		hud.show_zone(zone.x, zone.y, bus.cadence, Training.percent_text(block.progress()), block.score_caption())
-		return
-	var next := arcade.next_challenge()
-	if next.is_empty():
-		hud.show_arcade("Arcade", "–", "–", points)
-		return
-	var zone := arcade.zone_of(next)
-	hud.show_arcade("Nächste: %s" % next["definition"]["name"], Encounters.target_text(next["definition"], zone),
-			"%d m" % maxi(ceili(next["at_m"] - model.distance_m), 0), points)
-
-
-## Feedback einer beendeten Herausforderung (#49): Punkte als Popup, ein Fund als Popup in der Farbe seiner Seltenheit
-## und als Lichtsäule LOOT_AHEAD_M vor dem Fahrer.
-func _show_loot(result: Dictionary) -> void:
-	if result["points"] > 0:
-		hud.popup("+%d" % result["points"])
-	var item: Dictionary = result.get("loot", {})
-	if item.is_empty():
-		return
-	hud.popup(Loot.item_name(item), Loot.color_of(item["rarity"]))
-	loot_beam.set_rarity(item["rarity"])
-	loot_beam.place(track, model.distance_m + LOOT_AHEAD_M)
-
-
-## Lichtsäule (#49): zu sehen, bis sie GATE_KEEP_BEHIND_M hinter dem Fahrer liegt; ohne Arcade und im Menü nie.
-func _update_loot_beam() -> void:
-	var at := loot_beam.ride_m
-	loot_beam.visible = arcade != null and state != STATE_MENU and not is_nan(at) \
-			and at > model.distance_m - GATE_KEEP_BEHIND_M
-
-
-## Tore der Arcade-Herausforderungen (#46): das Starttor („Start“ und Zielzone auf dem Banner, wie im Training) am Startpunkt der laufenden
-## oder nächsten Herausforderung, bis es GATE_KEEP_BEHIND_M hinter dem Fahrer liegt; das Zieltor während einer
-## Herausforderung dort, wo der Fahrer beim aktuellen Tempo das Ende ihres Zeitfensters erreicht (GatePlacement wie im
-## Training). Nach dem Ende bleibt ein durchfahrenes Zieltor kurz stehen, ein noch vorausliegendes verschwindet. Nur
-## Anzeige (ADR-0010).
-func _update_arcade_gates() -> void:
-	if arcade == null or state == STATE_MENU:
-		arcade_start_gate.visible = false
-		arcade_finish_gate.visible = false
-		arcade_bridge.visible = false
-		arcade_pursuer.reset(0.0)
-		return
-	var d := model.distance_m
-	var start := arcade.active if not arcade.active.is_empty() else arcade.next_challenge()
-	if start.is_empty():
-		arcade_start_gate.visible = false
-	else:
-		if arcade_start_gate.ride_m != start["at_m"]:
-			var zone := arcade.zone_of(start)
-			arcade_start_gate.configure(CourseGate.KIND_START,
-					"Start  %s" % Encounters.target_text(start["definition"], zone))
-			arcade_start_gate.place(track, start["at_m"])
-		arcade_start_gate.visible = start["at_m"] > d - GATE_KEEP_BEHIND_M \
-				and start["at_m"] - d < track.length_m() - GATE_KEEP_BEHIND_M
-	if arcade.active.is_empty():
-		var at := arcade_finish_gate.ride_m
-		arcade_finish_gate.visible = not is_nan(at) and at <= d + 1.0 and at > d - GATE_KEEP_BEHIND_M
-		_end_arcade_props(arcade_finish_gate.visible)
-		return
-	var block: ChallengeBlock = arcade.active["block"]
-	if block != _arcade_gate_block:
-		_arcade_gate_block = block
-		arcade_gate_placement.reset()
-		arcade_finish_gate.configure(CourseGate.KIND_FINISH, "Ziel")
-	var at := arcade_gate_placement.update(d, block.remaining_s(), model.speed_mps)
-	arcade_finish_gate.place(track, at)
-	arcade_finish_gate.visible = arcade_gate_placement.shown(d)
-	_update_arcade_props(block, at)
-
-
-## Darstellung der Bausteine Durchbruch und Jagd (#47) während der Herausforderung: die Zugbrücke steht statt des
-## Zieltors dort, wo das Zeitfenster endet, und senkt sich mit dem Balken; der Verfolger läuft hinter dem Fahrer, je
-## weiter hinten, desto größer der Abstand. Nur Anzeige (ADR-0010).
-func _update_arcade_props(block: ChallengeBlock, finish_at: float) -> void:
-	if block != _arcade_prop_block:
-		_release_arcade_props()  # die vorige Herausforderung kann im selben Schritt geendet haben, in dem diese begann
-		_arcade_prop_block = block
-		if block is Breakthrough:
-			arcade_bridge.reset()
-		if block is Chase:
-			arcade_pursuer.reset(block.progress())
-	if block is Breakthrough:
-		arcade_finish_gate.visible = false  # die Brücke ist das Ziel
-		arcade_bridge.place(track, finish_at)
-		arcade_bridge.follow(block.progress())
-		arcade_bridge.visible = arcade_gate_placement.shown(model.distance_m)
-	else:
-		arcade_bridge.visible = _opened_bridge_shown()  # eine frühere Brücke bleibt, bis sie hinter dem Fahrer liegt
-	if block is Chase:
-		arcade_pursuer.follow(track, model.distance_m, block.progress())
-
-
-## Nach dem Ende der Herausforderung: die Brücke öffnet sich ganz (nach Scheitern langsam), der Verfolger zieht ab. Die
-## Brücke bleibt wie ein durchfahrenes Zieltor kurz stehen (`keep`).
-func _end_arcade_props(keep: bool) -> void:
-	_release_arcade_props()
-	arcade_bridge.visible = _opened_bridge_shown()
-	arcade_finish_gate.visible = keep and arcade_finish_gate.visible and not arcade_bridge.visible
-
-
-func _release_arcade_props() -> void:
-	if _arcade_prop_block == null:
-		return
-	var ended := _arcade_prop_block
-	_arcade_prop_block = null
-	if ended is Breakthrough:
-		arcade_bridge.release(ended.state == ChallengeBlock.SUCCEEDED)
-	if ended is Chase:
-		arcade_pursuer.dismiss()
-
-
-## Steht eine geöffnete Brücke noch im Bild? Sie liegt voraus (nach einem Erfolg öffnet sie sich schon vor dem Fahrer)
-## oder höchstens GATE_KEEP_BEHIND_M hinter ihm.
-func _opened_bridge_shown() -> bool:
-	var at := arcade_bridge.ride_m
-	return not is_nan(at) and arcade_bridge.target >= 1.0 and at > model.distance_m - GATE_KEEP_BEHIND_M \
-			and at - model.distance_m < track.length_m() - GATE_KEEP_BEHIND_M
-
-
 func _new_gate(node_name: String) -> CourseGate:
 	var gate := CourseGate.new()
 	gate.name = node_name
@@ -1611,10 +1423,8 @@ func _update_view() -> void:
 	else:
 		hud.show_ghost("", false)
 	_show_training()
-	_show_arcade()
 	_update_gates()
-	_update_arcade_gates()
-	_update_loot_beam()
+	arcade_stage.update_view(model.distance_m, model.speed_mps, state == STATE_MENU, state == STATE_FINISHED)
 	var segment := lap_timing.segments.current()
 	hud.show_segment(segment.get("name", ""), format_time(segment["time_s"], true) if not segment.is_empty() else "")
 	if debug_label.visible:
