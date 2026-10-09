@@ -66,7 +66,7 @@ def raw_cadences(rows: list[dict]) -> list[float]:
     return [float(r["cadence_raw"]) for r in rows]
 
 
-def test_profile_plays_deterministically(bridge_process, bus_client, tmp_path):
+def test_profile_plays_deterministically(bridge_process, bus_client, tmp_path, isolated_bus):
     profile = write_profile(tmp_path, RAMP_PROFILE)
     runs = [
         play_to_end(bridge_process, bus_client, tmp_path / f"run{i}", "--profile", str(profile)) for i in (1, 2)
@@ -86,7 +86,7 @@ def test_profile_plays_deterministically(bridge_process, bus_client, tmp_path):
     assert t_ms[4] - t_ms[3] >= 700, t_ms
 
 
-def test_reported_cadence_zero_reaches_zero_quickly(bridge_process, bus_client, tmp_path):
+def test_reported_cadence_zero_reaches_zero_quickly(bridge_process, bus_client, tmp_path, isolated_bus):
     profile = write_profile(
         tmp_path, "[[steps]]\nduration_s = 1\ncadence = 60\n\n[[steps]]\nduration_s = 3\ncadence = 0\n"
     )
@@ -99,7 +99,7 @@ def test_reported_cadence_zero_reaches_zero_quickly(bridge_process, bus_client, 
     assert 0 < falling[0] < 60 and falling[5:] == [0.0] * 7, falling
 
 
-def test_noise_with_seed_is_reproducible(bridge_process, bus_client, tmp_path):
+def test_noise_with_seed_is_reproducible(bridge_process, bus_client, tmp_path, isolated_bus):
     profile = write_profile(tmp_path, STEADY_PROFILE)
 
     def run(name: str, *noise: str) -> list[dict]:
@@ -126,7 +126,7 @@ def test_noise_with_seed_is_reproducible(bridge_process, bus_client, tmp_path):
     assert min(gaps) > 0
 
 
-def test_noise_in_manual_mode(bridge_process, bus_client):
+def test_noise_in_manual_mode(bridge_process, bus_client, isolated_bus):
     bridge_process("--source", "sim", "--sim-cadence", "80", "--noise")
     client = bus_client()
     values = [m["cadence"] for m in (receive_json(client) for _ in range(13)) if m["type"] == "telemetry"]

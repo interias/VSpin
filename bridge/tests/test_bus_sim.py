@@ -10,7 +10,7 @@ def start_sim(bridge_process, cadence: str = "80"):
     return bridge_process("--source", "sim", "--sim-cadence", cadence)
 
 
-def test_new_client_gets_status_first_then_telemetry_with_monotonic_t_ms(bridge_process, bus_client):
+def test_new_client_gets_status_first_then_telemetry_with_monotonic_t_ms(bridge_process, bus_client, isolated_bus):
     start_sim(bridge_process)
     client = bus_client()
 

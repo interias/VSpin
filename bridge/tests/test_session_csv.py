@@ -71,7 +71,7 @@ def stop_with_ctrl_c(bridge) -> int:
     return bridge.stop()
 
 
-def test_simulator_run_writes_csv_matching_the_bus(bridge_process, bus_client, tmp_path):
+def test_simulator_run_writes_csv_matching_the_bus(bridge_process, bus_client, tmp_path, isolated_bus):
     sessions = tmp_path / "out"
     started = datetime.now()
     bridge = start_sim(bridge_process, sessions)
@@ -106,7 +106,7 @@ def test_simulator_run_writes_csv_matching_the_bus(bridge_process, bus_client, t
     assert raw.exists() and raw.read_bytes() == b""
 
 
-def test_grade_is_logged_after_set_grade(bridge_process, bus_client, tmp_path):
+def test_grade_is_logged_after_set_grade(bridge_process, bus_client, tmp_path, isolated_bus):
     bridge = start_sim(bridge_process, tmp_path)
     client = connect(bus_client)
     before = telemetry(client, 4)
@@ -133,7 +133,7 @@ def test_grade_is_logged_after_set_grade(bridge_process, bus_client, tmp_path):
         assert float(by_t[message["t_ms"]]["cadence"]) == message["cadence"]
 
 
-def test_ctrl_c_leaves_complete_csv(bridge_process, bus_client, tmp_path):
+def test_ctrl_c_leaves_complete_csv(bridge_process, bus_client, tmp_path, isolated_bus):
     bridge = start_sim(bridge_process, tmp_path)
     client = connect(bus_client)
     telemetry(client, 6)
@@ -148,7 +148,7 @@ def test_ctrl_c_leaves_complete_csv(bridge_process, bus_client, tmp_path):
         assert int(rows[-1]["t_ms"]) == seen[-1]["t_ms"]
 
 
-def test_stop_file_leaves_complete_session(bridge_process, bus_client, tmp_path):
+def test_stop_file_leaves_complete_session(bridge_process, bus_client, tmp_path, isolated_bus):
     """Stoppweg des Spiels (#25, unter Windows auch des Harness): Stoppdatei mitten im Replay."""
     fixture = FIXTURES_DIR / "csc_stop.raw.jsonl"
     bridge = bridge_process("--source", "replay", str(fixture), "--wait-client", "--sessions-dir", str(tmp_path))
@@ -334,7 +334,7 @@ class DiskFullAfter:
 
 
 def test_write_error_stops_session_logging_but_bridge_keeps_running(
-    in_process_bridge, bus_client, tmp_path, monkeypatch
+    in_process_bridge, bus_client, tmp_path, monkeypatch, isolated_bus
 ):
     real_open = open
 

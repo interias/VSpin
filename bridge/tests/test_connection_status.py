@@ -45,7 +45,7 @@ def telemetry_after(count: int, already: list[dict]):
     return done
 
 
-def test_drop_profile_status_sequence(bridge_process, bus_client):
+def test_drop_profile_status_sequence(bridge_process, bus_client, isolated_bus):
     bridge = bridge_process("--source", "sim", "--profile", str(PROFILES_DIR / "abbruch.toml"))
     first, second = bus_client(), bus_client()
 
