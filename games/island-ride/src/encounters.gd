@@ -1,7 +1,8 @@
 ## Begegnungen des Arcade-Modus (#46, Spec #27): Herausforderungen als **Daten**, die Bausteine (ChallengeBlock)
 ## kombinieren – neue Herausforderungen, Elite-Eigenschaften (#52) und Boss-Phasen (#51) entstehen als Einträge, nicht
 ## als Sonderlogik. Hier gibt es die Bausteine Zone halten (ZoneHold), Durchbruch (Breakthrough) und Jagd (Chase, #47);
-## Takt-Tore und Sammeln (#48) kommen als weiterer Baustein in `build` und als Einträge in CHALLENGES dazu.
+## Daten und Bauanleitung je Typ stehen in `src/challenges/`, angemeldet in `EncounterRegistry.TYPES` (#63) – Takt-Tore
+## und Sammeln (#48) kommen als eigene Datei plus eine Zeile dort dazu (Anleitung im Kopf von `encounter_registry.gd`).
 ##
 ## Eine Herausforderung: {id, block, name, points, …Parameter des Bausteins}. Zone halten:
 ##   zone_at   Lage der Zielzone im persönlichen Kadenzbereich (0 = untere Grenze, 1 = obere; Breite aus der Stufe)
@@ -28,25 +29,9 @@ extends RefCounted
 const ZONE_HOLD := "zone_hold"
 const BREAKTHROUGH := "breakthrough"
 const CHASE := "chase"
-## Die Herausforderungen, aus denen der Arcade-Lauf je Abschnitt würfelt.
-const CHALLENGES := [
-	{"id": "zone_mitte", "block": ZONE_HOLD, "name": "Zone halten", "zone_at": 0.5, "hold_s": 15.0, "window_s": 30.0,
-		"points": 100},
-	{"id": "zone_ruhig", "block": ZONE_HOLD, "name": "Zone halten", "zone_at": 0.35, "hold_s": 20.0, "window_s": 35.0,
-		"points": 120},
-	{"id": "zone_zuegig", "block": ZONE_HOLD, "name": "Zone halten", "zone_at": 0.62, "hold_s": 12.0, "window_s": 25.0,
-		"points": 120},
-	# Durchbruch: kurze harte Anstrengung hoch im Bereich (Zugbrücke).
-	{"id": "durchbruch_bruecke", "block": BREAKTHROUGH, "name": "Durchbruch", "threshold_at": 0.8, "fill_s": 6.0,
-		"window_s": 18.0, "decay": 0.5, "points": 140},
-	{"id": "durchbruch_spurt", "block": BREAKTHROUGH, "name": "Durchbruch", "threshold_at": 0.9, "fill_s": 4.0,
-		"window_s": 14.0, "decay": 0.5, "points": 160},
-	# Jagd: länger, mittlere Schwelle; wer nachlässt, wird eingeholt.
-	{"id": "jagd_verfolger", "block": CHASE, "name": "Jagd", "threshold_at": 0.55, "escape_s": 12.0, "catch_s": 12.0,
-		"window_s": 30.0, "start_gap": 0.4, "points": 140},
-	{"id": "jagd_wild", "block": CHASE, "name": "Jagd", "threshold_at": 0.65, "escape_s": 10.0, "catch_s": 8.0,
-		"window_s": 28.0, "start_gap": 0.35, "points": 170},
-]
+## Die Herausforderungen, aus denen der Arcade-Lauf je Abschnitt würfelt: die Daten aller Typen aus
+## `EncounterRegistry.TYPES` in deren Reihenfolge (#63; bis dahin eine Konstante an dieser Stelle).
+static var CHALLENGES: Array = EncounterRegistry.challenges()
 
 
 ## Herausforderung `id` aus `pool` ({} = unbekannt).
@@ -71,27 +56,12 @@ static func roll(rng: RandomNumberGenerator, count: int, pool: Array = CHALLENGE
 ## `gear` (null bei unbekanntem Baustein).
 static func build(definition: Dictionary, tier: int, cadence_range: CadenceRange,
 		gear: Dictionary = {}) -> ChallengeBlock:
-	var level := ArcadeTiers.get_tier(tier)
-	var block: ChallengeBlock = null
-	match definition.get("block"):
-		ZONE_HOLD:
-			var zone := zone_for(definition, tier, cadence_range, gear)
-			var factor: float = level["duration_factor"]
-			block = ZoneHold.new(zone.x, zone.y, float(definition["hold_s"]) * factor,
-					float(definition["window_s"]) * factor)
-		BREAKTHROUGH:
-			var zone := zone_for(definition, tier, cadence_range, gear)
-			var factor: float = level["duration_factor"]
-			block = Breakthrough.new(zone.x, zone.y, float(definition["fill_s"]) * factor,
-					float(definition["window_s"]) * factor, float(definition.get("decay", 0.5)))
-		CHASE:
-			var zone := zone_for(definition, tier, cadence_range, gear)
-			var factor: float = level["duration_factor"]
-			block = Chase.new(zone.x, zone.y, float(definition["escape_s"]) * factor, float(definition["catch_s"]),
-					float(definition["window_s"]) * factor, float(definition.get("start_gap", 0.35)))
-	if block == null:
+	var type := EncounterRegistry.type_of(definition.get("block"))
+	if type == null:
 		push_warning("Encounters: unbekannter Baustein %s" % definition.get("block"))
 		return null
+	var block: ChallengeBlock = type.build(definition, ArcadeTiers.get_tier(tier),
+			zone_for(definition, tier, cadence_range, gear))
 	block.progress_factor = 1.0 + maxf(float(gear.get("progress_pct", 0)), 0.0) / 100.0
 	return block
 

@@ -735,9 +735,7 @@ func _ride_arcade(seconds: float, settle: bool = true, dt: float = 1.0 / 30.0) -
 		_ride.model.step(_ride.bus.cadence, _ride.current_grade(), dt)
 		_ride.stats.add(dt, _ride.bus.cadence, _ride.model.distance_m - before)
 		_ride.lap_timing.advance(_ride.model.distance_m, dt)
-		for result in _ride.arcade.advance(_ride.model.distance_m, _ride.bus.cadence, dt):
-			_ride.hud.celebrate(_ride.arcade_result_text(result))
-			_ride._show_loot(result)
+		_ride.arcade_stage.advance(_ride.model.distance_m, dt)
 		_ride._update_view()
 		_ride._update_camera(dt)
 	if settle:
