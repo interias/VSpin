@@ -773,8 +773,8 @@ kommen mit vier neuen Einträgen in die Würfel der Arcade-Läufe.
   Zielzone entsteht wie bei Zone halten (`zone_at`, Breite aus der Stufe, Ausrüstung, Wächter). Zwei Einträge (Stufe 1,
   Kadenzbereich 60–120 rpm): *Ruhiger Takt* (`takt_ruhig`: Zone bei 40 % = 74–94 rpm, 5 Tore, 4 Treffer nötig, erster
   Schlag nach 6 s, dann alle 5 s, Fenster ± 1 s, 120 Punkte) und *Flotter Takt* (`takt_flott`: 65 % = 89–109 rpm, 6 Tore,
-  5 Treffer, alle 4 s, ± 0,8 s, 160 Punkte); beide heißen im Spiel „Takt-Tore“. Mit dem Kadenzmuster „Rhythmus“ (#50) hat der
-  Baustein nichts zu tun.
+  5 Treffer, alle 4 s, ± 0,8 s, 160 Punkte); beide heißen im Spiel „Takt-Tore“. Mit dem Kadenzmuster „Rhythmus“ (#50, siehe
+  „Kadenzmuster und Fähigkeiten“) hat der Baustein nichts zu tun: die Takt-Tore geben den Takt vor, das Muster erkennt den eigenen.
 - **Sammeln** (`src/collect.gd`): Ein lockerer Abschnitt mit Belohnung – Kristalle liegen auf und neben der Straße, und die
   **Kadenz bestimmt den Magnetradius** um den Fahrer. Objekt `k` wird `first_s + k × interval_s` Sekunden nach Beginn passiert
   und ist **eingesammelt**, wenn sein seitlicher Abstand von der Straßenmitte (`offsets`, in m) höchstens so groß ist wie der
@@ -901,6 +901,76 @@ Takt-Tore und Sammeln (#48): `view_probe.gd -- --hud --arcade --rhythm` speicher
 nach einem Treffer (`rhythm_hit.png`) und nach einem verpassten Tor bei zu hoher Kadenz (`rhythm_missed.png`), dann das
 Sammeln: Objekte voraus mit großem Magnetring bei hoher Kadenz (`collect_high.png`), mit kleinem bei niedriger
 (`collect_low.png`) und die Objekte aus der Nähe (`collect_close.png`).
+
+### Kadenzmuster und Fähigkeiten (#50)
+
+Das Spiel erkennt aus der Kadenz vier **Kadenzmuster** – **Antritt**, **Gleichmaß**, **Innehalten** und **Rhythmus** – und
+löst damit **Fähigkeiten** aus: **Windböe**, **Fokus**, **Schild** und **Kombo**. Nur im Arcade (ADR-0010) und nur über das
+Treten – eine Fähigkeit ersetzt es nie. („Antritt“ bezeichnet nur dieses Kadenzmuster; die Herausforderung heißt Durchbruch.)
+
+Die Muster liest `src/cadence_patterns.gd` (`CadencePatterns`, reine Logik) aus der **ungeglätteten** Kadenz `cadence_raw`
+(ADR-0004 Nachtrag #45); HUD, Fahrmodell und Bausteine bleiben bei der geglätteten. Der letzte Wert gilt bis zum nächsten
+(der Bus meldet mit 250 ms bis 1 s, die Bilder sind schneller). Alle Schwellen stehen an einer Stelle
+(`CadencePatterns.THRESHOLDS`), sind je Lauf über `patterns.thresholds` der Erweiterung und im Konstruktor überschreibbar
+und gelten **vorläufig** – endgültig werden sie mit dem echten Gerät (#1) und aus Simulator/Replay kalibriert.
+
+| Muster | Erkannt, wenn … | Fähigkeit |
+|---|---|---|
+| Antritt | die Kadenz in 2 s um mindestens 25 rpm über das Minimum dieser 2 s steigt, das Minimum ≥ 30 rpm; einmal je Anstieg, wieder scharf, wenn der Anstieg unter 15 rpm fällt. Anfahren aus dem Stand (Minimum unter 30 rpm) ist kein Antritt und löst auch später keinen aus | Windböe |
+| Gleichmaß | 10 s lang alle Werte innerhalb von ±3 rpm um die Mitte (größter − kleinster ≤ 6 rpm), der kleinste ≥ 40 rpm; bei anhaltender Ruhe nach weiteren 10 s wieder. Stillstand ist kein Gleichmaß | Fokus |
+| Innehalten | die Kadenz 2 s ununterbrochen unter 10 rpm liegt, einmal je Pause – und nur, nachdem zuvor mit mindestens 30 rpm getreten wurde (wer von Anfang an steht, hält nicht inne) | Schild |
+| Rhythmus | die Kadenz im gleichmäßigen Takt pulst: vier Anstiegsflanken hintereinander (Ausschlag ≥ 8 rpm über dem letzten Tiefpunkt, Tiefpunkt ≥ 30 rpm), Abstände 1,2–4 s, jeder höchstens 25 % vom mittleren entfernt; weitertreten im Takt: wieder nach drei weiteren Pulsen | Kombo |
+
+| Fähigkeit | Wirkung | Dauer | Abklingzeit |
+|---|---|---|---|
+| Windböe | „Rückenwind“: Fortschritt mit Kadenz in der Zone ×3 (Faktor + 2,0) | 2,5 s | 18 s |
+| Fokus | „Konzentration“: derselbe Fortschritt ×1,5 (Faktor + 0,5) | 8 s | 25 s |
+| Schild | „Durchatmen“: jeder Schritt, der den Fortschritt senken würde (Balken sinkt, Verfolger holt auf), wird zurückgenommen; Gewinne und die Zeit laufen weiter | 6 s | 30 s |
+| Kombo | Punkte sofort: 30 × (1 + Zahl der anderen Fähigkeiten, die in den letzten 20 s ausgelöst wurden) | – | 15 s |
+
+**Wirkung:** Eine Fähigkeit löst nur aus, wenn sie **bereit** ist (Abklingzeit abgelaufen) und **eine Herausforderung läuft** –
+davor, danach und in Pausen passiert nichts, ein Muster ohne laufende Herausforderung verfällt und die Fähigkeit bleibt bereit. Windböe und Fokus
+addieren sich auf den Fortschrittsfaktor des Bausteins (`progress_factor`; die Ausrüstung #49 liefert den Ausgangswert: mit +20 %
+Fortschritt 1,2, mit Windböe 3,2) und verschwinden nach der Wirkdauer wieder. Der Faktor wirkt wie bei der Ausrüstung nur
+dort, wo schon Kadenz etwas ergibt: Zone halten (Zeit in der Zone), Durchbruch (Füllen über der Schwelle), Jagd (Abstand über
+der Schwelle), Takt-Tore (jeder Treffer zählt mehrfach), Sammeln (Magnetradius). **Ohne Kadenz dort hilft keine Fähigkeit** –
+kein Fortschritt, und die Zielzone und der Kadenzbereich bleiben unberührt (kein Eingriff in `zone()`). Das Schild kostet das
+Tempo, das das Innehalten selbst kostet (zwei Sekunden ohne Treten, das Fahrmodell läuft aus); der Schritt, in dem ein Baustein
+schon endet, lässt sich nicht mehr zurücknehmen, und das Zeitfenster läuft unter dem Schild weiter ab. Eine Windböe, die
+beim Wechsel der Herausforderung noch wirkt, gilt für die nächste weiter. Die Werte sind Daten (`Abilities.DEFS`); je Lauf liegt
+eine Kopie in `abilities.defs` (Wirkung `power`, Abklingzeit `cooldown_s`, Dauer `duration_s`), die Talente und legendäre
+Beute (#53) später aus einem `run_hook` heraus verändern.
+
+**Anzeige:** Eine Leiste mit vier Plaketten rechts über dem unteren Panel des HUDs (`src/ability_hud.gd`, als Kind unter dem
+HUD; `ride_hud.gd` weiß davon nichts): Name und Zustand – grün „Antritt · bereit“ (mit dem auslösenden Muster), gold „aktiv · 3 s“
+(Restzeit der Wirkung), grau die Abklingzeit „14 s“. Beim Auslösen blendet oben im Bild „Windböe ausgelöst“ ein (1,8 s), die Kombo
+zeigt zusätzlich das Popup „+30 Kombo“. Die Leiste gibt es nur im laufenden Arcade-Lauf: in Rundfahrt, Training, Menü und
+Ergebnis fehlt sie, und kein Muster löst etwas aus. Die Zusammenfassung nennt, was gewirkt hat („Fähigkeiten: Windböe 2× · Kombo 1×
+(+30 Punkte)“; ohne Auslösung keine Zeile).
+
+**Aufbau:** `ArcadeStage.EXTENSIONS` hat dafür eine Zeile (`src/ability_extension.gd`, `AbilityExtension`, erreichbar über
+`AbilityExtension.of(game.arcade_stage)`): je Fahrschritt (`stepped`, nach `ArcadeRun.advance`) füttert sie die Muster mit
+`cadence_raw` und lässt die Fähigkeiten (`src/abilities.gd`, `Abilities`, reine Logik) wirken; `main.gd` ist unberührt. Die
+Erweiterung ist immer an. **Tests** mit konstanter Kadenz und exakten Fortschrittswerten (z. B. 90 rpm über viele Sekunden:
+das Gleichmaß löst nach 10 s den Fokus aus) schalten sie auf ihren eigenen Gegenstand beschränkt ab – eine Zeile
+`AbilityExtension.of(game.arcade_stage).enabled = false` in ihrem `_start_arcade` (so in `tests/test_arcade_ride.gd` und
+`tests/test_arcade_rhythm_collect_ride.gd`; neue Ride-Tests dieser Art tun dasselbe). Das Zusammenspiel mit laufenden Bausteinen
+prüfen `tests/test_abilities.gd` (Zone halten, Durchbruch, Jagd) und `tests/test_abilities_ride.gd` (echtes Spiel, Zone und Jagd).
+
+**Simulator-Szenarien** (Stufe 1, 60–120 rpm; der Test erzwingt eine lange Herausforderung, sie laufen durch das echte Spiel):
+*Antritt* (`antritt.toml`, aus #45: drei Antritte aus 80 rpm; die Windböe wird ausgelöst, die Plakette zeigt „aktiv“ und dann die
+Abklingzeit, der Faktor im Baustein ist ×3, der erste Antritt vor dem Startpunkt verbraucht nichts), *Innehalten*
+(`innehalten.toml`, zweimal 3 s Kadenz 0, am Ende 1,5 s: das Schild hält den Verfolger der Jagd auf Abstand, das kurze Absetzen
+zählt nicht), *Gleichmaß* (`gleichmass.toml`: Stillstand, Anfahren, 12 s ruhig um 80 rpm: Fokus ×1,5 erst nach zehn ruhigen
+Sekunden) und *Rhythmus* (`rhythmus.toml`: sechs Pulse im Takt von 3 s lösen die Kombo mit „+30 Kombo“ aus, die ungleichen Pulse
+danach nicht). `SimProfile.to_script` bildet `cadence_raw` nicht ab (der Fake-Bus fällt auf `cadence` zurück); dass die Muster die
+ungeglättete Kadenz lesen, prüft `test_patterns_read_the_unsmoothed_cadence` mit getrennten Werten. Tests der reinen Logik:
+`tests/test_cadence_patterns.gd` (je Muster positiv und negativ, Rauschen, Anfahren aus dem Stand, Schwellen als Daten, die
+Profile im Meldetakt 250 ms) und `tests/test_abilities.gd` (Wirkung nur mit Kadenz, nur in Herausforderungen, Abklingzeit, Schild,
+Kombo-Kette, Daten, Zielzone unverändert).
+
+**Mit echtem Gerät offen (#1):** Die Kadenz 0 steht in `cadence_raw` bei einem CSC-Sensor erst 2,5 s nach dem letzten Kurbelereignis
+(Messung #45); das Innehalten wird dort entsprechend später erkannt als im Simulator. Die Schwellen sind noch nicht am Gerät kalibriert.
 
 ### Beute und Ausrüstung (#49)
 
@@ -1174,6 +1244,10 @@ src/inventory.gd        Inventory: Inventar im Spielstand – ablegen, anlegen, 
 src/loot_beam.gd        LootBeam: Lichtsäule eines Fundes in Seltenheitsfarbe, an einer Fahrtposition gestellt (#49)
 src/drawbridge.gd       Drawbridge: Zugbrücke des Durchbruchs – Türme und Klappe aus Quadern, senkt sich mit dem Balken, an einer Fahrtposition gestellt (#47)
 src/pursuer.gd          Pursuer: Verfolger der Jagd (Hund aus Grundkörpern) hinter dem Fahrer, Abstand folgt der Jagd (#47)
+src/cadence_patterns.gd CadencePatterns: Kadenzmuster Antritt, Gleichmaß, Innehalten, Rhythmus aus der ungeglätteten Kadenz, Schwellen als Daten – reine Logik (#50)
+src/abilities.gd        Abilities: Fähigkeiten Windböe, Fokus, Schild, Kombo – Auslösung durch Muster, Abklingzeit, Wirkung auf den laufenden Baustein – reine Logik (#50)
+src/ability_extension.gd AbilityExtension: Erweiterung der Arcade-Bühne (`ArcadeStage.EXTENSIONS`) – füttert Muster und Fähigkeiten je Fahrschritt, Anzeige, Zusammenfassungszeile (#50)
+src/ability_hud.gd      AbilityHud: Leiste „bereit / aktiv / Abklingzeit“ und Einblendung „… ausgelöst“ unter dem HUD (#50)
 trainings/              Trainingseinheiten als Dateien (JSON): Intervalle kurz, Pyramide, Tempo-Blöcke
 src/medals.gd           Medals: Medaillen-Schwellen aus dem Fahrmodell (70/85/95 rpm), Medaille einer Zeit – reine Logik
 src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik
