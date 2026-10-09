@@ -4,6 +4,11 @@ Eingabe ist das Rohformat aus `tools/ble_discovery.py` bzw. der Session-Rohdatei
 (ADR-0008): pro Zeile ein JSON-Objekt `{"t_ms": int, "char": "<128-Bit-UUID>", "hex": "…"}`.
 Leere Zeilen werden übersprungen, `t_ms` darf nicht kleiner werden.
 
+Pulszeilen (`0x2A37`) gehören der Pulsquelle (`heart_rate_replay.py`) und werden hier still
+übersprungen, auch bei der Prüfung von `t_ms`: Sie tragen die Bridge-Zeit, die Radzeilen einer
+Replay-Session die Aufnahmezeit. So lässt sich eine Session aus Rad-Replay plus Live-Puls
+wieder abspielen.
+
 Die Notifications kommen im Takt der Aufnahme (`speed` = 1) oder beschleunigt
 (`speed` = 10: zehnmal so schnell). Die Quelle liefert sie roh (`RawNotification`); die
 Bridge schickt sie durch dieselben Parser wie später beim echten Rad. Am Ende der Datei
@@ -13,10 +18,11 @@ endet die Quelle (Status `disconnected`, wie ein Profil ohne `repeat`).
 import asyncio
 import json
 import math
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
 from .. import parsers
+from ..parsers import HEART_RATE_MEASUREMENT
 from .base import Capability, NotSupportedError, RawNotification
 
 
@@ -58,6 +64,15 @@ class ReplaySource:
 
 
 def load_replay(path: Path, speed: float = 1.0) -> ReplaySource:
+    notifications = read_notifications(path, lambda notification: notification.char.lower() != HEART_RATE_MEASUREMENT)
+    if not notifications:
+        raise ReplayError(f"Replay-Datei {path} enthält keine Notifications")
+    return ReplaySource(notifications, speed)
+
+
+def read_notifications(path: Path, wanted: Callable[[RawNotification], bool]) -> list[RawNotification]:
+    """Liest die Rohdatei und behält nur die Zeilen, für die `wanted` gilt. Ungültige Zeilen sind in jedem
+    Fall ein Fehler; die Reihenfolge von `t_ms` wird nur über die behaltenen Zeilen geprüft."""
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
@@ -72,15 +87,15 @@ def load_replay(path: Path, speed: float = 1.0) -> ReplaySource:
             notification = _parse_line(line)
         except ReplayError as exc:
             raise ReplayError(f"Replay-Datei {path}, Zeile {number}: {exc}") from None
+        if not wanted(notification):
+            continue
         if notifications and notification.t_ms < notifications[-1].t_ms:
             raise ReplayError(
                 f"Replay-Datei {path}, Zeile {number}: t_ms {notification.t_ms} kleiner als davor "
                 f"({notifications[-1].t_ms})"
             )
         notifications.append(notification)
-    if not notifications:
-        raise ReplayError(f"Replay-Datei {path} enthält keine Notifications")
-    return ReplaySource(notifications, speed)
+    return notifications
 
 
 def _parse_line(line: str) -> RawNotification:

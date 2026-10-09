@@ -14,7 +14,10 @@ from pathlib import Path
 from .app import DEFAULT_SESSIONS_DIR, Bridge, SessionStartError
 from .bus import HOST, BusStartError
 from .console import Console
-from .sources.base import DeviceSource
+from .heart_rate_relay import HeartRateFactory, bleak_heart_rate
+from .sources.base import DeviceSource, RawNotification
+from .sources.heart_rate import HeartRateSource
+from .sources.heart_rate_replay import ReplayBleAdapter, load_heart_rate_replay
 from .sources.profile import ProfileError, load_profile
 from .sources.replay import ReplayError, load_replay
 from .sources.sim import Noise, SimulatorSource
@@ -25,6 +28,11 @@ def _simulator(args: argparse.Namespace) -> SimulatorSource:
     noise = Noise(random.Random(args.seed)) if args.noise else None
     cadence = 0.0 if args.sim_cadence is None else args.sim_cadence
     return SimulatorSource(cadence=cadence, profile=profile, noise=noise)
+
+
+def _heart_rate_replay(notifications: list[RawNotification]) -> HeartRateFactory:
+    """Pulsquelle der Bridge mit dem Replay-Adapter statt bleak (`--hr-replay`)."""
+    return lambda on_status, on_raw: HeartRateSource(ReplayBleAdapter(notifications), on_status, on_raw)
 
 
 def _replay(args: argparse.Namespace) -> DeviceSource:
@@ -91,6 +99,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Seed für --noise: gleicher Seed, gleiche Folge (Standard: zufällig)",
     )
     parser.add_argument(
+        "--hr-replay",
+        type=Path,
+        default=None,
+        metavar="DATEI",
+        help="Entwicklung und Tests: Pulsquelle spielt die 0x2A37-Zeilen dieser Rohdatei ab (mit jeder Quelle "
+        "kombinierbar); das Gerät \"VSpin Replay\" erscheint, sobald ein Client Pulsgeräte setzt",
+    )
+    parser.add_argument(
         "--sessions-dir",
         type=Path,
         default=DEFAULT_SESSIONS_DIR,
@@ -137,12 +153,16 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("DATEI, --speed und --wait-client gibt es nur mit --source replay")
     try:
         source = SOURCES[args.source](args)
+        heart_rate = None if args.hr_replay is None else _heart_rate_replay(load_heart_rate_replay(args.hr_replay))
     except (ProfileError, ReplayError) as exc:
         parser.error(str(exc))
     console = Console()
     try:
         return asyncio.run(
-            _run(source, console, args.sessions_dir, args.wait_client, args.host, args.stop_file, args.parent_pid)
+            _run(
+                source, console, args.sessions_dir, args.wait_client, args.host, args.stop_file, args.parent_pid,
+                heart_rate=heart_rate or bleak_heart_rate,
+            )
         )
     except KeyboardInterrupt:  # Strg+C vor dem Anmelden der Signal-Handler
         console.close()
@@ -161,6 +181,7 @@ async def _run(
     host: str,
     stop_file: Path | None = None,
     parent_pid: int | None = None,
+    heart_rate: HeartRateFactory = bleak_heart_rate,
 ) -> int:
     stop = asyncio.Event()
     _stop_on_signals(stop)
@@ -172,7 +193,7 @@ async def _run(
     if parent_pid is not None:
         parent_watcher = asyncio.create_task(_watch_parent(parent_pid, stop, console))
     try:
-        await Bridge(source, console, sessions_dir, wait_for_client, host).run(stop)
+        await Bridge(source, console, sessions_dir, wait_for_client, host, heart_rate=heart_rate).run(stop)
     except BusStartError as exc:
         console.info(f"vspin-bridge: Bus konnte nicht starten: {exc}")
         return 1

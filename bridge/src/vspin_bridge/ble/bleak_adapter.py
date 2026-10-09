@@ -29,8 +29,9 @@ class BleakAdapter:
             self._devices[device.address] = device
             on_found(Advertisement(device.address, data.local_name or device.name, data.rssi))
 
-        scanner = BleakScanner(detection_callback=detected, service_uuids=[service])
         try:
+            # Auch das Bauen kann scheitern (z. B. kein Backend für diese Plattform).
+            scanner = BleakScanner(detection_callback=detected, service_uuids=[service])
             await scanner.start()
         except _BLE_FAILURES as error:
             raise BleError(f"Suche startet nicht: {error}") from error

@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from bridge_harness import BRIDGE_ROOT, FIXTURES_DIR, receive_json, run_bridge, wait_until
+from sim_pulse import simulator_pulse
 from vspin_bridge.cli import process_alive
 from vspin_bridge.session import files as session_files
 from vspin_bridge.sources.sim import SimulatorSource
@@ -97,8 +98,11 @@ def test_simulator_run_writes_csv_matching_the_bus(bridge_process, bus_client, t
         assert float(row["cadence"]) == message["cadence"] == 80
         # Konstante Kadenz: Rohwert und geglätteter Wert (EMA, ADR-0004) sind gleich.
         assert float(row["cadence_raw"]) == 80
+        assert int(row["hr_bpm"]) == message["heart_rate"]
+    # Der Simulator liefert einen Puls (träge steigend); die CSV beginnt mit dem ersten Sample des Laufs.
+    assert [int(r["hr_bpm"]) for r in rows] == simulator_pulse(80.0, len(rows))
     for row in rows:
-        assert row["speed_kmh"] == row["power_w"] == row["power_estimated"] == row["hr_bpm"] == ""
+        assert row["speed_kmh"] == row["power_w"] == row["power_estimated"] == ""
         assert row["grade"] == ""  # kein set_grade in diesem Lauf
         assert row["status"] == "connected"
     # Rohdaten-Datei derselben Session: der Simulator hat keine rohen Notifications → leer.
