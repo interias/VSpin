@@ -371,7 +371,7 @@ Enter/Leertaste):
 | **Fahren** | Modus-Auswahl: **Rundfahrt**, **Training**, **Arcade**, „Zurück“ |
 | **Fahren → Rundfahrt** | **Runden** 1–20 oder *Endlos* (Standard 1), **Richtung** (*Im Uhrzeigersinn*, *Gegen den Uhrzeigersinn*, #34), **Tageszeit** (dieselbe Auswahl wie im Einstellungsmenü, Standard *Echtzeit*; wirkt und bleibt wie dort gewählt), **Ghost** (*Aus*, *Bestzeit*, *Letzte Fahrt*; ohne Aufzeichnung ausgegraut, Standard *Bestzeit*, sobald es sie gibt, #32), die **Bestzeit** der Strecke in der gewählten Richtung; **Losfahren** startet die Fahrt (#31) |
 | **Fahren → Training** | **Einheit** (*Intervalle kurz*, *Pyramide*, *Tempo-Blöcke*) mit Beschreibung und Dauer; **Losfahren** startet das Training (#37, siehe unten) |
-| **Fahren → Arcade** | **Stufe** (*Stufe 1–3*) mit Beschreibung, persönlicher **Kadenzbereich** (von 40–80 bis 100–150 rpm, Standard 60–120 rpm), die **Bestpunktzahl** der Stufe und das **Arcade-Level** (#53); **Losfahren** startet den Arcade-Lauf (#46, siehe unten), **Ausrüstung** öffnet das Inventar der Beute (#49, siehe „Beute und Ausrüstung“), **Talente** den Talentbaum (#53, siehe „Talente“; der Knopf zeigt die freien Talentpunkte, z. B. „Talente (2)“). Stufe und Kadenzbereich werden bei jeder Änderung gespeichert |
+| **Fahren → Arcade** | **Stufe** (*Stufe 1–6*; 1–3 von Anfang an, höhere ausgegraut, bis sie freigeschaltet sind – die nächste zeigt den Stand, z. B. „Stufe 4 (gesperrt – Bosse auf Stufe 3: 2/3)“, #54) mit Beschreibung, persönlicher **Kadenzbereich** (von 40–80 bis 100–150 rpm, Standard 60–120 rpm), die **Bestpunktzahl** der Stufe, das **Arcade-Level** (#53) und die eigene gegen die **Empfohlene Stärke** der Stufe („Stärke 21 / empfohlen 35“, grün ab der Empfehlung, sonst gelb – eine Empfehlung, keine Sperre, #54); **Losfahren** startet den Arcade-Lauf (#46, siehe unten), **Ausrüstung** öffnet das Inventar der Beute (#49, siehe „Beute und Ausrüstung“), **Talente** den Talentbaum (#53, siehe „Talente“; der Knopf zeigt die freien Talentpunkte, z. B. „Talente (2)“). Stufe und Kadenzbereich werden bei jeder Änderung gespeichert |
 | **Fahrtenbuch** | Statistik, Bestzeiten, Segmentzeiten, Medaillen, Erfolge und die letzten Fahrten (#35, siehe unten) |
 | **Garderobe** | Trikot, Radfarbe und Helm mit Vorschau, freigeschaltet über das Fahrerlevel (#36, siehe unten) |
 | **Einstellungen** | öffnet das Menü „Grafik und Fenster“ (wie `Esc`/`F2`) |
@@ -394,7 +394,9 @@ Sekunden, z. B. `{"island": {"cw": 873.4}}`), Segment-Bestzeiten unter `segment_
 (`lap`) und Segment unter `medals` (Strecke → Richtung → Segment-ID, #33), die Ghosts unter `ghosts` (Strecke → Richtung →
 `best`/`last`, je nur `lap_length_m`, `sample_s`, `time_s` und `distance_m`, #32), die freigeschalteten Erfolge unter
 `achievements` (Erfolg-ID → Datum, #35), Arcade unter `arcade` (Kadenzbereich `cadence_range`, gewählte Stufe `tier`,
-beste Punktzahl je Stufe `best_points`, #46; Beute #49: Inventar `inventory` – je Teil `id`, `slot`, `rarity`, `stats`,
+beste Punktzahl je Stufe `best_points`, #46; Stufen #54: höchste wählbare Stufe `unlocked` – fehlt sie, gelten die drei
+Startstufen – und je Stufe die dort besiegten Bosse `defeated`, z. B. `{"3": ["tramuntana", "drac"]}`; Beute #49: Inventar
+`inventory` – je Teil `id`, `slot`, `rarity`, `stats`,
 `effect` (bei legendären Teilen der Spezialeffekt, #53, sonst leer) –, angelegte Teile `equipped` (Platz → `id`), Splitter
 `shards` und die nächste freie `next_item_id`; Talente #53: `points_total` (Summe der Punkte aller gespeicherten
 Arcade-Fahrten, daraus das Arcade-Level) und `talents` (erlernte Knoten in der Reihenfolge des Erlernens); eine
@@ -703,11 +705,43 @@ Abschnitt) würfelt der Lauf 1–2 **Herausforderungen** – jede Runde neu, die
 laufende. Die erste eines Abschnitts beginnt 50 m hinter seinem Anfang, eine zweite in der Mitte des Rests; läuft dort
 noch eine, beginnt sie direkt danach, solange ihr Abschnitt nicht verlassen ist (sonst verfällt sie ungespielt).
 
-| Stufe | Zielzone | Dauer | Punkte |
-|---|---|---|---|
-| Stufe 1 | 20 rpm breit | × 1 | × 1 |
-| Stufe 2 | 14 rpm | × 1,25 | × 2 |
-| Stufe 3 | 10 rpm | × 1,5 | × 3 |
+| Stufe | Zielzone | Dauer | Bosse (Dauer zusätzlich) | Punkte | Beute-Qualität | Empfohlene Stärke | frei |
+|---|---|---|---|---|---|---|---|
+| Stufe 1 | 20 rpm breit | × 1 | × 1 | × 1 | × 1 | 0 | von Anfang an |
+| Stufe 2 | 14 rpm | × 1,25 | × 1 | × 2 | × 1,25 | 10 | von Anfang an |
+| Stufe 3 | 10 rpm | × 1,5 | × 1 | × 3 | × 1,5 | 20 | von Anfang an |
+| Stufe 4 | 9 rpm | × 1,6 | × 1,1 | × 4 | × 1,8 | 35 | Stufe 3 abgeschlossen |
+| Stufe 5 | 8 rpm | × 1,7 | × 1,2 | × 5 | × 2,2 | 50 | Stufe 4 abgeschlossen |
+| Stufe 6 | 7 rpm | × 1,8 | × 1,3 | × 6 | × 2,7 | 70 | Stufe 5 abgeschlossen |
+
+**Stufen, Freischalten und Empfohlene Stärke (#54):** Stufen sind Daten wie Diablos Qualstufen (`src/arcade_tiers.gd`):
+engere Zielzonen, längere Herausforderungen, zähere Bosse (jede Boss-Phase hält und läuft zusätzlich × Boss-Faktor, ihr
+Zeitfenster wächst mit), mehr Punkte und eine höhere Grundqualität der Beute (`ArcadeRun.loot_quality`, multipliziert sich
+mit der Beute-Qualität von Bossen und Elite-Gruppen; öfter seltene Teile). Schwellen steigen wie bisher um die halbe
+Differenz zur Zonenbreite von Stufe 1, auf ganze rpm gerundet (Stufe 4 und 5 +6 rpm, Stufe 6 +7 rpm; *Zugbrücke* 114 / 114 /
+115 rpm, *Spurt* am oberen Ende des Bereichs). Stufe 1–3 sind von Anfang an wählbar und bleiben, wie sie waren. Eine Stufe
+ist **abgeschlossen**, wenn auf ihr jeder Boss des Rundkurses (Tramuntana, Drac de na Coca, Dimonis) mindestens einmal
+besiegt wurde – über beliebig viele Läufe gesammelt, gespeichert mit dem Fahrteintrag. Der Abschluss der **höchsten freien**
+Stufe schaltet die nächste frei; der Abschluss einer niedrigeren schaltet nichts frei. Die Zusammenfassung nennt „Stufe 4
+freigeschaltet!“ bzw. auf der höchsten freien Stufe den Stand („Für Stufe 4: 2/3 Bosse auf Stufe 3 besiegt“). Die
+**Empfohlene Stärke** jeder Stufe steht auf der Seite „Arcade“ neben der eigenen: Stärke = 4 je rpm Zonenbreite + 1 je %
+Fortschritt aus angelegter Ausrüstung und Talenten, je Wert gedeckelt wie im Lauf (0–100; Punkte und Beute-Glück machen
+lohnender, nicht stärker). Sie ist eine **Empfehlung, keine Sperre**: Ausrüstung ersetzt nie das Treten, jede freie Stufe
+ist auch mit Stärke 0 wählbar, und freigeschaltet wird nur über den Abschluss.
+
+**Rundensteigerung (#54):** Jede weitere Runde im selben Arcade-Lauf wird etwas härter und lohnender – je Runde die
+Zielzone 1 rpm schmaler (höchstens 3 rpm, nie schmaler als 6 rpm; Schwellen steigen entsprechend), die Dauer 4 % länger
+(höchstens + 20 %), die Punkte 10 % höher und die Beute-Qualität 5 % höher (höchstens + 50 %). Gezählt wird die Runde im
+Lauf (die erste Runde des Laufs ist Runde 1, wo auch immer er beginnt); Auswahl und Lage der Herausforderungen bleiben bei
+gleichem Seed gleich, nur ihre Parameter ändern sich, und die erste Runde jeder Stufe ist genau die Stufe. Die Steigerung
+erreicht jede Herausforderung, jede Boss- und Elite-Phase und die wandernde Zone, immer vor dem Wächter des Kadenzbereichs.
+Beim Einfahren in eine neue Runde erscheint „Runde 2 – härter und lohnender“; die Zusammenfassung nennt die erreichte
+Steigerung („Runde 3 erreicht: Zonen 2 rpm schmaler · Punkte +20 %“). Tests: `tests/test_arcade_tiers.gd` (Stufen als Daten,
+Freischalten mit Gegenproben, Spielstand mit altem Stand, Stärke aus Ausrüstung und Talenten, Empfehlung ohne Sperre,
+Rundensteigerung bei gleichen Würfen, Wächter über alle Stufen × Runden × wählbaren Bereiche × Bausteintypen samt Boss- und
+Elite-Phasen mit Gegenprobe) und `tests/test_arcade_tiers_ride.gd` (echtes Spiel: Seite „Arcade“ mit gesperrten Stufen und
+Stärke, auch nach neuer Ausrüstung, Layout in 960×1040, 1920×1080 und 1152×648; Sieg über den letzten fehlenden Boss schaltet
+frei und steht auf der Platte; Rundensteigerung über drei Runden mit Hinweis und Zusammenfassung).
 
 Erster Baustein ist **Zone halten** (nach Lanebreaks „Streams“): die Kadenz eine Zeit lang in einer Zielzone halten. Jede
 Sekunde in der Zone (Grenzen eingeschlossen) füllt den Fortschritt, außerhalb steht er. Voll → **geschafft** (Punkte,
@@ -820,7 +854,7 @@ verschwindet beim Vorbeifahren, ein liegengebliebenes wird grau; das Zieltor ble
 **Kadenzbereich** (Standard 60–120 rpm, auf der Seite „Arcade“ einstellbar): keine Zielzone liegt außerhalb. Ragt eine
 Zone hinaus, rückt sie mit gleicher Breite hinein; ist sie breiter als der Bereich, wird sie der ganze Bereich. Das
 geschieht an einer Stelle (`Encounters.build` → `CadenceRange.limit_zone`), durch die jede Zielzone muss – auch die von
-Stufen und Elite-Eigenschaften (#52; auch die wandernde Zone von *Wankelmütig* in jedem Augenblick).
+Stufen, späterer Runden (#54) und Elite-Eigenschaften (#52; auch die wandernde Zone von *Wankelmütig* in jedem Augenblick).
 
 Im HUD steht die Arcade-Zeile (vor dem Start „Nächste: Zone halten · Ziel 80–100 rpm · noch 45 m“, während der
 Herausforderung Restzeit und Zonenbalken mit Fortschritt); auf der Strecke steht am Startpunkt ein grünes **Starttor**
@@ -843,7 +877,8 @@ Runden im Arcade schreiben nie Bestzeit, Segmentzeit, Medaille oder Ghost (`reco
 Arcade) und zeigt in Rundfahrt und Training nichts (ADR-0010). `scenes/main.gd` behält nur den Einhängepunkt: `begin` (Fahrtbeginn),
 `advance` (Fahrschritt, nicht in Pausen), `update_view` (HUD-Zeile, Tore, Requisiten, Lichtsäule), `save` (Fahrteintrag,
 Bestpunktzahl, Beute ins Inventar), `result_text` (Zusammenfassung), `enter_menu` und `dress` (Ausrüstung am Fahrer); die
-Menüs (Stufe, Kadenzbereich, Ausrüstung) bleiben in der Hauptszene, und `arcade`, `arcade_seed`, `arcade_pool`, die Tore,
+Menüs (Stufe mit Freischalten und Empfohlener Stärke, Kadenzbereich, Ausrüstung, Talente) bleiben in der Hauptszene, und
+`arcade`, `arcade_seed`, `arcade_pool`, die Tore,
 `arcade_bridge`, `arcade_pursuer` und `loot_beam` leiten für Tests und Prüfhilfen an die Bühne weiter. Neue Arcade-Bausteine
 (Bosse, Kadenzmuster, …) hängen sich – wie Takt-Tore und Sammeln (#48) – mit **eigenen Dateien und höchstens einer Zeile je Liste** ein, ohne
 `main.gd` anzufassen:
@@ -1459,9 +1494,9 @@ src/elite_group.gd      EliteGroup: Elite-Gruppe – Anführer und Gefolge als P
 src/encounters.gd       Encounters: Herausforderungen (Zone, Schwelle), Würfeln, Bau der Bausteine mit Wächter des Kadenzbereichs; die Daten je Typ liegen in src/challenges/ (#46, #47, #63)
 src/encounter_registry.gd EncounterRegistry: Bausteintypen des Arcade – eine Zeile je Typ, Reihenfolge = Würfel-Pool (#63)
 src/challenges/         Herausforderungen als Daten und Bauanleitung je Bausteintyp: zone_hold_, breakthrough_, chase_, rhythm_gates_, collect_challenges.gd (#63, verschoben aus encounters.gd; #48); boss_challenges.gd: Bosse als Phasen an festen Orten (#51); elite_challenges.gd: Typ der Elite-Gruppen (#52)
-src/arcade_tiers.gd     ArcadeTiers: Stufen als Daten (Zonenbreite, Dauer, Punkte), Auswahl im Spielstand (#46)
+src/arcade_tiers.gd     ArcadeTiers: Stufen als Daten (Zonenbreite, Dauer, Boss-Faktor, Punkte, Beute-Qualität, Empfohlene Stärke), Rundensteigerung, Freischalten und Auswahl im Spielstand, eigene Stärke – reine Logik (#46, #54)
 src/cadence_range.gd    CadenceRange: persönlicher Kadenzbereich, begrenzt jede Zielzone (limit_zone) (#46)
-src/arcade_run.gd       ArcadeRun: Arcade-Lauf – Herausforderungen je Abschnitt und Runde, Elite-Gruppen mit eigenem Würfel, Bosse an festen Orten, Punkte, Beute, Ausrüstung, Zusammenfassung (#46, #49, #51, #52)
+src/arcade_run.gd       ArcadeRun: Arcade-Lauf – Herausforderungen je Abschnitt und Runde, Elite-Gruppen mit eigenem Würfel, Bosse an festen Orten, Rundensteigerung, Punkte, Beute, Ausrüstung, Zusammenfassung (#46, #49, #51, #52, #54)
 src/arcade_stage.gd     ArcadeStage: Bühne des Arcade-Laufs – Lauf, HUD-Anbindung, Tore, Requisiten, Beute-Anzeige, Zusammenfassung, Signale, Hooks, Erweiterungen (#63)
 src/arcade_prop.gd      ArcadeProp: Basis der Darstellungen je Bausteintyp (nur Anzeige, ADR-0010), eingetragen in ArcadeStage.PROPS (#63)
 src/breakthrough_prop.gd BreakthroughProp: Darstellung des Durchbruchs – Zugbrücke statt Zieltor (#47, #63)
@@ -1487,6 +1522,7 @@ src/pursuer.gd          Pursuer: Verfolger der Jagd (Hund aus Grundkörpern) hin
 src/cadence_patterns.gd CadencePatterns: Kadenzmuster Antritt, Gleichmaß, Innehalten, Rhythmus aus der ungeglätteten Kadenz, Schwellen als Daten – reine Logik (#50)
 src/abilities.gd        Abilities: Fähigkeiten Windböe, Fokus, Schild, Kombo – Auslösung durch Muster, Abklingzeit, Wirkung auf den laufenden Baustein – reine Logik (#50)
 src/ability_extension.gd AbilityExtension: Erweiterung der Arcade-Bühne (`ArcadeStage.EXTENSIONS`) – füttert Muster und Fähigkeiten je Fahrschritt, Anzeige, Zusammenfassungszeile (#50)
+src/tier_arcade.gd      TierArcade: Erweiterung der Arcade-Bühne (`ArcadeStage.EXTENSIONS`) – Hinweis beim Rundenwechsel, besiegte Bosse eintragen und die nächste Stufe freischalten, Zusammenfassungszeilen (#54)
 src/ability_hud.gd      AbilityHud: Leiste „bereit / aktiv / Abklingzeit“ und Einblendung „… ausgelöst“ unter dem HUD (#50)
 trainings/              Trainingseinheiten als Dateien (JSON): Intervalle kurz, Pyramide, Tempo-Blöcke
 src/medals.gd           Medals: Medaillen-Schwellen aus dem Fahrmodell (70/85/95 rpm), Medaille einer Zeit – reine Logik
@@ -1497,7 +1533,7 @@ src/rider_model.gd      RiderModel: Fahrer und Rennrad aus Grundkörpern, Pose a
 src/ride_config.gd      RideConfig: liest config.cfg
 src/graphics_settings.gd GraphicsSettings: Grafik-/Fenstereinstellungen, Tageszeit/Wetter (user://settings.cfg), Anwenden, Fensterhälften
 scenes/settings_menu.*  Menü „Grafik und Fenster“ (F2, F11), von der Hauptszene eingehängt
-scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt-, Training- und Arcade-Auswahl (mit „Ausrüstung“, „Talente“ und Arcade-Level), Radstatus (#30, #31, #37, #46, #49, #53)
+scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt-, Training- und Arcade-Auswahl (mit „Ausrüstung“, „Talente“, Arcade-Level, gesperrten Stufen und Empfohlener Stärke), Radstatus (#30, #31, #37, #46, #49, #53, #54)
 scenes/gear_menu.gd     Ausrüstung: Inventar der Beute mit Vergleich, Anlegen und Verwerten, Effekt legendärer Teile, aus „Fahren → Arcade“ (#49, #53)
 scenes/talent_menu.gd   Talente: Talentbaum mit drei Ästen, Erlernen, kostenloses Zurücksetzen, Arcade-Level, aus „Fahren → Arcade“ (#53)
 scenes/wardrobe.gd      Garderobe: Trikot, Radfarbe, Helm mit Vorschau (SubViewport), gesperrte mit Level (#36)
