@@ -1,0 +1,33 @@
+# Arcade-Messprofil „Innehalten“ (#45): zweimal 3 s nicht treten (aus 80 und aus 110 rpm), dazwischen fahren, am
+# Ende ein kurzes Absetzen von 1,5 s, das kein Innehalten (2 s nicht treten) ist. Der Simulator meldet die Kadenz 0
+# ausdrücklich, die Daten laufen weiter (bleibt `connected`, kein Abbruch). Endet danach.
+# Gemessen von tests/cadence_latency.py (Erkennungsverzögerung geglättet gegen ungeglättet, ADR-0004 Nachtrag #45).
+name = "Arcade: Innehalten"
+
+[[steps]]
+duration_s = 6
+cadence = 80
+
+[[steps]]
+duration_s = 3
+cadence = 0
+
+[[steps]]
+duration_s = 6
+cadence = 110
+
+[[steps]]
+duration_s = 3
+cadence = 0
+
+[[steps]]
+duration_s = 6
+cadence = 80
+
+[[steps]]
+duration_s = 1.5
+cadence = 0
+
+[[steps]]
+duration_s = 5
+cadence = 80

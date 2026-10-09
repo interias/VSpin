@@ -3,7 +3,7 @@
 from bridge_harness import HOST, PORT, port_open, receive_json
 from vspin_bridge.cli import build_parser
 
-TELEMETRY_FIELDS = {"v", "type", "t_ms", "cadence", "speed_kmh", "power_w", "power_estimated", "heart_rate"}
+TELEMETRY_FIELDS = {"v", "type", "t_ms", "cadence", "cadence_raw", "speed_kmh", "power_w", "power_estimated", "heart_rate"}
 STATUS_FIELDS = {"v", "type", "t_ms", "state", "source", "capabilities"}
 
 
@@ -30,6 +30,7 @@ def test_new_client_gets_status_first_then_telemetry_with_monotonic_t_ms(bridge_
         assert set(message) == TELEMETRY_FIELDS
         assert message["v"] == 0
         assert message["cadence"] == 80
+        assert message["cadence_raw"] == 80  # ungeglättet (#45); bei konstanter Kadenz gleich
         # Der Simulator liefert nur Kadenz; fehlende Werte sind null.
         assert message["speed_kmh"] is None
         assert message["power_w"] is None

@@ -167,8 +167,9 @@ def test_example_profile_starts(bridge_process, bus_client, name):
     assert "Profil: " in bridge.log()
 
 
-# Arcade-Szenarien (#46): dieselben Profile spielt games/island-ride/tests/test_arcade_ride.gd über den Fake-Bus
-# durch das Spiel und prüft dort das Ergebnis (geschafft, weich verfehlt, Pause bei Abbruch).
+# Arcade-Szenarien (#46): dieselben Profile `zone_*` spielt games/island-ride/tests/test_arcade_ride.gd über den
+# Fake-Bus durch das Spiel und prüft dort das Ergebnis (geschafft, weich verfehlt, Pause bei Abbruch). Die
+# Messprofile `antritt`/`innehalten` (#45) wertet tests/cadence_latency.py aus.
 ARCADE_DIR = PROFILES_DIR / "arcade"
 ARCADE_PROFILES = sorted(p.name for p in ARCADE_DIR.glob("*.toml"))
 

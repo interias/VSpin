@@ -41,6 +41,10 @@ var silent := false
 ## Letzte gemeldete Kadenz in rpm. Bleibt bei Abbruch stehen – ein Abbruch ist keine
 ## Kadenz 0 (ADR-0004); ob gefahren wird, entscheidet der Besitzer anhand von `status`.
 var cadence := 0.0
+## Letzte gemeldete ungeglättete Kadenz in rpm (`cadence_raw`, #45) – nur für die Kadenzmuster; Anzeige und
+## Fahrmodell nutzen `cadence` (ADR-0004). Bleibt wie `cadence` bei Abbruch und `null` stehen. Eine ältere Bridge
+## ohne das Feld: dann gilt `cadence`.
+var cadence_raw := 0.0
 ## Verbindungsstatus der Quelle laut letzter `status`-Nachricht; ohne Bus-Verbindung `disconnected`.
 var status := STATE_DISCONNECTED
 ## Quelle laut `status`: ble | sim | replay ("" solange unbekannt).
@@ -196,6 +200,9 @@ func _handle(text: String) -> void:
 			var value = message.get("cadence")
 			if value is float:
 				cadence = value
+			var raw = message.get("cadence_raw", value)
+			if raw is float:
+				cadence_raw = raw
 			if message.get("t_ms") is float:
 				last_telemetry_t_ms = int(message["t_ms"])
 			last_telemetry = message

@@ -24,6 +24,8 @@ class TelemetrySample:
     (siehe `DeviceSource.samples`).
     `power_estimated` trägt die Herkunft der Leistung: `True` = estimated,
     `False` = measured (ADR-0004).
+    `cadence_raw` setzt erst die Datenaufbereitung (`processing`): die ungeglättete Kadenz für die
+    Kadenzmuster am Bus (#45); Quellen liefern ihren Wert in `cadence`.
     """
 
     t_ms: int
@@ -32,6 +34,7 @@ class TelemetrySample:
     power_w: float | None = None
     power_estimated: bool | None = None
     heart_rate: int | None = None
+    cadence_raw: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
