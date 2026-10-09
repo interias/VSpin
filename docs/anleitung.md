@@ -39,7 +39,8 @@ ohne Konsolenfenster, mit dem Simulator – und beendet sie beim Schließen saub
 echte Rad (sobald es die Bridge kann, #9), `sim_cadence` die feste Kadenz des Simulators (Standard 80 rpm),
 `autostart=false` schaltet das ab. Fehlt das venv aus Schritt 1, zeigt das
 Menü „Bridge nicht erreichbar – Bridge-Programm fehlt“. Wer Kadenz per Pfeiltasten oder ein Profil braucht, startet
-die Bridge wie in Schritt 2 von Hand; das Spiel nutzt sie dann nur mit und beendet sie nicht.
+die Bridge wie in Schritt 2 von Hand; das Spiel nutzt sie dann nur mit und beendet sie nicht. Stürzt das Spiel ab,
+beendet sich die selbst gestartete Bridge mit ihm.
 
 **4. Protokoll des Rads herausfinden** (sobald das JC312 da ist): siehe [`tools/README.md`](../tools/README.md).
 

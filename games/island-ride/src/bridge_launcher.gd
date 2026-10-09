@@ -178,8 +178,9 @@ func _launch() -> void:
 		state = STATE_MISSING
 		return
 	DirAccess.remove_absolute(_stop_file)  # Rest eines früheren Laufs
+	# --parent-pid: endet das Spiel ohne Stoppdatei (Absturz, „Stop“ im Editor), beendet sich die Bridge selbst.
 	args = PackedStringArray(["-m", "vspin_bridge", "--source", _source, "--sessions-dir", _sessions_dir,
-			"--stop-file", _stop_file])
+			"--stop-file", _stop_file, "--parent-pid", str(OS.get_process_id())])
 	if _source == "sim":  # ohne Terminal keine Pfeiltasten: Start-Kadenz aus config.cfg, sonst stünde sie auf 0
 		args.append_array(["--sim-cadence", str(int(roundf(_sim_cadence)))])
 	pid = _processes.start(program, args)

@@ -32,12 +32,15 @@ Ohne Terminal (stdin kein TTY) ist die Tastatur aus, die Bridge läuft normal we
 unter Windows auch Strg+Untbr. Ohne Terminal und Signal – so beendet das Spiel unter Windows seine Bridge –
 `--stop-file DATEI`: Sobald die Datei existiert, endet die Bridge sauber und räumt sie weg (eine alte Datei beim
 Start wird vorher entfernt). Ein harter Abschuss (Task-Manager, TerminateProcess) lässt sich nicht abfangen; dann
-bleiben nur die bis dahin geschriebenen ganzen Zeilen. Unter `pythonw` (kein Konsolenfenster) schreibt die Bridge
+bleiben nur die bis dahin geschriebenen ganzen Zeilen. `--parent-pid PID`: Läuft dieser Prozess nicht mehr (Prüfung
+alle 0,5 s), endet die Bridge ebenfalls sauber; eine PID, die es nicht gibt, beendet sie sofort. Unter `pythonw` (kein Konsolenfenster) schreibt die Bridge
 keine Terminal-Ausgabe.
 
 **Start aus dem Spiel (Windows):** Ist beim Start der Inselfahrt keine Bridge auf `127.0.0.1:8765` erreichbar,
-startet das Spiel sie selbst unsichtbar (`pythonw -m vspin_bridge --source sim --sessions-dir … --stop-file …`,
-Einstellungen in `games/island-ride/config.cfg [bridge]`) und beendet sie beim Schließen über die Stoppdatei. Eine
+startet das Spiel sie selbst unsichtbar (`pythonw -m vspin_bridge --source sim --sessions-dir … --stop-file …
+--parent-pid <Spiel>`, Einstellungen in `games/island-ride/config.cfg [bridge]`) und beendet sie beim Schließen über
+die Stoppdatei. Endet das Spiel ohne sie – Absturz, „Stop“ im Godot-Editor –, beendet sich die Bridge über
+`--parent-pid` selbst. Eine
 schon laufende Bridge (z. B. hier von Hand gestartet) nutzt das Spiel nur mit und lässt sie laufen.
 
 Der Bus lauscht standardmäßig nur auf `127.0.0.1`. `--host ADRESSE` (z. B. `--host 0.0.0.0`) ist für den

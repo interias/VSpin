@@ -9,10 +9,13 @@ import errno
 import json
 import re
 import subprocess
+import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from bridge_harness import BRIDGE_ROOT, FIXTURES_DIR, receive_json, wait_until
+from bridge_harness import BRIDGE_ROOT, FIXTURES_DIR, receive_json, run_bridge, wait_until
+from vspin_bridge.cli import process_alive
 from vspin_bridge.session import files as session_files
 from vspin_bridge.sources.sim import SimulatorSource
 from websockets.exceptions import ConnectionClosed
@@ -168,6 +171,70 @@ def test_stop_file_leaves_complete_session(bridge_process, bus_client, tmp_path)
     assert raw.endswith(b"\n") and recording.startswith(raw) and len(raw) < len(recording)
     assert len(raw.splitlines()) >= len(rows)
     assert "Traceback" not in bridge.log()
+
+
+def _sleeper() -> subprocess.Popen:
+    """Stellvertreter für das Spiel: ein Elternprozess, der nur wartet."""
+    return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+
+
+def _gone_pid() -> int:
+    """PID eines Prozesses, der schon beendet ist."""
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait(timeout=10)
+    assert not process_alive(proc.pid)
+    return proc.pid
+
+
+def test_process_alive_sees_running_and_ended_processes():
+    sleeper = _sleeper()
+    try:
+        assert process_alive(sleeper.pid)
+    finally:
+        sleeper.kill()
+        sleeper.wait(timeout=5)
+    assert not process_alive(sleeper.pid)
+    assert not process_alive(_gone_pid())
+
+
+def test_hard_killed_parent_stops_bridge_cleanly(bridge_process, bus_client, tmp_path):
+    """Wächter auf das Spiel (Nacharbeit #26): endet der Elternprozess hart – Absturz, „Stop“ im Editor –,
+    beendet sich die Bridge selbst sauber, statt unsichtbar weiterzulaufen. Gegenprobe: ohne Ende des
+    Elternprozesses läuft sie weiter."""
+    parent = _sleeper()
+    try:
+        bridge = bridge_process(
+            "--source", "sim", "--sim-cadence", "80", "--sessions-dir", str(tmp_path), "--parent-pid", str(parent.pid)
+        )
+        client = connect(bus_client)
+        seen = telemetry(client, 4)
+        time.sleep(1.5)  # drei Prüfungen des Wächters bei lebendem Elternprozess
+        assert bridge.proc.poll() is None, "Elternprozess lebt: Bridge läuft weiter"
+        parent.kill()  # TerminateProcess unter Windows – kein Aufräumen des Spiels
+        parent.wait(timeout=5)
+        bridge.proc.wait(timeout=5)
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+    assert bridge.stop() == 0
+    header, rows = read_csv(session_file(tmp_path))  # vollständig: ganze Zeilen bis zum Zeilenende
+    assert header == HEADER
+    assert {m["t_ms"] for m in seen} <= {int(r["t_ms"]) for r in rows}
+    assert "läuft nicht mehr" in bridge.log()
+    assert "Traceback" not in bridge.log()
+
+
+def test_parent_pid_that_does_not_exist_stops_at_once(tmp_path):
+    """Zeigt --parent-pid auf keinen Prozess, endet die Bridge sofort sauber und läuft nicht ewig."""
+    started = time.monotonic()
+    result = run_bridge(
+        ["--source", "sim", "--sessions-dir", str(tmp_path), "--parent-pid", str(_gone_pid())], cwd=tmp_path, timeout_s=15
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert time.monotonic() - started < 10
+    assert "läuft nicht mehr" in result.stdout
+    _, rows = read_csv(session_file(tmp_path))
+    assert rows == [] or all(len(r) == 9 for r in rows)
 
 
 def test_hard_kill_leaves_only_whole_lines(bridge_process, bus_client, tmp_path):

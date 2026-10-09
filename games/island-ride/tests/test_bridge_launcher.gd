@@ -107,7 +107,8 @@ func test_unreachable_bridge_is_started_with_source_from_config() -> void:
 	var args: PackedStringArray = processes.started[0][1]
 	assert_eq(program, "C:/vspin/bridge/.venv/Scripts/pythonw.exe", "pythonw (ohne Konsolenfenster), relativ zum Spiel")
 	assert_eq(args, PackedStringArray(["-m", "vspin_bridge", "--source", "ble", "--sessions-dir", "C:/vspin/bridge/sessions",
-			"--stop-file", ProjectSettings.globalize_path(STOP_FILE)]))
+			"--stop-file", ProjectSettings.globalize_path(STOP_FILE), "--parent-pid", str(OS.get_process_id())]),
+			"Wächter auf das Spiel: die Bridge endet mit ihm, auch ohne Stoppdatei")
 	assert_false(FileAccess.file_exists(STOP_FILE), "alte Stoppdatei weg, sonst endete die Bridge sofort")
 	assert_string_contains(launcher.hint(), "wird gestartet (Quelle ble)")
 

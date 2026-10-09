@@ -3,6 +3,8 @@
 import argparse
 import asyncio
 import contextlib
+import ctypes
+import os
 import random
 import signal
 import sys
@@ -109,6 +111,14 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="DATEI",
         help="sauber beenden, sobald diese Datei existiert (Start aus dem Spiel; Windows kennt kein SIGTERM)",
     )
+    parser.add_argument(
+        "--parent-pid",
+        type=int,
+        default=None,
+        metavar="PID",
+        help="sauber beenden, sobald dieser Prozess nicht mehr läuft (Start aus dem Spiel: Spiel abgestürzt "
+        "oder hart beendet); eine PID, die es nicht gibt, beendet sofort",
+    )
     return parser
 
 
@@ -132,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     console = Console()
     try:
         return asyncio.run(
-            _run(source, console, args.sessions_dir, args.wait_client, args.host, args.stop_file)
+            _run(source, console, args.sessions_dir, args.wait_client, args.host, args.stop_file, args.parent_pid)
         )
     except KeyboardInterrupt:  # Strg+C vor dem Anmelden der Signal-Handler
         console.close()
@@ -140,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 STOP_FILE_POLL_S = 0.1
+PARENT_POLL_S = 0.5
 
 
 async def _run(
@@ -149,6 +160,7 @@ async def _run(
     wait_for_client: bool,
     host: str,
     stop_file: Path | None = None,
+    parent_pid: int | None = None,
 ) -> int:
     stop = asyncio.Event()
     _stop_on_signals(stop)
@@ -156,6 +168,9 @@ async def _run(
     if stop_file is not None:
         stop_file.unlink(missing_ok=True)  # Rest eines früheren Laufs beendet nicht gleich wieder
         watcher = asyncio.create_task(_watch_stop_file(stop_file, stop))
+    parent_watcher = None
+    if parent_pid is not None:
+        parent_watcher = asyncio.create_task(_watch_parent(parent_pid, stop, console))
     try:
         await Bridge(source, console, sessions_dir, wait_for_client, host).run(stop)
     except BusStartError as exc:
@@ -165,6 +180,10 @@ async def _run(
         console.info(f"vspin-bridge: Session-Datei konnte nicht angelegt werden: {exc}")
         return 1
     finally:
+        if parent_watcher is not None:
+            parent_watcher.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await parent_watcher
         if watcher is not None:
             watcher.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -192,6 +211,42 @@ async def _watch_stop_file(path: Path, stop: asyncio.Event) -> None:
     while not path.exists():
         await asyncio.sleep(STOP_FILE_POLL_S)
     stop.set()
+
+
+async def _watch_parent(pid: int, stop: asyncio.Event, console: Console) -> None:
+    """Wächter auf den Elternprozess (Spiel): endet das Spiel ohne Stoppdatei – Absturz, „Stop“ im Editor,
+    TerminateProcess –, beendet sich die Bridge selbst sauber, statt unsichtbar weiterzulaufen."""
+    while process_alive(pid):
+        await asyncio.sleep(PARENT_POLL_S)
+    console.info(f"vspin-bridge: Elternprozess {pid} läuft nicht mehr – beende")
+    stop.set()
+
+
+def process_alive(pid: int) -> bool:
+    """Läuft der Prozess `pid`? Ohne zusätzliche Abhängigkeit: unter Windows über OpenProcess und
+    GetExitCodeProcess (STILL_ACTIVE), sonst über Signal 0."""
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() == 5  # ERROR_ACCESS_DENIED: es gibt ihn, nur fremd
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(ctypes.c_void_p(handle), ctypes.byref(code)):
+                return False
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(ctypes.c_void_p(handle))
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 if __name__ == "__main__":
