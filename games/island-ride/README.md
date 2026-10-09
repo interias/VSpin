@@ -326,6 +326,10 @@ Kurbel mit Kettenblatt, Kette und Pedalen, Trinkflasche; Fahrer mit Helm und Bri
   Zwei-Glieder-IK. In jedem Zustand außer `riding` stehen Kurbel, Beine und Räder; bei Kadenz 0 rollt das Rad aus.
 - `src/rider_model.gd` baut die Geometrie (~90 Teile, ein Material je Farbe) und setzt die Pose;
   `scenes/main.gd` übergibt pro Frame Kadenz, Tempo, Steigung, Krümmung (`current_curvature()`) und Pause.
+- Aussehen: `wear(outfit)` färbt Trikot (mit Brustband), Rahmen und Helm (mit Streifen) für die Garderobe (#36); im
+  Arcade zusätzlich Felgen, Schuhe und den **Talisman** – eine leuchtende Raute an einer Schnur hinten am Sattel, nur
+  sichtbar, solange ein Talisman angelegt ist (#49, siehe „Beute und Ausrüstung“). `reset_look()` stellt vor jedem
+  Anziehen den gebauten Grund-Look her.
 - Kosten: fps-Fahrt 0–2310 m ohne VSync 1202 statt 1229 fps (~0,02 ms/Frame); mit VSync unverändert ~60 fps.
 - Sichtprüfung: `view_probe.gd -- --cadence=85 --close --pair` (Nahaufnahmen seitlich/schräg hinten, zweites Bild
   0,15 s später mit anderer Kurbelstellung).
@@ -367,7 +371,7 @@ Enter/Leertaste):
 | **Fahren** | Modus-Auswahl: **Rundfahrt**, **Training**, **Arcade**, „Zurück“ |
 | **Fahren → Rundfahrt** | **Runden** 1–20 oder *Endlos* (Standard 1), **Richtung** (*Im Uhrzeigersinn*, *Gegen den Uhrzeigersinn*, #34), **Tageszeit** (dieselbe Auswahl wie im Einstellungsmenü, Standard *Echtzeit*; wirkt und bleibt wie dort gewählt), **Ghost** (*Aus*, *Bestzeit*, *Letzte Fahrt*; ohne Aufzeichnung ausgegraut, Standard *Bestzeit*, sobald es sie gibt, #32), die **Bestzeit** der Strecke in der gewählten Richtung; **Losfahren** startet die Fahrt (#31) |
 | **Fahren → Training** | **Einheit** (*Intervalle kurz*, *Pyramide*, *Tempo-Blöcke*) mit Beschreibung und Dauer; **Losfahren** startet das Training (#37, siehe unten) |
-| **Fahren → Arcade** | **Stufe** (*Stufe 1–3*) mit Beschreibung, persönlicher **Kadenzbereich** (von 40–80 bis 100–150 rpm, Standard 60–120 rpm), die **Bestpunktzahl** der Stufe; **Losfahren** startet den Arcade-Lauf (#46, siehe unten). Stufe und Kadenzbereich werden bei jeder Änderung gespeichert |
+| **Fahren → Arcade** | **Stufe** (*Stufe 1–3*) mit Beschreibung, persönlicher **Kadenzbereich** (von 40–80 bis 100–150 rpm, Standard 60–120 rpm), die **Bestpunktzahl** der Stufe; **Losfahren** startet den Arcade-Lauf (#46, siehe unten), **Ausrüstung** öffnet das Inventar der Beute (#49, siehe „Beute und Ausrüstung“). Stufe und Kadenzbereich werden bei jeder Änderung gespeichert |
 | **Fahrtenbuch** | Statistik, Bestzeiten, Segmentzeiten, Medaillen, Erfolge und die letzten Fahrten (#35, siehe unten) |
 | **Garderobe** | Trikot, Radfarbe und Helm mit Vorschau, freigeschaltet über das Fahrerlevel (#36, siehe unten) |
 | **Einstellungen** | öffnet das Menü „Grafik und Fenster“ (wie `Esc`/`F2`) |
@@ -390,8 +394,10 @@ Sekunden, z. B. `{"island": {"cw": 873.4}}`), Segment-Bestzeiten unter `segment_
 (`lap`) und Segment unter `medals` (Strecke → Richtung → Segment-ID, #33), die Ghosts unter `ghosts` (Strecke → Richtung →
 `best`/`last`, je nur `lap_length_m`, `sample_s`, `time_s` und `distance_m`, #32), die freigeschalteten Erfolge unter
 `achievements` (Erfolg-ID → Datum, #35), Arcade unter `arcade` (Kadenzbereich `cadence_range`, gewählte Stufe `tier`,
-beste Punktzahl je Stufe `best_points`, #46; eine Arcade-Fahrt trägt zusätzlich `arcade` mit Stufe, Punkten, geschafften
-und verfehlten Herausforderungen). Spätere Bereiche kommen additiv dazu – so auch `arcade`, die Formatversion bleibt 1; ältere
+beste Punktzahl je Stufe `best_points`, #46; Beute #49: Inventar `inventory` – je Teil `id`, `slot`, `rarity`, `stats`,
+`effect` –, angelegte Teile `equipped` (Platz → `id`), Splitter `shards` und die nächste freie `next_item_id`; eine
+Arcade-Fahrt trägt zusätzlich `arcade` mit Stufe, Punkten, geschafften und verfehlten Herausforderungen). Spätere Bereiche
+kommen additiv dazu – so auch `arcade`, die Formatversion bleibt 1; ältere
 Stände werden beim Laden hochgestuft, ein Stand einer neueren Version bleibt unverändert erhalten, eine unlesbare
 Datei wird als `savegame.json.defekt` beiseitegelegt statt überschrieben.
 
@@ -477,6 +483,8 @@ Telemetrie vor** … ms (Zeit seit Empfang der letzten Telemetrie im Spiel; bei 
 und ~250 ms – dauerhaft mehr heißt: Daten stocken; das ist **nicht** die Latenz Kurbel → Bild, die misst man per
 Zeitlupe, siehe `docs/anleitung.md`), dazu Bus-Verbindung, Status und Quelle. Prüfen: Kadenz in der
 Bridge ändern und schauen, wann „Kadenz roh“ und `t_ms` nachziehen.
+„Kadenz roh“ ist hier das Feld `cadence` wie empfangen (geglättet, nur ungerundet) – nicht das Bus-Feld
+`cadence_raw` (ungeglättet, nur für die Kadenzmuster, #45).
 
 ### Grafik und Fenster (`Esc` / `F2`)
 
@@ -733,6 +741,64 @@ Sichtprüfung: `view_probe.gd -- --title --arcade` speichert `title_arcade.png`,
 Herausforderung (`arcade_gate.png`), Zone halten (`zone_hold.png`, Kadenz zu hoch `zone_hold_above.png`), Erfolg
 (`zone_hold_success.png`) und die Zusammenfassung (`arcade_result.png`).
 
+### Beute und Ausrüstung (#49)
+
+Jede beendete Herausforderung im Arcade würfelt **Beute**: nach **geschafft** sicher, nach **verfehlt** nur mit der
+Chance 0,5 × erreichter Fortschritt (knapp verfehlt gibt manchmal etwas, ohne Kadenz in der Zone – Fortschritt 0 – nie).
+Ein Fund zeigt sich sofort: 18 m vor dem Fahrer steht eine **Lichtsäule** (16 m hoch, Bodenring, darüber schwebend und
+drehend das Fundstück als Raute) in der **Farbe seiner Seltenheit**, bis sie 20 m hinter dem Fahrer liegt; über der
+Bildmitte steigen **Zahlen-Popups** auf („+100“ für die Punkte in Gold, der Name des Fundes in Seltenheitsfarbe,
+z. B. „Magischer Helm“) und blenden nach 1,8 s aus. Die **Zusammenfassung** nennt die Funde („Beute: Magischer Helm ·
+Seltene Schuhe“); ins Inventar kommen sie am Fahrtende. In der Fahrt wird nichts verwaltet.
+
+**Sechs Plätze** mit Hauptwert: Rahmen und Laufräder (Fortschritt in der Zone), Trikot (Punkte), Helm und Schuhe
+(Zonenbreite), Talisman (Beute-Glück). Der Platz ist gleichverteilt; jedes Teil hat den Hauptwert seines Platzes und je
+nach Seltenheit weitere, verschiedene Werte.
+
+| Seltenheit | Farbe | Anteil | Werte | Stärke | Splitter |
+|---|---|---|---|---|---|
+| Gewöhnlich | weiß/grau | 60 % | 1 | × 1 | 1 |
+| Magisch | blau | 28 % | 2 | × 1,5 | 3 |
+| Selten | gelb | 10 % | 3 | × 2,2 | 8 |
+| Legendär | orange | 2 % | 4 | × 3 | 20 |
+
+| Wert | je Teil (gewöhnlich, × Stärke) | Obergrenze aller angelegten Teile | Wirkung |
+|---|---|---|---|
+| Zonenbreite | 1–2 rpm | 10 rpm | Zielzone breiter (je zur Hälfte unten und oben) – nachsichtiger |
+| Fortschritt in der Zone | 3–6 % | 60 % | jede Sekunde **in der Zone** zählt mehr – wirkungsvoller |
+| Punkte | 5–10 % | 100 % | mehr Punkte für eine geschaffte Herausforderung – lohnender |
+| Beute-Glück | 5–10 % | 100 % | seltenere Funde: Gewicht der Seltenheit mit Rang r (0 = gewöhnlich) × (1 + Glück)^r |
+
+**Ausrüstung ersetzt nie das Treten:** ohne Kadenz in der Zone passiert nichts – kein Fortschritt, keine Punkte, keine
+Beute, mit Ausrüstung genauso wie ohne. Auch die verbreiterte Zone läuft durch den Wächter des Kadenzbereichs
+(`Encounters.zone_for` → `CadenceRange.limit_zone`), liegt also nie außerhalb. Legendäre Teile haben ein Feld für einen
+Spezialeffekt (`effect`, kommt mit #53; heute leer und ohne Wirkung).
+
+**Ausrüstung** (Startmenü **Fahren → Arcade → Ausrüstung**, `scenes/gear_menu.gd`) ist die einzige Stelle, an der Beute
+verwaltet wird. Oben Splitter und Zahl der Teile; links die Teile nach Platz, darin die neuesten zuerst (Name in
+Seltenheitsfarbe, Werte, angelegte mit „· angelegt“), rechts das gewählte Teil mit dem **Vergleich** gegen das angelegte
+Teil desselben Platzes (je Wert besser grün, schlechter rot, sonst „gleich“), **Anlegen** und **Verwerten
+(+n Splitter)** – angelegte Teile lassen sich nicht verwerten –, darunter „Angelegt je Platz“. Jede Änderung wird sofort
+gespeichert. Splitter werden nur gesammelt (kein Handwerk). Bedienung mit Maus oder Tastatur (Pfeiltasten/Tab,
+Enter/Leertaste); **Esc** oder **Zurück** führt auf die Seite „Arcade“.
+
+**Am Fahrer:** Im Arcade-Lauf trägt der Fahrer die angelegten Teile in der Farbe ihrer Seltenheit – Rahmen, Felgen,
+Trikot (Brustband dunkler), Helm (Streifen dunkler), Schuhe und den Talisman am Sattel. Jedes angelegte Teil überdeckt
+die Garderobe nur an seinem Platz; Plätze ohne Teil zeigen die Garderobe.
+
+**Getrennte Welten (ADR-0010):** Ausrüstung wirkt nur im Arcade-Lauf (`ArcadeRun.gear`); Rundfahrt und Training fahren
+mit ihr identisch und zeigen nur die Garderobe. Logik in `src/loot.gd` (Daten und Würfel, mit Seed reproduzierbar) und
+`src/inventory.gd` (Inventar im Spielstand), beides ohne Szene; die Beute würfelt ein eigener Würfel, die Planung der
+Herausforderungen bleibt bei gleichem Seed unverändert. Tests: `tests/test_loot.gd` (Würfel, Inventar, Werte nur mit
+Kadenz in der Zone), `tests/test_arcade_loot_ride.gd` (Simulator-Profile *perfekt in der Zone*: Beute mit Lichtsäule und
+Popups; *knapp daneben*: keine – mit +6 rpm Zonenbreite geschafft; Menü).
+
+Sichtprüfung: `view_probe.gd -- --hud --arcade` speichert zusätzlich die Lichtsäule mit Popups direkt nach dem Erfolg
+(`loot_beam.png`); `--gear` legt im Spielstand (nur im Speicher) je Platz ein Beispielteil in allen Seltenheiten an und
+legt weitere ins Inventar – mit `--title --gear` die Ausrüstung aus dem Startmenü (`gear.png`, ein Helm im Vergleich),
+mit `--hud --arcade --gear` trägt der Fahrer sie im Arcade-Lauf, dazu die Nahaufnahmen `close_5_side.png` und
+`close_5_rear.png`.
+
 ### Ton (#44)
 
 Dezent und standardmäßig leise (Lautstärke 30 %, jeder Klang zusätzlich gedämpft), auf einem eigenen Audio-Bus
@@ -909,11 +975,11 @@ Bridge-Terminal `set_grade … -> not_supported`, Kadenz sinkt bergauf, in der S
 config.cfg              Bus-Adresse, Fahrmodell-Parameter, Strecke, Kamera, Tageszeit und Wetter
 scenes/main.tscn/.gd    Hauptszene: Strecke laut Konfiguration, Bus-Client → Fahrmodell → Fahrer auf dem Pfad, Kamera, Spielzustände, Tasten, HUD
 scenes/hud.tscn         HUD-Szene (RideHud): Werte-Panel, Minikarte, Rundenfortschritt, Höhenprofil, Meldungen
-src/ride_hud.gd         RideHud: Anzeige der Werte, Rundenfortschritt, readout(); Layout von Hinweis/Debug
+src/ride_hud.gd         RideHud: Anzeige der Werte, Rundenfortschritt, readout(); Layout von Hinweis/Debug; Zahlen-Popups (#49)
 src/hud_gauge.gd        HudGauge: Kadenz-Bogen · src/hud_grade_icon.gd HudGradeIcon: Steigungskeil
 src/hud_profile.gd      HudProfile: Höhenprofil mit Marker (profile_point() als reine Rechnung)
 src/hud_minimap.gd      HudMinimap: Inselkarte mit Strecke, Landmarken, Fahrer-Pfeil (map_point() als reine Rechnung)
-src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeout), status/telemetry parsen, send_message
+src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeout), status/telemetry parsen (`cadence` geglättet für HUD/Fahrmodell, `cadence_raw` ungeglättet für Kadenzmuster, #45), send_message
 src/ride_stats.gd       RideStats: Fahrzeit, Strecke, Ø Kadenz, Ø Tempo (ohne Pausen) – reine Logik
 src/lap_timing.gd       LapTiming: Rundenwertung – Rundenzeiten, Ziel nach n Runden oder endlos, Bestzeit, Ghost-Aufzeichnung – reine Logik
 src/segment_timing.gd   SegmentTiming: Segmentzeiten (Live-Zeit, gewertete Segmente, Segment-Bestzeit) – reine Logik
@@ -927,17 +993,21 @@ src/zone_hold.gd        ZoneHold: Baustein „Zone halten“ – reine Logik (#4
 src/encounters.gd       Encounters: Herausforderungen als Daten, Würfeln, Bau der Bausteine mit Wächter des Kadenzbereichs (#46)
 src/arcade_tiers.gd     ArcadeTiers: Stufen als Daten (Zonenbreite, Dauer, Punkte), Auswahl im Spielstand (#46)
 src/cadence_range.gd    CadenceRange: persönlicher Kadenzbereich, begrenzt jede Zielzone (limit_zone) (#46)
-src/arcade_run.gd       ArcadeRun: Arcade-Lauf – Herausforderungen je Abschnitt und Runde, Punkte, Zusammenfassung (#46)
+src/arcade_run.gd       ArcadeRun: Arcade-Lauf – Herausforderungen je Abschnitt und Runde, Punkte, Beute, Ausrüstung, Zusammenfassung (#46, #49)
+src/loot.gd             Loot: Beute – Plätze, Seltenheiten, Werte als Daten, Würfel, Vergleich, Modifikatoren, Aussehen – reine Logik (#49)
+src/inventory.gd        Inventory: Inventar im Spielstand – ablegen, anlegen, vergleichen, zu Splittern verwerten – reine Logik (#49)
+src/loot_beam.gd        LootBeam: Lichtsäule eines Fundes in Seltenheitsfarbe, an einer Fahrtposition gestellt (#49)
 trainings/              Trainingseinheiten als Dateien (JSON): Intervalle kurz, Pyramide, Tempo-Blöcke
 src/medals.gd           Medals: Medaillen-Schwellen aus dem Fahrmodell (70/85/95 rpm), Medaille einer Zeit – reine Logik
 src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik
 src/ride_model.gd       RideModel: reine Logik (Kadenz, Steigung, Δt, Konfig → Geschwindigkeit, Position)
 src/rider_motion.gd     RiderMotion: Kurbel-/Radwinkel, Schräglage, Vorbeuge, Glieder-IK – reine Logik
-src/rider_model.gd      RiderModel: Fahrer und Rennrad aus Grundkörpern, Pose aus RiderMotion
+src/rider_model.gd      RiderModel: Fahrer und Rennrad aus Grundkörpern, Pose aus RiderMotion; Garderobe und Arcade-Ausrüstung mit Talisman (#36, #49)
 src/ride_config.gd      RideConfig: liest config.cfg
 src/graphics_settings.gd GraphicsSettings: Grafik-/Fenstereinstellungen, Tageszeit/Wetter (user://settings.cfg), Anwenden, Fensterhälften
 scenes/settings_menu.*  Menü „Grafik und Fenster“ (F2, F11), von der Hauptszene eingehängt
-scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt-, Training- und Arcade-Auswahl, Radstatus (#30, #31, #37, #46)
+scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt-, Training- und Arcade-Auswahl (mit „Ausrüstung“), Radstatus (#30, #31, #37, #46, #49)
+scenes/gear_menu.gd     Ausrüstung: Inventar der Beute mit Vergleich, Anlegen und Verwerten, aus „Fahren → Arcade“ (#49)
 scenes/wardrobe.gd      Garderobe: Trikot, Radfarbe, Helm mit Vorschau (SubViewport), gesperrte mit Level (#36)
 src/wardrobe.gd         Wardrobe: Teile und Farben, Auswahl prüfen und wählen, Standard je Kategorie – reine Logik
 src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Bestzeiten, Segment-Bestzeiten, Medaillen, Ghosts, Erfolge, Garderobe, Kamera, Arcade, Hochstufung
