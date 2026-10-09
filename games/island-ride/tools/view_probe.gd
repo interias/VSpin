@@ -8,6 +8,7 @@
 ##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4] [--logbook] [--rewards]
 ##         [--training] [--ccw] [--wardrobe=trikot_gelb,radfarbe_blau,helm_schwarz] [--fauna] [--effects-kmh=55] [--intro]
 ##         [--panorama=aussichtspunkt,burg] [--view=nah|verfolger|weit] [--arcade] [--gear] [--props] [--rhythm]
+##         [--bosses]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -71,6 +72,11 @@
 ## einem Treffer (`rhythm_hit.png`, Tor „Treffer“ hinter dem Fahrer, nächstes voraus) und nach einem verpassten Tor mit zu
 ## hoher Kadenz (`rhythm_missed.png`), dann das Sammeln: Objekte voraus mit großem Magnetring bei hoher Kadenz
 ## (`collect_high.png`), mit kleinem Ring bei niedriger (`collect_low.png`) und die Objekte aus der Nähe (`collect_close.png`).
+## Bosse (#51): `--hud --arcade --bosses` stellt den Fahrer an den Ort jedes Bosses (Küstenstraße, Serpentinen, Bergdorf)
+## und spielt den Kampf mit passender Kadenz: zu Beginn mit vollem Lebensbalken (`boss_<id>.png`), aus der Nähe
+## (`boss_<id>_close.png`), angeschlagen (`boss_<id>_hurt.png`, Tramuntana in der Böe mit Windstreifen), dann besiegt
+## (`boss_tramuntana_defeated.png`, `boss_drac_defeated.png`, beim Zusammensinken) bzw. entkommen (`boss_dimonis_escape.png`,
+## ohne Treten: die Dimonis ziehen davon).
 ## Gegenrichtung (#34): `--ccw` fährt gegen den Uhrzeigersinn – `--shots`, `--segments`, `--laps` und `--ghost` dann in
 ## Fahrtposition dieser Richtung, mit `--title` ist die Richtung auf der Seite „Rundfahrt“ gewählt.
 ## Garderobe (#36): `--wardrobe=TEIL,…` gibt dem Spielstand (nur im Speicher) Kilometer bis Level 12 und wählt die Teile
@@ -126,6 +132,8 @@ var _arcade := false
 var _props := false
 ## Takt-Tore und Sammeln statt Zone halten (`--rhythm`, #48).
 var _rhythm := false
+## Die drei Bosse statt Zone halten (`--bosses`, #51).
+var _bosses := false
 ## Beispiel-Ausrüstung angelegt (`--gear`, #49).
 var _gear := false
 ## Garderobe: gewählte Teile (`--wardrobe`; null = ohne).
@@ -219,6 +227,8 @@ func _initialize() -> void:
 			_props = true
 		elif arg == "--rhythm":
 			_rhythm = true
+		elif arg == "--bosses":
+			_bosses = true
 		elif arg.begins_with("--wardrobe"):
 			_outfit = Array(value.split(",", false)) if arg.contains("=") else []
 		elif arg == "--fauna":
@@ -348,6 +358,8 @@ func _initialize() -> void:
 		await _prop_shots(out_dir)
 	elif _arcade and _hud and _rhythm:
 		await _rhythm_shots(out_dir)
+	elif _arcade and _hud and _bosses:
+		await _boss_shots(out_dir)
 	elif _arcade and _hud:
 		await _arcade_shots(out_dir)
 	if fps_to > fps_from:
@@ -770,6 +782,90 @@ func _rhythm_shots(out_dir: String) -> void:
 	_save_image(out_dir.path_join("collect_close.png"))
 	_ride.set_process(true)
 	_ride._update_camera(0.0, true)
+
+
+## Bosse (#51): je Boss ein Arcade-Lauf nur mit ihm an seinem festen Ort (Fahrer kurz vor dem Startpunkt); Kampfbeginn,
+## Nahaufnahme, angeschlagen, besiegt bzw. entkommen. Die Kadenz folgt dem Ziel der laufenden Phase.
+func _boss_shots(out_dir: String) -> void:
+	var length: float = _ride.track.length_m()
+	var sections := ArcadeRun.sections_from_stations(_ride.track.ride_stations(), length)
+	_ride.ride_mode = SaveGame.MODE_ARCADE
+	_ride.laps = 0
+	_ride.lap_timing = LapTiming.new(length, 0.0, 0)
+	_ride.stats = RideStats.new()
+	_ride.hud.end_celebration()
+	var bosses := preload("res://src/challenges/boss_challenges.gd")
+	for definition in bosses.FIXED:
+		var id: String = definition["id"]
+		var section: Dictionary = sections.filter(func(s): return s["name"] == definition["section"])[0]
+		_place(section["start_m"] + 10.0)
+		_ride.arcade = ArcadeRun.new(1, CadenceRange.new(), sections, length, _ride.model.distance_m, 3, [], [definition])
+		_ride.bus.cadence = 90.0
+		_ride._update_view()
+		_ride._update_camera(0.0, true)
+		while _ride.arcade.active.is_empty():
+			await _ride_arcade(0.25, false)
+		var boss: BossFight = _ride.arcade.active["block"]
+		await _boss_ride(boss, 2.0)
+		await _frames(30)  # die Gestalt gleitet auf ihren Abstand
+		_save_image(out_dir.path_join("boss_%s.png" % id))
+		await _boss_close(out_dir, id)
+		while boss.health() > 0.45 and not boss.finished():
+			await _boss_ride(boss, 0.25, false)
+		if id == "tramuntana":  # in der Böe: Windstreifen
+			while not boss.current_phase() is Breakthrough and not boss.finished():
+				await _boss_ride(boss, 0.25, false)
+			await _boss_ride(boss, 1.0)
+		await _frames(20)
+		_save_image(out_dir.path_join("boss_%s_hurt.png" % id))
+		if id == "dimonis":  # entkommen: ohne Treten entwischen sie
+			_ride.bus.cadence = 0.0
+			while not boss.finished():
+				await _ride_arcade(0.25, false)
+			_ride.bus.cadence = 60.0
+			await _ride_arcade(0.3)
+			await _frames(30)
+			_save_image(out_dir.path_join("boss_dimonis_escape.png"))
+		else:
+			while not boss.finished():
+				await _boss_ride(boss, 0.25, false)
+			await _ride_arcade(0.1, false)
+			await _frames(12)  # mitten im Zusammensinken
+			_save_image(out_dir.path_join("boss_%s_defeated.png" % id))
+		await _frames(240)  # Gestalt und Ergebnis des Kampfes laufen aus
+
+
+## Arcade `seconds` lang mit der Kadenz, die das Ziel der laufenden Phase von `boss` trifft (Mitte der Zone, über einer
+## Schwelle 4 rpm darüber).
+func _boss_ride(boss: BossFight, seconds: float, settle: bool = true) -> void:
+	var dt := 1.0 / 30.0
+	for i in range(maxi(int(seconds / dt), 1)):
+		if boss.finished():
+			break
+		var zone := boss.zone()
+		var phase := boss.current_phase()
+		_ride.bus.cadence = zone.x + 4.0 if phase is Breakthrough or phase is Chase else (zone.x + zone.y) / 2.0
+		await _ride_arcade(dt, false, dt)
+	if settle:
+		_ride._update_camera(0.0, true)
+		await _frames(8)
+
+
+## Nahaufnahme der Gestalt schräg von vorn (Kamera nur hier versetzt).
+func _boss_close(out_dir: String, id: String) -> void:
+	_ride.set_process(false)
+	var figure: BossFigure = _ride.arcade_stage.props["boss"].figure
+	var at: Transform3D = (figure.get_node("Figure") as Node3D).global_transform
+	var camera: Camera3D = _ride.camera
+	var size: float = {"tramuntana": 7.0, "drac": 6.5}.get(id, 4.0)
+	camera.global_position = at.origin - at.basis.z.normalized() * size * 2.0 + at.basis.x.normalized() * size \
+			+ Vector3.UP * size * 0.6
+	camera.look_at(at.origin + Vector3.UP * size * 0.25, Vector3.UP)
+	await _frames(6)
+	_save(out_dir.path_join("boss_%s_close.png" % id))
+	_ride.set_process(true)
+	_ride._update_camera(0.0, true)
+	await _frames(4)
 
 
 ## Wartet, bis die Zugbrücke ihren Öffnungsgrad erreicht hat.

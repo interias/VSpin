@@ -90,12 +90,18 @@ unter [`profiles/`](profiles/):
 | `arcade/innehalten.toml` | Kadenzmuster-Szenario (#45, #50): zweimal 3 s Kadenz 0 (aus 80 und 110 rpm), am Ende 1,5 s (kein Innehalten), dann Ende |
 | `arcade/gleichmass.toml` | Kadenzmuster-Szenario (#50): 6 s Stillstand, Anfahren, 12 s ruhig um 80 rpm (Spanne 5 rpm), 8 s breite Wellen (70–100 rpm), 12 s ruhig bei 85 rpm, dann Ende |
 | `arcade/rhythmus.toml` | Kadenzmuster-Szenario (#50): 6 s 80 rpm, sechs Pulse 80 → 96 → 80 rpm im Takt von 3 s, 6 s Ruhe, fünf Pulse mit ungleichen Abständen (kein Takt), 6 s 80 rpm, dann Ende |
+| `arcade/boss_abbruch.toml` | Boss-Szenario (#51) „Abbruch mitten im Bosskampf“ (Tramuntana): 12 s 90 rpm → 4 s keine Daten → 30 s `disconnected` → 8 s 90 rpm, 7 s 112 rpm, 15 s 96 rpm, 5 s 90 rpm, dann Ende |
+| `arcade/boss_tramuntana.toml` | Boss-Szenario „Tramuntana besiegt“: 20 s 90 rpm (Gegenwind), 7 s 112 rpm (Böe), 15 s 96 rpm (Sturmfront), 5 s 90 rpm, dann Ende |
+| `arcade/boss_drac.toml` | Boss-Szenario „Drac de na Coca besiegt“: 22 s 90 rpm, 8 s 114 rpm, 15 s 96 rpm, 7 s 116 rpm, 5 s 90 rpm, dann Ende |
+| `arcade/boss_dimonis_besiegt.toml` | Boss-Szenario „Dimonis besiegt“ (Jagd): 15 s 100 rpm, 7 s 112 rpm, 12 s 104 rpm, 5 s 90 rpm, dann Ende |
+| `arcade/boss_dimonis_entkommen.toml` | Boss-Szenario „Dimonis entkommen“: 25 s 85 rpm (unter der Schwelle 93 rpm der Jagd), 10 s 90 rpm, dann Ende |
 
 Die Arcade-Szenarien `zone_*` spielt das Spiel auch in seinen Tests nach (`games/island-ride/tests/test_arcade_ride.gd`, gleicher
 Kadenzverlauf über den Fake-Bus) und prüft dort das Ergebnis: geschafft, weich verfehlt, Pause bei Abbruch. `takt_*` und `sammeln_*` (#48) spielt
 `games/island-ride/tests/test_arcade_rhythm_collect_ride.gd` nach (Takt getroffen/verfehlt, Sammeln viel/wenig). Die Kadenzmuster-Szenarien
 `antritt`, `innehalten`, `gleichmass` und `rhythmus` spielt `games/island-ride/tests/test_abilities_ride.gd` (#50) nach: das Muster wird erkannt,
-die Fähigkeit ausgelöst, die Anzeige zeigt „aktiv“ und danach die Abklingzeit. (`SimProfile.to_script` bildet `cadence_raw` nicht ab, der Fake-Bus fällt auf
+die Fähigkeit ausgelöst, die Anzeige zeigt „aktiv“ und danach die Abklingzeit. Die Boss-Szenarien `boss_*` (#51) spielt `games/island-ride/tests/test_bosses_ride.gd` mit dem jeweils erzwungenen Boss nach:
+besiegt (Punkte, Boss-Beute), entkommen (weich, ohne Beute) und beim Abbruch die Pause mitten im Kampf, danach Weiterfahrt und Sieg. (`SimProfile.to_script` bildet `cadence_raw` nicht ab, der Fake-Bus fällt auf
 `cadence` zurück; die Unterscheidung geglättet/ungeglättet prüft ein eigener Test.)
 
 Format:
@@ -276,7 +282,7 @@ Session-Dateien und Terminal.
 Struktur (teils noch geplant):
 
 ```
-profiles/        Beispielprofile für den Simulator (--profile); arcade/: Arcade-Szenarien des Spiels (#46–#48), Kadenzmuster-Szenarien (#45, #50)
+profiles/        Beispielprofile für den Simulator (--profile); arcade/: Arcade-Szenarien des Spiels (#46–#48, Bosse #51), Kadenzmuster-Szenarien (#45, #50)
 src/vspin_bridge/
   sources/      sim (+ profile), replay, später ble  – alle implementieren DeviceSource
   parsers/      rohe Notification → TelemetrySample (CSC, FTMS Indoor Bike Data)

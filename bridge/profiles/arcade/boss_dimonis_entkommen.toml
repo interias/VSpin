@@ -1,0 +1,14 @@
+# Arcade-Szenario „Dimonis entkommen“ (#51): Stufe 1, Kadenzbereich 60–120 rpm. 25 s mit 85 rpm – unter der Schwelle der
+# ersten Jagd-Phase (ab 93 rpm): der Vorsprung der Dimonis wächst, bis sie entwischt sind (Vorsprung 0,4, in 12 s
+# entwischt). Erwartet im Spiel: weich gescheitert – die Dimonis ziehen davon, keine Punkte, keine Beute (kein Schaden),
+# die Fahrt geht weiter. Endet danach (Quelle beendet → disconnected).
+# Im Spiel nachgespielt von games/island-ride/tests/test_bosses_ride.gd.
+name = "Arcade: Dimonis entkommen"
+
+[[steps]]
+duration_s = 25
+cadence = 85
+
+[[steps]]
+duration_s = 10
+cadence = 90

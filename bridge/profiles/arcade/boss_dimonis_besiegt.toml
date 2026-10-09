@@ -1,0 +1,22 @@
+# Arcade-Szenario „Dimonis eingeholt“ (#51): Stufe 1, Kadenzbereich 60–120 rpm, die Jagd durchs Dorf: mit 100 rpm durch
+# die Gassen (ab 93 rpm, in 10 s eingeholt, Vorsprung 0,4), 7 s mit 112 rpm über den Dorfplatz (ab 105 rpm, Balken in
+# 5 s), 12 s mit 104 rpm hinaus aus dem Dorf (ab 99 rpm, in 8 s eingeholt, Vorsprung 0,35). Erwartet im Spiel: die
+# Dimonis kommen näher, bis sie eingeholt sind – besiegt, +450 Punkte und Boss-Beute. Endet danach.
+# Im Spiel nachgespielt von games/island-ride/tests/test_bosses_ride.gd.
+name = "Arcade: Dimonis besiegt"
+
+[[steps]]
+duration_s = 15
+cadence = 100
+
+[[steps]]
+duration_s = 7
+cadence = 112
+
+[[steps]]
+duration_s = 12
+cadence = 104
+
+[[steps]]
+duration_s = 5
+cadence = 90

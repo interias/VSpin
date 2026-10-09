@@ -9,7 +9,12 @@
 ## Abschnitt nicht verlassen ist (danach verfällt sie ungespielt). Sie läuft über ihren Baustein (`advance` je
 ## Fahrschritt – in Pausen ruft die Hauptszene nichts auf, also läuft dort nichts weiter und nichts scheitert).
 ## Geschafft gibt Punkte (Encounters.points_for), verfehlt keine – Scheitern ist weich, die Fahrt geht weiter.
-## Am Ende fasst `summary_lines` den Lauf zusammen (später auch Bosse).
+## Am Ende fasst `summary_lines` den Lauf zusammen, mit den Bossen.
+##
+## Feste Begegnungen (#51, Bosse): Typen mit einer Konstante `FIXED` (src/challenges/boss_challenges.gd) nennen je Eintrag
+## einen Abschnitt (`section`). In diesem Abschnitt plant jede Runde statt der gewürfelten Herausforderungen die festen
+## ein (gleiche Lage: die erste START_LEAD_M hinter dem Beginn). Gewürfelt wird dort trotzdem, damit alle übrigen
+## Abschnitte bei gleichem Seed dieselben Herausforderungen bekommen. Ohne passenden Abschnitt (Graybox) gibt es keine.
 ##
 ## Beute (#49): Jede beendete Herausforderung würfelt Beute (Loot) – geschafft sicher, verfehlt nur mit einer Chance nach
 ## dem erreichten Fortschritt (Loot.drop_chance; ohne Kadenz in der Zone nie). Funde stehen im Ergebnis (`loot`), in
@@ -42,7 +47,8 @@ var elapsed_s := 0.0
 var planned: Array = []
 ## Laufende Herausforderung ({} = keine): wie in `planned` plus {block}.
 var active: Dictionary = {}
-## Beendete Herausforderungen: [{id, name, section, lap, succeeded, points, progress, loot}] (`loot`: Teil, {} = keins).
+## Beendete Herausforderungen: [{id, name, section, lap, succeeded, points, progress, loot, boss}] (`loot`: Teil, {} = keins;
+## `boss`: ein Boss, #51).
 var results: Array = []
 var points := 0
 ## Modifikatoren der angelegten Ausrüstung (Loot.modifiers; {} = keine) – nur im Arcade-Lauf (ADR-0010).
@@ -51,6 +57,8 @@ var gear: Dictionary = {}
 var loot_quality := 1.0
 ## In diesem Lauf gefundene Teile (Loot.roll, noch ohne Inventar-`id`), in Fundreihenfolge.
 var found: Array = []
+## Feste Begegnungen (Bosse): Definitionen mit `section`, je Runde in ihrem Abschnitt statt der gewürfelten.
+var fixed: Array = []
 
 var _rng := RandomNumberGenerator.new()
 var _loot_rng := RandomNumberGenerator.new()
@@ -58,15 +66,17 @@ var _loot_rng := RandomNumberGenerator.new()
 var _planned_laps := 0
 
 
-## `seed_value` < 0 würfelt zufällig, sonst reproduzierbar.
+## `seed_value` < 0 würfelt zufällig, sonst reproduzierbar. `fixed_list`: feste Begegnungen (null = die `FIXED` aller
+## Typen der Registry, `fixed_from_types`; Tests geben eigene oder keine vor).
 func _init(tier_number: int, range_: CadenceRange, lap_sections: Array, lap_length: float, start: float = 0.0,
-		seed_value: int = -1, challenges: Array = Encounters.CHALLENGES) -> void:
+		seed_value: int = -1, challenges: Array = Encounters.CHALLENGES, fixed_list: Variant = null) -> void:
 	tier = ArcadeTiers.valid(tier_number)
 	cadence_range = range_
 	sections = lap_sections if not lap_sections.is_empty() else [{"name": "", "start_m": 0.0, "end_m": lap_length}]
 	lap_length_m = lap_length
 	start_m = start
 	pool = challenges
+	fixed = fixed_list if fixed_list is Array else fixed_from_types()
 	if seed_value >= 0:
 		_rng.seed = seed_value
 		_loot_rng.seed = seed_value + 1
@@ -83,6 +93,14 @@ static func sections_from_stations(stations: Array, lap_length: float) -> Array:
 	for i in range(stations.size()):
 		var end: float = stations[i + 1]["start_m"] if i + 1 < stations.size() else lap_length
 		result.append({"name": stations[i]["name"], "start_m": float(stations[i]["start_m"]), "end_m": end})
+	return result
+
+
+## Feste Begegnungen aller Typen der Registry (Konstante `FIXED` eines Typs, z. B. die Bosse), in Registry-Reihenfolge.
+static func fixed_from_types() -> Array:
+	var result := []
+	for type in EncounterRegistry.TYPES.values():
+		result.append_array(type.get_script_constant_map().get("FIXED", []))
 	return result
 
 
@@ -128,13 +146,17 @@ func failed_count() -> int:
 
 
 ## Zusammenfassung des Laufs als Zeilen, z. B. „Punkte: 340“, „Herausforderungen: 3 geschafft · 1 verfehlt“, „Zone halten
-## 3/4“ (je Herausforderung geschafft/gespielt), mit Funden „Beute: Magischer Helm · Seltene Schuhe“ (#49). Spätere
-## Pakete hängen Bosse an.
+## 3/4“ (je Herausforderung geschafft/gespielt; Bosse zählen mit, stehen aber in ihrer eigenen Zeile „Bosse: Tramuntana
+## besiegt · Dimonis entkommen“, #51), mit Funden „Beute: Magischer Helm · Seltene Schuhe“ (#49).
 func summary_lines() -> Array:
 	var lines := ["Punkte: %d" % points,
 			"Herausforderungen: %d geschafft · %d verfehlt" % [succeeded_count(), failed_count()]]
 	var by_name := {}
+	var bosses := []
 	for result in results:
+		if result.get("boss", false):
+			bosses.append("%s %s" % [result["name"], "besiegt" if result["succeeded"] else "entkommen"])
+			continue
 		if not by_name.has(result["name"]):
 			by_name[result["name"]] = [0, 0]
 		by_name[result["name"]][1] += 1
@@ -145,6 +167,8 @@ func summary_lines() -> Array:
 		parts.append("%s %d/%d" % [name, by_name[name][0], by_name[name][1]])
 	if not parts.is_empty():
 		lines.append(" · ".join(parts))
+	if not bosses.is_empty():
+		lines.append("Bosse: " + " · ".join(bosses))
 	if not found.is_empty():
 		lines.append("Beute: " + " · ".join(found.map(func(item): return Loot.item_name(item))))
 	return lines
@@ -166,10 +190,13 @@ func _finish(entry: Dictionary) -> Dictionary:
 	var loot := {}
 	var chance := Loot.drop_chance(won, block.loot_progress())
 	if chance > 0.0 and _loot_rng.randf() <= chance:
-		loot = Loot.roll(_loot_rng, Loot.quality_for(gear, loot_quality))
+		# Boss-Beute (#51): die Definition hebt die Grundqualität (`loot_quality`, Faktor; sonst 1).
+		var quality := loot_quality * maxf(float(entry["definition"].get("loot_quality", 1.0)), 1.0)
+		loot = Loot.roll(_loot_rng, Loot.quality_for(gear, quality))
 		found.append(loot)
 	var result := {"id": entry["definition"]["id"], "name": entry["definition"]["name"], "section": entry["section"],
-			"lap": entry["lap"], "succeeded": won, "points": gained, "progress": block.progress(), "loot": loot}
+			"lap": entry["lap"], "succeeded": won, "points": gained, "progress": block.progress(), "loot": loot,
+			"boss": bool(entry["definition"].get("boss", false))}
 	results.append(result)
 	return result
 
@@ -182,13 +209,16 @@ func _plan_until(ride_m: float) -> void:
 		_planned_laps += 1
 
 
-## Runde `lap`: je Abschnitt PER_SECTION_MIN..MAX Herausforderungen, die erste START_LEAD_M hinter dem Beginn, weitere
-## gleichmäßig im Rest. Startpunkte vor dem Start des Laufs fallen weg.
+## Runde `lap`: je Abschnitt PER_SECTION_MIN..MAX Herausforderungen (in Abschnitten mit festen Begegnungen diese), die
+## erste START_LEAD_M hinter dem Beginn, weitere gleichmäßig im Rest. Startpunkte vor dem Start des Laufs fallen weg.
 func _plan_lap(lap: int) -> void:
 	var base := lap * lap_length_m
 	for section in sections:
 		var count := _rng.randi_range(PER_SECTION_MIN, PER_SECTION_MAX)
 		var definitions := Encounters.roll(_rng, count, pool)
+		var here := fixed.filter(func(definition): return definition.get("section") == section["name"])
+		if not here.is_empty():
+			definitions = here  # fester Ort (Boss) statt der Würfe – gewürfelt ist trotzdem (übrige Abschnitte gleich)
 		var length: float = section["end_m"] - section["start_m"] - START_LEAD_M
 		for i in range(definitions.size()):
 			var at: float = base + section["start_m"] + START_LEAD_M + i * length / definitions.size()

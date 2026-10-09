@@ -1,0 +1,22 @@
+# Arcade-Szenario „Tramuntana besiegt“ (#51): Stufe 1, Kadenzbereich 60–120 rpm. 90 rpm bis zum Startpunkt und durch den
+# Gegenwind (80–100 rpm, 10 s), 7 s mit 112 rpm durch die Böe (ab 105 rpm, Balken in 5 s), 15 s mit 96 rpm durch die
+# Sturmfront (86–106 rpm, 12 s). Erwartet im Spiel: der Lebensbalken sinkt Phase für Phase, der Sturmgeist sinkt
+# zusammen, +400 Punkte und Boss-Beute, die Fahrt geht weiter. Endet danach (Quelle beendet → disconnected).
+# Im Spiel nachgespielt von games/island-ride/tests/test_bosses_ride.gd.
+name = "Arcade: Tramuntana besiegt"
+
+[[steps]]
+duration_s = 20
+cadence = 90
+
+[[steps]]
+duration_s = 7
+cadence = 112
+
+[[steps]]
+duration_s = 15
+cadence = 96
+
+[[steps]]
+duration_s = 5
+cadence = 90

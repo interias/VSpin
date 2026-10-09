@@ -54,6 +54,7 @@ const PROPS := {
 	"chase": preload("res://src/chase_prop.gd"),
 	"rhythm_gates": preload("res://src/rhythm_gates_prop.gd"),
 	"collect": preload("res://src/collect_prop.gd"),
+	"boss": preload("res://src/boss_prop.gd"),
 }
 ## Erweiterungen (f): Skripte mit `attach(stage)`, eine Zeile je Erweiterung, in der Reihenfolge der Anmeldung.
 const EXTENSIONS := [

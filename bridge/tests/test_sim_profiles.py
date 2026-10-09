@@ -172,6 +172,7 @@ def test_example_profile_starts(bridge_process, bus_client, name):
 # Fake-Bus durch das Spiel und prüft dort das Ergebnis (geschafft, weich verfehlt, Pause bei Abbruch). Die
 # Messprofile `antritt`/`innehalten` (#45) wertet tests/cadence_latency.py aus; im Spiel spielt sie
 # test_abilities_ride.gd (#50) zusammen mit `gleichmass` und `rhythmus` nach: Muster erkannt, Fähigkeit ausgelöst.
+# Die Boss-Szenarien `boss_*` (#51) spielt test_bosses_ride.gd: besiegt, entkommen, Pause beim Abbruch im Bosskampf.
 ARCADE_DIR = PROFILES_DIR / "arcade"
 ARCADE_PROFILES = sorted(p.name for p in ARCADE_DIR.glob("*.toml"))
 
@@ -193,6 +194,11 @@ def test_arcade_profiles_exist():
         "innehalten.toml",
         "gleichmass.toml",
         "rhythmus.toml",
+        "boss_abbruch.toml",
+        "boss_tramuntana.toml",
+        "boss_drac.toml",
+        "boss_dimonis_besiegt.toml",
+        "boss_dimonis_entkommen.toml",
     } <= set(ARCADE_PROFILES)
 
 
