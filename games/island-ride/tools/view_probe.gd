@@ -7,7 +7,7 @@
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
 ##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4] [--logbook] [--rewards]
 ##         [--training] [--ccw] [--wardrobe=trikot_gelb,radfarbe_blau,helm_schwarz] [--fauna] [--effects-kmh=55] [--intro]
-##         [--panorama=aussichtspunkt,burg] [--view=nah|verfolger|weit]
+##         [--panorama=aussichtspunkt,burg] [--view=nah|verfolger|weit] [--arcade]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -53,6 +53,11 @@
 ## (Starttor fest vor dem Fahrer, `gate_start.png`), zeigt dort den Zonenbalken mit Kadenz unter, im und über dem
 ## Bereich (`zone_below.png`, `zone_inside.png`, `zone_above.png`) und fährt weiter bis 3 s vor ihr Ende (Zieltor,
 ## `gate_finish.png`).
+## Arcade (#46): `--title --arcade` speichert zusätzlich `title_arcade.png` (Seite „Arcade“); `--hud --arcade` startet
+## nach den Streckenbildern einen Arcade-Lauf (Stufe 1, Kadenzbereich 60–120 rpm, Zone halten in der Mitte) kurz hinter
+## dem Start: Starttor und nächste Herausforderung (`arcade_gate.png`), Zone halten mitten im Halten (`zone_hold.png`,
+## Fortschritt und Zieltor), Kadenz zu hoch (`zone_hold_above.png`), geschafft (`zone_hold_success.png`) und die
+## Zusammenfassung nach „Fahrt beenden“ (`arcade_result.png`).
 ## Gegenrichtung (#34): `--ccw` fährt gegen den Uhrzeigersinn – `--shots`, `--segments`, `--laps` und `--ghost` dann in
 ## Fahrtposition dieser Richtung, mit `--title` ist die Richtung auf der Seite „Rundfahrt“ gewählt.
 ## Garderobe (#36): `--wardrobe=TEIL,…` gibt dem Spielstand (nur im Speicher) Kilometer bis Level 12 und wählt die Teile
@@ -102,6 +107,8 @@ var _fauna := false
 var _rewards := false
 ## Trainingsseite bzw. Training im HUD (`--training`).
 var _training := false
+## Arcade-Seite bzw. Arcade-Lauf im HUD (`--arcade`).
+var _arcade := false
 ## Garderobe: gewählte Teile (`--wardrobe`; null = ohne).
 var _outfit = null
 ## Tempo der Tempo-Effekte in `--shots` (`--effects-kmh`; NAN = wie die Fahrt) und Kamera-Intro (`--intro`).
@@ -185,6 +192,8 @@ func _initialize() -> void:
 			_rewards = true
 		elif arg == "--training":
 			_training = true
+		elif arg == "--arcade":
+			_arcade = true
 		elif arg.begins_with("--wardrobe"):
 			_outfit = Array(value.split(",", false)) if arg.contains("=") else []
 		elif arg == "--fauna":
@@ -304,6 +313,8 @@ func _initialize() -> void:
 		await _reward_shots(out_dir)
 	if _training and _hud:
 		await _training_shots(out_dir)
+	if _arcade and _hud:
+		await _arcade_shots(out_dir)
 	if fps_to > fps_from:
 		await _measure(fps_from, fps_to, speed_kmh / 3.6)
 	if _laps >= 0 and _hud:
@@ -347,6 +358,10 @@ func _title_shots(out_dir: String) -> void:
 		_ride.start_menu.show_training()
 		await _frames(4)
 		_save_image(out_dir.path_join("title_training.png"))
+	if _arcade:
+		_ride.start_menu.show_arcade()
+		await _frames(4)
+		_save_image(out_dir.path_join("title_arcade.png"))
 	_ride.start_menu.show_page(false)
 	var start := Time.get_ticks_msec()
 	while Time.get_ticks_msec() - start < 3000:
@@ -506,6 +521,60 @@ func _ride_training(training: Training, seconds: float, dt: float = 1.0 / 30.0) 
 		_ride._update_camera(dt)
 	_ride._update_camera(0.0, true)
 	await _frames(8)
+
+
+## Arcade-Lauf wie nach „Losfahren“ (Stufe 1, Standard-Kadenzbereich, nur „Zone halten“ in der Mitte), Fahrer kurz
+## hinter dem Start/Ziel: Starttor, Zone halten, Erfolg, Zusammenfassung.
+func _arcade_shots(out_dir: String) -> void:
+	var length: float = _ride.track.length_m()
+	_place(5.0)
+	_ride.ride_mode = SaveGame.MODE_ARCADE
+	_ride.laps = 0
+	_ride.lap_timing = LapTiming.new(length, 0.0, 0)
+	_ride.stats = RideStats.new()
+	_ride.arcade = ArcadeRun.new(1, CadenceRange.new(), ArcadeRun.sections_from_stations(_ride.track.ride_stations(),
+			length), length, 0.0, 3, [Encounters.find("zone_mitte")])
+	_ride.hud.end_celebration()
+	_ride._update_view()
+	_ride._update_camera(0.0, true)
+	await _frames(8)
+	_save_image(out_dir.path_join("arcade_gate.png"))
+	while _ride.arcade.active.is_empty():
+		await _ride_arcade(0.5, false)
+	await _ride_arcade(7.0)
+	_save_image(out_dir.path_join("zone_hold.png"))
+	_ride.bus.cadence = 106.0
+	_ride._update_view()
+	await _frames(4)
+	_save_image(out_dir.path_join("zone_hold_above.png"))
+	_ride.bus.cadence = _cadence
+	while not _ride.arcade.active.is_empty():
+		await _ride_arcade(0.5, false)
+	_ride._update_view()
+	await _frames(8)
+	_save_image(out_dir.path_join("zone_hold_success.png"))
+	_ride._finish_ride()  # wie „Fahrt beenden“; Spielstand nur im Speicher (save_path "")
+	_ride.get_node("Hud/Message").modulate = Color.WHITE
+	_ride._update_view()
+	await _frames(8)
+	_save_image(out_dir.path_join("arcade_result.png"))
+
+
+## Arcade `seconds` lang mit `_cadence` (Kadenz des Bus-Clients) und dem Tempo des Fahrmodells fahren – Strecke,
+## Statistik, Lauf, Anzeige und Kamera wie im Spiel, ohne Bus; mit `settle` danach die Kamera ruhig dahinter.
+func _ride_arcade(seconds: float, settle: bool = true, dt: float = 1.0 / 30.0) -> void:
+	for i in range(maxi(int(seconds / dt), 1)):
+		var before: float = _ride.model.distance_m
+		_ride.model.step(_ride.bus.cadence, _ride.current_grade(), dt)
+		_ride.stats.add(dt, _ride.bus.cadence, _ride.model.distance_m - before)
+		_ride.lap_timing.advance(_ride.model.distance_m, dt)
+		for result in _ride.arcade.advance(_ride.model.distance_m, _ride.bus.cadence, dt):
+			_ride.hud.celebrate(_ride.arcade_result_text(result))
+		_ride._update_view()
+		_ride._update_camera(dt)
+	if settle:
+		_ride._update_camera(0.0, true)
+		await _frames(8)
 
 
 func _save_image(path: String) -> void:

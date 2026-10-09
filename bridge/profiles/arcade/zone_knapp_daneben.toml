@@ -1,0 +1,9 @@
+# Arcade-Szenario „knapp daneben“ (#46): gleichmäßig 102 rpm – 2 rpm über der Zielzone von „Zone halten“
+# (Stufe 1, Kadenzbereich 60–120 rpm: Zone 80–100 rpm). Erwartet im Spiel: die Herausforderung verfällt nach ihrem
+# Zeitfenster (30 s) ohne Punkte – weiches Scheitern, die Fahrt geht weiter. Endet danach.
+# Im Spiel nachgespielt von games/island-ride/tests/test_arcade_ride.gd.
+name = "Arcade: knapp daneben"
+
+[[steps]]
+duration_s = 50
+cadence = 102

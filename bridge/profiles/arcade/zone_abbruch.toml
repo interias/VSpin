@@ -1,0 +1,22 @@
+# Arcade-Szenario „Abbruch“ (#46): mitten in „Zone halten“ (90 rpm, Zone 80–100 rpm auf Stufe 1) bleiben die Daten
+# aus (nach 3 s `stale`), dann reißt die Verbindung ab (`disconnected`) – länger als das Zeitfenster der
+# Herausforderung (30 s). Danach geht es mit 90 rpm weiter. Erwartet im Spiel: Pause wie überall (ADR-0004); in der
+# Pause läuft die Herausforderung nicht weiter und scheitert nicht, nach der Rückkehr wird sie geschafft. Endet danach.
+# Im Spiel nachgespielt von games/island-ride/tests/test_arcade_ride.gd.
+name = "Arcade: Abbruch"
+
+[[steps]]
+duration_s = 15
+cadence = 90
+
+[[steps]]
+duration_s = 4
+action = "pause"
+
+[[steps]]
+duration_s = 30
+action = "disconnect"
+
+[[steps]]
+duration_s = 30
+cadence = 90

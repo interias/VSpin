@@ -73,6 +73,12 @@ unter [`profiles/`](profiles/):
 | `sprint.toml` | Intervalle 80 → 130 → 70 rpm, endlos |
 | `stillstand.toml` | Fahren, 8 s Kadenz 0 (Daten laufen weiter → bleibt `connected`), endlos |
 | `abbruch.toml` | Fahren → 4 s keine Daten (`stale`) → Abbruch (`disconnected`) → Neuverbindung (`connected`), endlos |
+| `arcade/zone_perfekt.toml` | Arcade-Szenario (#46) „perfekt in der Zone“: 45 s 90 rpm, dann Ende |
+| `arcade/zone_knapp_daneben.toml` | Arcade-Szenario „knapp daneben“: 50 s 102 rpm (2 rpm über der Zone), dann Ende |
+| `arcade/zone_abbruch.toml` | Arcade-Szenario „Abbruch“: 15 s 90 rpm → 4 s keine Daten → 30 s `disconnected` → 30 s 90 rpm, dann Ende |
+
+Die Arcade-Szenarien spielt das Spiel auch in seinen Tests nach (`games/island-ride/tests/test_arcade_ride.gd`, gleicher
+Kadenzverlauf über den Fake-Bus) und prüft dort das Ergebnis: geschafft, weich verfehlt, Pause bei Abbruch.
 
 Format:
 
@@ -231,7 +237,7 @@ Session-Dateien und Terminal.
 Struktur (teils noch geplant):
 
 ```
-profiles/        Beispielprofile für den Simulator (--profile)
+profiles/        Beispielprofile für den Simulator (--profile); arcade/: Arcade-Szenarien des Spiels (#46)
 src/vspin_bridge/
   sources/      sim (+ profile), replay, später ble  – alle implementieren DeviceSource
   parsers/      rohe Notification → TelemetrySample (CSC, FTMS Indoor Bike Data)

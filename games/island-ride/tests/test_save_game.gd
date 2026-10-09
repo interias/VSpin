@@ -183,3 +183,48 @@ func test_unreadable_segment_and_medal_values_are_ignored() -> void:
 	assert_eq(save.best_medal("island", "cw", "dorfsprint"), Medals.NONE)
 	assert_true(save.record_segment_time("graybox", "cw", "x", 12.0), "kaputter Bereich wird beim Eintragen ersetzt")
 	assert_eq(save.segment_best_s("graybox", "cw", "x"), 12.0)
+
+
+func test_older_save_without_arcade_loads_with_defaults() -> void:
+	# Ein Stand von vor #46 (Version 1, ohne Bereich `arcade`) bleibt ladbar; Arcade beginnt mit den Standards.
+	_write('{"version": 1, "active_profile": "00112233aabbccdd", "profiles": {"00112233aabbccdd": {'
+			+ '"created": "2026-10-01T08:00:00Z", "rides": [{"mode": "rundfahrt", "distance_km": 9.21, "laps": 1}],'
+			+ '"best_times": {"island": {"cw": 873.4}}, "wardrobe": {"helm": "helm_schwarz"}}}}')
+	var save := SaveGame.load_file(TEMP_PATH)
+	assert_eq(save.version(), 1, "additiv: die Formatversion bleibt")
+	assert_eq(save.profile_key(), "00112233aabbccdd")
+	assert_eq(save.arcade(), {}, "leerer Bereich")
+	assert_eq(CadenceRange.selection(save).to_dict(), {"min": 60.0, "max": 120.0}, "Standard-Kadenzbereich")
+	assert_eq(ArcadeTiers.selection(save), 1, "Standard-Stufe")
+	assert_eq(save.best_arcade_points(1), 0)
+	assert_eq(save.best_time_s("island", "cw"), 873.4, "alte Daten bleiben")
+	assert_almost_eq(save.total_km(), 9.21, 0.001)
+	assert_eq(save.wardrobe(), {"helm": "helm_schwarz"})
+
+
+func test_arcade_area_survives_restart() -> void:
+	var save := SaveGame.new()
+	CadenceRange.choose(save, CadenceRange.new(70.0, 135.0))
+	ArcadeTiers.choose(save, 3)
+	assert_true(save.record_arcade_points(3, 340))
+	assert_false(save.record_arcade_points(3, 200), "nur eine höhere Punktzahl")
+	assert_true(save.record_arcade_points(1, 90))
+	var stats := RideStats.new()
+	stats.add(600.0, 90.0, 5000.0)
+	var entry := SaveGame.ride_entry(SaveGame.MODE_ARCADE, RideConfig.TRACK_ISLAND, false, 0, stats)
+	entry["arcade"] = {"tier": 3, "points": 340, "won": 3, "failed": 1}
+	save.add_ride(entry)
+	save.save_file(TEMP_PATH)
+	var loaded := SaveGame.load_file(TEMP_PATH)
+	assert_eq(CadenceRange.selection(loaded).to_dict(), {"min": 70.0, "max": 135.0})
+	assert_eq(ArcadeTiers.selection(loaded), 3)
+	assert_eq(loaded.best_arcade_points(3), 340)
+	assert_eq(loaded.best_arcade_points(1), 90)
+	assert_eq(loaded.best_arcade_points(2), 0)
+	assert_eq(loaded.rides()[0]["mode"], SaveGame.MODE_ARCADE)
+	assert_eq(loaded.rides()[0]["arcade"]["points"], 340.0)
+	assert_almost_eq(loaded.total_km(), 5.0, 0.001, "Arcade-km zählen")
+	loaded.arcade()["cadence_range"] = {"min": 130, "max": 90}
+	loaded.arcade()["tier"] = "drei"
+	assert_eq(CadenceRange.selection(loaded).to_dict(), {"min": 60.0, "max": 120.0}, "ungültig → Standard")
+	assert_eq(ArcadeTiers.selection(loaded), 1)
