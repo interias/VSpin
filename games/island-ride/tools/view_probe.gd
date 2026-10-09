@@ -8,7 +8,7 @@
 ##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4] [--logbook] [--rewards]
 ##         [--training] [--ccw] [--wardrobe=trikot_gelb,radfarbe_blau,helm_schwarz] [--fauna] [--effects-kmh=55] [--intro]
 ##         [--panorama=aussichtspunkt,burg] [--view=nah|verfolger|weit] [--arcade] [--gear] [--props] [--rhythm]
-##         [--bosses]
+##         [--bosses] [--elite]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -77,6 +77,11 @@
 ## (`boss_<id>_close.png`), angeschlagen (`boss_<id>_hurt.png`, Tramuntana in der Böe mit Windstreifen), dann besiegt
 ## (`boss_tramuntana_defeated.png`, `boss_drac_defeated.png`, beim Zusammensinken) bzw. entkommen (`boss_dimonis_escape.png`,
 ## ohne Treten: die Dimonis ziehen davon).
+## Elite-Gruppen (#52): `--hud --arcade --elite` zeigt Champions (Jagd mit Windschnell und Gegenwind) angekündigt am
+## Startpunkt (`elite_champion_announce.png`, Standarte und Schild blau) und im Kampf mit dem Verfolger
+## (`elite_champion.png`), Seltene (Durchbruch mit Gegenwind und Zäh) angekündigt (`elite_selten_announce.png`), mit der
+## Zugbrücke (`elite_selten.png`) und im Gefolge (`elite_selten_gefolge.png`), die wandernde Zone von Wankelmütig
+## (`elite_wankelmuetig.png`) und die Standarte aus der Nähe (`elite_banner_close.png`).
 ## Gegenrichtung (#34): `--ccw` fährt gegen den Uhrzeigersinn – `--shots`, `--segments`, `--laps` und `--ghost` dann in
 ## Fahrtposition dieser Richtung, mit `--title` ist die Richtung auf der Seite „Rundfahrt“ gewählt.
 ## Garderobe (#36): `--wardrobe=TEIL,…` gibt dem Spielstand (nur im Speicher) Kilometer bis Level 12 und wählt die Teile
@@ -134,6 +139,8 @@ var _props := false
 var _rhythm := false
 ## Die drei Bosse statt Zone halten (`--bosses`, #51).
 var _bosses := false
+## Elite-Gruppen statt Zone halten (`--elite`, #52).
+var _elite := false
 ## Beispiel-Ausrüstung angelegt (`--gear`, #49).
 var _gear := false
 ## Garderobe: gewählte Teile (`--wardrobe`; null = ohne).
@@ -229,6 +236,8 @@ func _initialize() -> void:
 			_rhythm = true
 		elif arg == "--bosses":
 			_bosses = true
+		elif arg == "--elite":
+			_elite = true
 		elif arg.begins_with("--wardrobe"):
 			_outfit = Array(value.split(",", false)) if arg.contains("=") else []
 		elif arg == "--fauna":
@@ -360,6 +369,8 @@ func _initialize() -> void:
 		await _rhythm_shots(out_dir)
 	elif _arcade and _hud and _bosses:
 		await _boss_shots(out_dir)
+	elif _arcade and _hud and _elite:
+		await _elite_shots(out_dir)
 	elif _arcade and _hud:
 		await _arcade_shots(out_dir)
 	if fps_to > fps_from:
@@ -863,6 +874,78 @@ func _boss_close(out_dir: String, id: String) -> void:
 	camera.look_at(at.origin + Vector3.UP * size * 0.25, Vector3.UP)
 	await _frames(6)
 	_save(out_dir.path_join("boss_%s_close.png" % id))
+	_ride.set_process(true)
+	_ride._update_camera(0.0, true)
+	await _frames(4)
+
+
+## Elite-Gruppen (#52): je Gruppe ein Arcade-Lauf nur mit ihr (erzwungen über den Pool); Ankündigung am Startpunkt, Kampf,
+## bei den Seltenen das Gefolge; Wankelmütig mit wandernder Zone; die Standarte aus der Nähe.
+func _elite_shots(out_dir: String) -> void:
+	var length: float = _ride.track.length_m()
+	var sections := ArcadeRun.sections_from_stations(_ride.track.ride_stations(), length)
+	_ride.ride_mode = SaveGame.MODE_ARCADE
+	_ride.laps = 0
+	_ride.lap_timing = LapTiming.new(length, 0.0, 0)
+	_ride.stats = RideStats.new()
+	_ride.hud.end_celebration()
+	_place(5.0)
+	var groups := [["champion", "jagd_verfolger", ["windschnell", "gegenwind"], 104.0],
+			["selten", "durchbruch_bruecke", ["gegenwind", "zaeh"], 116.0]]
+	for entry in groups:
+		var definition := EliteGroups.make(Encounters.find(entry[1]), entry[0], entry[2])
+		_ride.arcade = ArcadeRun.new(1, CadenceRange.new(), sections, length, _ride.model.distance_m, 3, [definition], [])
+		_ride.arcade_stage.start_gate.ride_m = NAN  # neuer Lauf ohne `begin`: Starttor und Schild neu
+		_ride.arcade_stage.props["elite"].clear()
+		_ride.bus.cadence = entry[3]
+		_ride._update_view()
+		_ride._update_camera(0.0, true)
+		while _ride.arcade.next_challenge()["at_m"] - _ride.model.distance_m > 30.0:
+			await _ride_arcade(0.25, false)
+		await _ride_arcade(0.1)
+		_save_image(out_dir.path_join("elite_%s_announce.png" % entry[0]))
+		while _ride.arcade.active.is_empty():
+			await _ride_arcade(0.25, false)
+		var group: EliteGroup = _ride.arcade.active["block"]
+		await _ride_arcade(3.0)
+		_save_image(out_dir.path_join("elite_%s.png" % entry[0]))
+		if entry[0] == "selten":
+			while not group.in_retinue() and not group.finished():
+				await _ride_arcade(0.25, false)
+			await _ride_arcade(2.0)
+			_save_image(out_dir.path_join("elite_selten_gefolge.png"))
+			await _elite_close(out_dir)
+		while not _ride.arcade.active.is_empty():
+			await _ride_arcade(0.25, false)
+		await _ride_arcade(5.0, false)
+		_ride.hud.end_celebration()
+		_ride.hud.clear_popups()
+	# Wankelmütig: die Kadenz folgt der Mitte der wandernden Zone.
+	var fickle := EliteGroups.make(Encounters.find("zone_mitte"), "champion", ["wankelmuetig"])
+	_ride.arcade = ArcadeRun.new(1, CadenceRange.new(), sections, length, _ride.model.distance_m, 3, [fickle], [])
+	_ride.bus.cadence = 90.0
+	while _ride.arcade.active.is_empty():
+		await _ride_arcade(0.25, false)
+	var zone_group: EliteGroup = _ride.arcade.active["block"]
+	for i in range(120):  # gut 4 s: eine Viertelschwingung, die Zone liegt 12 rpm höher
+		var zone := zone_group.zone()
+		_ride.bus.cadence = (zone.x + zone.y) / 2.0
+		await _ride_arcade(1.0 / 30.0, false)
+	_ride._update_camera(0.0, true)
+	await _frames(8)
+	_save_image(out_dir.path_join("elite_wankelmuetig.png"))
+
+
+## Nahaufnahme der Elite-Standarte schräg von vorn (Kamera nur hier versetzt).
+func _elite_close(out_dir: String) -> void:
+	_ride.set_process(false)
+	var banner: EliteBanner = _ride.arcade_stage.props["elite"].banner
+	var at: Transform3D = banner.global_transform
+	var camera: Camera3D = _ride.camera
+	camera.global_position = at.origin + at.basis.z.normalized() * 9.0 - at.basis.x.normalized() * 3.0 + Vector3.UP * 4.0
+	camera.look_at(at.origin + Vector3.UP * 5.0, Vector3.UP)
+	await _frames(6)
+	_save(out_dir.path_join("elite_banner_close.png"))
 	_ride.set_process(true)
 	_ride._update_camera(0.0, true)
 	await _frames(4)

@@ -16,6 +16,13 @@
 ## ein (gleiche Lage: die erste START_LEAD_M hinter dem Beginn). Gewürfelt wird dort trotzdem, damit alle übrigen
 ## Abschnitte bei gleichem Seed dieselben Herausforderungen bekommen. Ohne passenden Abschnitt (Graybox) gibt es keine.
 ##
+## Elite-Gruppen (#52, src/elite_groups.gd): Jede gewürfelte Herausforderung kommt mit der Chance `elite_chance` als
+## Elite-Gruppe (Champions oder Seltene mit Gefolge, 1–3 Eigenschaften) – gewürfelt mit einem **eigenen** Würfel und vor
+## dem Ersetzen durch feste Begegnungen: Zahl, Auswahl und Lage der Herausforderungen bleiben bei gleichem Seed gleich,
+## nur einzelne kommen als Elite-Gruppe. Die Chance gilt im Standard-Pool (`Encounters.CHALLENGES`); wer einen eigenen
+## Pool vorgibt (Tests, Prüfhilfe, erzwungene Herausforderung), bekommt keine, außer er nennt die Chance selbst. Eine
+## Elite-Gruppe trägt `loot_quality` ihrer Stufe (bessere Beute, siehe `_finish`).
+##
 ## Beute (#49): Jede beendete Herausforderung würfelt Beute (Loot) – geschafft sicher, verfehlt nur mit einer Chance nach
 ## dem erreichten Fortschritt (Loot.drop_chance; ohne Kadenz in der Zone nie). Funde stehen im Ergebnis (`loot`), in
 ## `found` und in der Zusammenfassung; ins Inventar legt sie die Hauptszene am Fahrtende. Die angelegte Ausrüstung
@@ -53,23 +60,28 @@ var results: Array = []
 var points := 0
 ## Modifikatoren der angelegten Ausrüstung (Loot.modifiers; {} = keine) – nur im Arcade-Lauf (ADR-0010).
 var gear: Dictionary = {}
-## Grundqualität der Beute (1 = Grundverteilung; Stufe #54 und Elite-Gruppen #52 heben sie später).
+## Grundqualität der Beute (1 = Grundverteilung; die Stufe #54 hebt sie, Bosse und Elite-Gruppen über ihre Definition).
 var loot_quality := 1.0
 ## In diesem Lauf gefundene Teile (Loot.roll, noch ohne Inventar-`id`), in Fundreihenfolge.
 var found: Array = []
 ## Feste Begegnungen (Bosse): Definitionen mit `section`, je Runde in ihrem Abschnitt statt der gewürfelten.
 var fixed: Array = []
+## Chance je gewürfelter Herausforderung auf eine Elite-Gruppe (#52; 0 = keine).
+var elite_chance := 0.0
 
 var _rng := RandomNumberGenerator.new()
 var _loot_rng := RandomNumberGenerator.new()
+var _elite_rng := RandomNumberGenerator.new()
 ## Runden bis ausschließlich dieser sind gewürfelt.
 var _planned_laps := 0
 
 
 ## `seed_value` < 0 würfelt zufällig, sonst reproduzierbar. `fixed_list`: feste Begegnungen (null = die `FIXED` aller
-## Typen der Registry, `fixed_from_types`; Tests geben eigene oder keine vor).
+## Typen der Registry, `fixed_from_types`; Tests geben eigene oder keine vor). `elite_chance_value`: Chance auf Elite-
+## Gruppen (null = EliteGroups.CHANCE im Standard-Pool, 0 bei eigenem Pool).
 func _init(tier_number: int, range_: CadenceRange, lap_sections: Array, lap_length: float, start: float = 0.0,
-		seed_value: int = -1, challenges: Array = Encounters.CHALLENGES, fixed_list: Variant = null) -> void:
+		seed_value: int = -1, challenges: Array = Encounters.CHALLENGES, fixed_list: Variant = null,
+		elite_chance_value: Variant = null) -> void:
 	tier = ArcadeTiers.valid(tier_number)
 	cadence_range = range_
 	sections = lap_sections if not lap_sections.is_empty() else [{"name": "", "start_m": 0.0, "end_m": lap_length}]
@@ -77,12 +89,18 @@ func _init(tier_number: int, range_: CadenceRange, lap_sections: Array, lap_leng
 	start_m = start
 	pool = challenges
 	fixed = fixed_list if fixed_list is Array else fixed_from_types()
+	if elite_chance_value is float or elite_chance_value is int:
+		elite_chance = float(elite_chance_value)
+	else:
+		elite_chance = EliteGroups.CHANCE if challenges == Encounters.CHALLENGES else 0.0
 	if seed_value >= 0:
 		_rng.seed = seed_value
 		_loot_rng.seed = seed_value + 1
+		_elite_rng.seed = seed_value + 2
 	else:
 		_rng.randomize()
 		_loot_rng.randomize()
+		_elite_rng.randomize()
 	_planned_laps = floori(start / lap_length)
 	_plan_until(start)
 
@@ -190,7 +208,7 @@ func _finish(entry: Dictionary) -> Dictionary:
 	var loot := {}
 	var chance := Loot.drop_chance(won, block.loot_progress())
 	if chance > 0.0 and _loot_rng.randf() <= chance:
-		# Boss-Beute (#51): die Definition hebt die Grundqualität (`loot_quality`, Faktor; sonst 1).
+		# Boss- und Elite-Beute (#51, #52): die Definition hebt die Grundqualität (`loot_quality`, Faktor; sonst 1).
 		var quality := loot_quality * maxf(float(entry["definition"].get("loot_quality", 1.0)), 1.0)
 		loot = Loot.roll(_loot_rng, Loot.quality_for(gear, quality))
 		found.append(loot)
@@ -210,12 +228,15 @@ func _plan_until(ride_m: float) -> void:
 
 
 ## Runde `lap`: je Abschnitt PER_SECTION_MIN..MAX Herausforderungen (in Abschnitten mit festen Begegnungen diese), die
-## erste START_LEAD_M hinter dem Beginn, weitere gleichmäßig im Rest. Startpunkte vor dem Start des Laufs fallen weg.
+## erste START_LEAD_M hinter dem Beginn, weitere gleichmäßig im Rest; jede gewürfelte vielleicht als Elite-Gruppe.
+## Startpunkte vor dem Start des Laufs fallen weg.
 func _plan_lap(lap: int) -> void:
 	var base := lap * lap_length_m
 	for section in sections:
 		var count := _rng.randi_range(PER_SECTION_MIN, PER_SECTION_MAX)
 		var definitions := Encounters.roll(_rng, count, pool)
+		# Elite-Gruppen (#52): eigener Würfel, vor dem Ersetzen durch feste Begegnungen (Elite-Würfe überall gleich).
+		definitions = definitions.map(func(definition): return EliteGroups.roll(_elite_rng, definition, elite_chance))
 		var here := fixed.filter(func(definition): return definition.get("section") == section["name"])
 		if not here.is_empty():
 			definitions = here  # fester Ort (Boss) statt der Würfe – gewürfelt ist trotzdem (übrige Abschnitte gleich)
