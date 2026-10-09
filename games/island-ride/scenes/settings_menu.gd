@@ -6,6 +6,8 @@
 ## Windows-Snap) wird beim Beenden gemerkt. Das Spiel läuft weiter, solange das Menü offen ist.
 ## Tempo-Effekte (#42, Geschwindigkeitslinien und Sichtfeld-Kick) und Panorama-Momente (#43) schaltet die Hauptszene über
 ## `settings_changed` um.
+## Die Kameraperspektive (#59, CameraViews) steht nicht in den Einstellungen, sondern im Spielstand: Die Hauptszene setzt
+## `camera_view`, das Feld zeigt es, eine Auswahl meldet `settings_changed("camera_view")`, und die Hauptszene speichert.
 ## Tageszeit, Wetter (G8) und Jahreszeit (#39) stehen in denselben Einstellungen (`[sky]`); auf die Welt wirken sie über
 ## `settings_changed`, das die Hauptszene an den SkyController weitergibt.
 ## Im Browser (`web`) gibt es keine Fenstermodi/-größen und kein VSync; im Compatibility-Renderer nur MSAA und
@@ -33,6 +35,8 @@ var web := OS.has_feature("web")
 ## Compatibility-Renderer (Web)? (Vor `_ready` überschreibbar, für Tests.)
 var compatibility := RenderingServer.get_current_rendering_method() == "gl_compatibility"
 var settings: GraphicsSettings
+## Kameraperspektive (CameraViews.IDS) aus dem Spielstand; setzt die Hauptszene.
+var camera_view := CameraViews.DEFAULT
 
 ## Auswahlfelder je Einstellung (Schlüssel wie in `_rows`).
 var options := {}
@@ -219,6 +223,8 @@ func _build() -> void:
 			GraphicsSettings.SHADOW_QUALITIES, func(v): settings.shadows = v)
 	_add_row(grid, "speed_effects", "Tempo-Effekte", ["An", "Aus"], [true, false], func(v): settings.speed_effects = v)
 	_add_row(grid, "panorama", "Panorama-Momente", ["An", "Aus"], [true, false], func(v): settings.panorama = v)
+	_add_row(grid, "camera_view", "Kamera", CameraViews.IDS.map(func(id): return CameraViews.NAMES[id]),
+			CameraViews.IDS, func(v): camera_view = v)
 	grid = _add_grid(columns)
 	var times: Array = [_time_value(DayNight.MODE_REALTIME, 0.0)]
 	times.append_array(GraphicsSettings.FIXED_HOURS.map(func(h): return _time_value(DayNight.MODE_FIXED, h)))
@@ -304,10 +310,11 @@ func _add_button(parent: Container, text: String, action: Callable) -> Button:
 	return button
 
 
-## Auswahl in einem Feld: Wert setzen; Grafik sofort anwenden und speichern (Fenster über eigene Setter).
+## Auswahl in einem Feld: Wert setzen; Grafik sofort anwenden und speichern (Fenster über eigene Setter, die
+## Kameraperspektive speichert die Hauptszene im Spielstand).
 func _on_selected(index: int, option: OptionButton, key: String, setter: Callable) -> void:
 	setter.call(option.get_meta("values")[index])
-	if key not in ["window_mode", "window_size"]:
+	if key not in ["window_mode", "window_size", "camera_view"]:
 		apply()
 		_save()
 	settings_changed.emit(key)
@@ -396,6 +403,7 @@ func _refresh() -> void:
 	_select("shadows", settings.shadows)
 	_select("speed_effects", settings.speed_effects)
 	_select("panorama", settings.panorama)
+	_select("camera_view", camera_view)
 	_select("window_mode", settings.window_mode)
 	var number := settings.fixed_hour if settings.time_mode == DayNight.MODE_FIXED 			else settings.timelapse_day_min if settings.time_mode == DayNight.MODE_TIMELAPSE else 0.0
 	_select_or_add("time", _time_value(settings.time_mode, number), _time_label)

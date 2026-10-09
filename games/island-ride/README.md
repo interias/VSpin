@@ -117,9 +117,16 @@ verfügbar, daher nur Godot-Bordmittel:
   - Modelle: Kenney Watercraft Kit, City Kit (Suburban), Nature Kit, Fantasy Town Kit (CC0) unter `assets/kenney/`,
     nur die benutzten `.glb` (~1,4 MB) – Nachweis in `ASSETS.md`. Wiederholte Modelle (Bäume, Büsche, Felsen,
     Mauern, Hausmodule) als `MultiMeshInstance3D`. Sichtprüfung/fps: `tools/view_probe.gd` (Screenshots an Streckenpositionen, fps-Fahrt).
-- Kamera (`scenes/main.gd`): sitzt 5,5 m hinter dem Fahrer **auf der Strecke** (schwenkt in Kehren nicht seitlich
-  aus), 2,4 m hoch, blickt 10 m voraus, beides exponentiell geglättet (0,45 s), mindestens 1,5 m über dem Gelände.
-  Abstand, Höhe und Vorausblick in `config.cfg` (`[camera]`, siehe Konfiguration); vor G5 9 m / 3,5 m / 14 m.
+- Kamera (`scenes/main.gd`): sitzt hinter dem Fahrer **auf der Strecke** (schwenkt in Kehren nicht seitlich
+  aus), blickt 10 m voraus, beides exponentiell geglättet (0,45 s), mindestens 1,5 m über dem Gelände; vor G5
+  9 m / 3,5 m / 14 m. **Drei Perspektiven** (#59, `src/camera_views.gd`): *Nah* 3,5 m hinter / 1,8 m hoch (Fahrer groß
+  im Bild), *Verfolger* 4,5 m / 2,1 m (Standard) und *Weit* 5,5 m / 2,4 m (für die Landschaft). Taste `C` blättert
+  während der Fahrt der Reihe nach durch (Name kurz im HUD), dasselbe im Grafikmenü (*Kamera*). Die Wahl steht im
+  Spielstand (`camera`: `{"view": "nah"|…}`, Format weiter Version 1) und gilt in Rundfahrt und Training, in
+  beiden Richtungen; Intro und Panorama laufen in sie zurück, der Sichtfeld-Kick wirkt in allen drei. Nur
+  Darstellung (ADR-0010). `config.cfg [camera]`: `behind_m` und `height_m` sind die Perspektive *Weit* (eine
+  bestehende Konfiguration wirkt dort weiter), `look_ahead_m` und `look_height_m` gelten für alle drei.
+  Sichtprüfung: `view_probe.gd -- --view=nah|verfolger|weit` (mit `--hud` samt Namenseinblendung).
   Beim Fahrtstart ein **Kamera-Intro** (#42, siehe „Farbstimmung, Höhennebel und Tempo“), an Sehenswürdigkeiten
   **Panorama-Momente** (#43, ebenda).
 - HUD zeigt zusätzlich den aktuellen Abschnitt, Höhenprofil und Minikarte der Insel (siehe HUD).
@@ -393,6 +400,7 @@ gegen den Uhrzeigersinn (#34; `--shots` dann in Metern dieser Richtung, Torböge
 | Taste | Wirkung |
 |---|---|
 | `P` oder Leertaste | Pause an/aus (jederzeit) |
+| `C` | Kameraperspektive wechseln: Nah → Verfolger → Weit (in der Fahrt, nicht bei offenem Menü; #59) |
 | `Esc` oder `F2` | Menü „Grafik und Fenster“ auf/zu (jederzeit, auch aus der Pause); **Beenden** über den Knopf „Beenden“ im Menü (nicht im Browser), in der Fahrt „Fahrt beenden“ zurück ins Startmenü |
 | `Enter` | im Ziel: zurück ins Startmenü |
 | `F3` | Debug-Anzeige an/aus |
@@ -475,6 +483,7 @@ Startmenü) und „Beenden“ (beendet das Spiel; im Browser ausgeblendet) – `
 | Schatten | Niedrig/Mittel/Hoch (Schattenatlas 2048/4096/8192, Weichzeichnung) | Mittel (wie bisher) |
 | Tempo-Effekte | An, Aus – Geschwindigkeitslinien und Sichtfeld-Kick ab 35 km/h (#42) | An |
 | Panorama-Momente | An, Aus – Kameraschwenk mit Namen an Sehenswürdigkeiten (#43) | An |
+| Kamera | Nah, Verfolger, Weit – wie Taste `C`; steht im Spielstand, nicht in `settings.cfg` (#59) | Verfolger |
 | Tageszeit | Echtzeit (Mallorca), feste Uhrzeit 6:00/9:00/12:00/15:00/18:00/20:30/22:00/0:00, Zeitraffer 12/24/48 min je Tag (startet bei der aktuellen Uhrzeit des Spiels) | wie `config.cfg [sky]` (Echtzeit) |
 | Wetter | Wechselnd (meist sonnig), Klar, Leicht bewölkt, Bewölkt, Regen (fest) – sofort, ohne Überblendung | wie `config.cfg [sky]` (Wechselnd) |
 | Jahreszeit | Nach Datum (Mallorca), Mandelblüte, Frühling, Sommer, Herbst, Winter (fest) – sofort (#39) | Nach Datum |
@@ -694,10 +703,10 @@ Kadenz; die Steigung steht in der Session-CSV der Bridge (Spalte `grade`).
 | `[ride] downhill_boost` | `2.0` | bergab: `v_ziel · (1 + downhill_boost · \|Gefälle\|)` |
 | `[ride] inertia_s` | `1.5` | Trägheit: Zeitkonstante (s) der Annäherung an `v_ziel`; 0 = sofort |
 | `[world] track` | `island` | Strecke: `island` = Insel-Rundkurs, `graybox` = kurze Graybox-Teststrecke (~900 m); Unbekanntes → `island` |
-| `[camera] behind_m` | `5.5` | Kamera: Abstand hinter dem Fahrer entlang der Strecke (m) – kleiner = Fahrer größer im Bild |
-| `[camera] height_m` | `2.4` | Kamerahöhe über der Strecke (m); mindestens 1,5 m über dem Gelände |
-| `[camera] look_ahead_m` | `10.0` | Blickpunkt so viele Meter voraus auf der Strecke |
-| `[camera] look_height_m` | `1.2` | Höhe des Blickpunkts über der Strecke (m) |
+| `[camera] behind_m` | `5.5` | Perspektive *Weit* (#59): Abstand hinter dem Fahrer entlang der Strecke (m) – kleiner = Fahrer größer im Bild; Nah und Verfolger sind fest (`src/camera_views.gd`) |
+| `[camera] height_m` | `2.4` | Perspektive *Weit*: Kamerahöhe über der Strecke (m); mindestens 1,5 m über dem Gelände |
+| `[camera] look_ahead_m` | `10.0` | alle Perspektiven: Blickpunkt so viele Meter voraus auf der Strecke |
+| `[camera] look_height_m` | `1.2` | alle Perspektiven: Höhe des Blickpunkts über der Strecke (m) |
 | `[sky] time_mode` | `realtime` | Tageszeit: `realtime` = echte Ortszeit Mallorca, `fixed` = feste Stunde, `timelapse` = Zeitraffer; Unbekanntes → `realtime` |
 | `[sky] fixed_hour` | `13.0` | Ortszeit (h, 0–24) für `fixed` (z. B. `21.5` = 21:30) |
 | `[sky] timelapse_day_min` | `24.0` | Zeitraffer: Minuten echter Zeit je Tag |
@@ -811,7 +820,8 @@ scenes/settings_menu.*  Menü „Grafik und Fenster“ (F2, F11), von der Haupts
 scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt- und Training-Auswahl, Radstatus (#30, #31, #37)
 scenes/wardrobe.gd      Garderobe: Trikot, Radfarbe, Helm mit Vorschau (SubViewport), gesperrte mit Level (#36)
 src/wardrobe.gd         Wardrobe: Teile und Farben, Auswahl prüfen und wählen, Standard je Kategorie – reine Logik
-src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Bestzeiten, Segment-Bestzeiten, Medaillen, Ghosts, Erfolge, Garderobe, Hochstufung
+src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Bestzeiten, Segment-Bestzeiten, Medaillen, Ghosts, Erfolge, Garderobe, Kamera, Hochstufung
+src/camera_views.gd     CameraViews: Kameraperspektiven Nah/Verfolger/Weit als Daten, Durchblättern, Auswahl im Spielstand (#59) – reine Logik
 src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz), stations, station_at(), road_mesh(); Richtung (#34): set_direction(), path_distance(), ride_position_at(), ride_stations()
 src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil, Stationen, Segmente (reine Daten/Logik)
 src/island_terrain.gd   IslandTerrain: Höhenfeld (prozedural oder Höhenkarte), unter die Straße geformt, Mesh

@@ -10,7 +10,8 @@
 ##                                 "medals": {"<strecke>": {"<richtung>": {"lap"|"<segment>": "gold"|…}}},
 ##                                 "ghosts": {"<strecke>": {"<richtung>": {"best"|"last": {Ghost.to_dict()}}}},
 ##                                 "achievements": {"<erfolg>": "…Z"},
-##                                 "wardrobe": {"trikot"|"radfarbe"|"helm": "<teil-id>"}}}}
+##                                 "wardrobe": {"trikot"|"radfarbe"|"helm": "<teil-id>"},
+##                                 "camera": {"view": "nah"|"verfolger"|"weit"}}}}
 ##
 ## Bestzeiten (#31): schnellste Runde je Strecke und Richtung (LapTiming.DIRECTION_*), in Sekunden.
 ## Segment-Bestzeiten (#33): schnellste Zeit je Strecke, Richtung und Segment-ID, in Sekunden.
@@ -23,6 +24,8 @@
 ## schon erfüllt, fällt beim nächsten Fahrtende.
 ## Garderobe (#36): das gewählte Teil je Kategorie (Wardrobe.CATEGORIES); prüfen und wählen macht Wardrobe. Fehlt eine
 ## Kategorie, gilt ihr Standard (der Look vor der Garderobe). Nur Kosmetik (ADR-0010).
+## Kamera (#59): die gewählte Kameraperspektive (CameraViews.IDS); prüfen und wählen macht CameraViews. Fehlt sie, gilt
+## „Verfolger“. Nur Darstellung (ADR-0010).
 ##
 ## Training (#37): eine Fahrt im Modus MODE_TRAINING trägt zusätzlich den Namen der Einheit (`training`) und die
 ## Gesamtbewertung (`training_score`, Treffer der Zielkadenz 0..1); `finished` heißt dort: Einheit zu Ende gefahren.
@@ -44,7 +47,7 @@ const MODE_ROUND_TRIP := "rundfahrt"
 const MODE_TRAINING := "training"
 ## Bereiche je Fahrerprofil mit Standardwert (fehlende werden beim Laden ergänzt).
 const PROFILE_DEFAULTS := {"rides": [], "best_times": {}, "segment_best_times": {}, "medals": {}, "ghosts": {},
-		"achievements": {}, "wardrobe": {}}
+		"achievements": {}, "wardrobe": {}, "camera": {}}
 ## Endung, unter der eine unlesbare Datei beiseitegelegt wird.
 const BROKEN_SUFFIX := ".defekt"
 
@@ -195,6 +198,11 @@ func unlock_achievement(id: String, date: String = utc_now()) -> bool:
 ## Garderobe: Kategorie → gewählte Teil-ID, wie gespeichert (ungeprüft; Wardrobe.selection prüft). Schreibbar.
 func wardrobe() -> Dictionary:
 	return profile()["wardrobe"]
+
+
+## Kamera: {"view": <perspektive>}, wie gespeichert (ungeprüft; CameraViews.selection prüft). Schreibbar.
+func camera() -> Dictionary:
+	return profile()["camera"]
 
 
 ## Gefahrene Kilometer aller Fahrten (jeder Modus).

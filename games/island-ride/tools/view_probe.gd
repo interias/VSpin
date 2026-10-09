@@ -7,7 +7,7 @@
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
 ##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4] [--logbook] [--rewards]
 ##         [--training] [--ccw] [--wardrobe=trikot_gelb,radfarbe_blau,helm_schwarz] [--fauna] [--effects-kmh=55] [--intro]
-##         [--panorama=aussichtspunkt,burg]
+##         [--panorama=aussichtspunkt,burg] [--view=nah|verfolger|weit]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -70,6 +70,8 @@
 ## (IslandWorld.panorama_spots; `--panorama` ohne Liste = alle, mit `--ccw` in dieser Richtung), startet dort das
 ## Panorama und speichert `panorama_<id>.png` mitten im Schwenk (mit `--hud` samt Namen) vor den Streckenbildern; der
 ## Fahrer fährt dabei mit dem Tempo des Fahrmodells zu `--cadence` weiter.
+## Kameraperspektiven (#59): `--view=ID` (CameraViews.IDS) wählt die Perspektive für `--intro`, `--panorama` und
+## `--shots` (nur im Speicher); mit `--hud` steht in `--shots` die Einblendung ihres Namens wie nach der Taste `C`.
 extends SceneTree
 
 ## Beispiel-Rundenzeiten (s) für `--laps`: gespeicherte Bestzeit vorher, dann die Runden der Fahrt.
@@ -107,6 +109,8 @@ var _effects_kmh := NAN
 var _intro := false
 ## Sehenswürdigkeiten für Panorama-Bilder (`--panorama`; null = keine, leer = alle).
 var _panorama = null
+## Kameraperspektive (`--view`; "" = Standard).
+var _view := ""
 
 
 func _initialize() -> void:
@@ -193,6 +197,8 @@ func _initialize() -> void:
 			_intro = true
 		elif arg.begins_with("--panorama"):
 			_panorama = Array(value.split(",", false)) if arg.contains("=") else []
+		elif arg.begins_with("--view="):
+			_view = value
 		elif arg.begins_with("--crop="):
 			var p := value.split(",")
 			_crop = Rect2i(int(p[0]), int(p[1]), int(p[2]), int(p[3]))
@@ -265,6 +271,8 @@ func _initialize() -> void:
 			await _title_shots(out_dir)
 		quit(0)
 		return
+	if not _view.is_empty():
+		_ride.set_camera_view(_view, false)
 	_model = _ride.rider_model  # erst nach `_ready` der Hauptszene gesetzt
 	var dummy := RiderModel.new()
 	_ride.rider_model = dummy
@@ -276,6 +284,8 @@ func _initialize() -> void:
 	for d in shots:
 		_place(d)
 		_pedal(1.0)
+		if _hud and not _view.is_empty():
+			_ride.hud.show_camera_view(CameraViews.NAMES[_ride.camera_view])
 		await _frames(8)
 		_save(out_dir.path_join("shot_%d.png" % int(d)))
 		if pair:

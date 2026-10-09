@@ -19,6 +19,7 @@
 ##                daneben der Zustand in Worten („zu niedrig“, „im Bereich“, „zu hoch“; Farbe wie die Marke) und der
 ##                Treffer der laufenden Phase (die Bewertung aus Training, keine eigene Rechnung)
 ##   Landmark     Panorama-Moment (#43): Name der Sehenswürdigkeit oben im freien Feld, blendet weich ein und aus
+##   CameraView   Kameraperspektive (#59): nach dem Wechsel mit `C` kurz ihr Name („Kamera: Nah“) unter dem Landmark
 ##   Message/Hint/Debug  Zustandsmeldung (mittig zwischen oben und unten), `set_grade`-Hinweis (über dem unteren
 ##                Panel), Debug-Anzeige F3 (unter dem Werte-Panel) – Inhalte setzt die Hauptszene.
 ## Layout nur über Anker und Container (kein fester Bildschirmort): passt in 960×1040 wie in 1920×1080, mit und
@@ -42,6 +43,8 @@ const OVERLAY_GAP_PX := 8.0
 const CELEBRATION_S := 4.0
 ## Ein- und Ausblenden des Namens einer Sehenswürdigkeit (s, #43).
 const LANDMARK_FADE_S := 0.6
+## Einblendung der Kameraperspektive (s, #59), davon die letzten LANDMARK_FADE_S Ausblenden.
+const CAMERA_VIEW_S := 1.5
 ## Farbe des Ghost-Abstands: hinter dem Ghost bzw. vor ihm (#32).
 const COLOR_BEHIND := Color(1.0, 0.55, 0.45)
 const COLOR_AHEAD := Color(0.5, 0.92, 0.55)
@@ -77,6 +80,7 @@ const COLOR_AHEAD := Color(0.5, 0.92, 0.55)
 @onready var _zone_state: Label = %ZoneState
 @onready var _zone_score: Label = %ZoneScore
 @onready var _landmark: Label = %Landmark
+@onready var _camera_view: Label = %CameraView
 @onready var _lap_bar: ProgressBar = %LapBar
 @onready var _lap_percent: Label = %LapPercent
 @onready var _lap_remaining: Label = %LapRemaining
@@ -91,6 +95,7 @@ var _grade_color := COLOR_FLAT
 var _segment_line := ""
 var _celebration_tween: Tween
 var _landmark_tween: Tween
+var _camera_view_tween: Tween
 ## Eingereihte Einblendungen, die nach der laufenden folgen (#35).
 var _celebration_queue: Array = []
 
@@ -219,6 +224,24 @@ func show_landmark(text: String, seconds: float = 4.0) -> void:
 ## Eingeblendeter Name einer Sehenswürdigkeit ("" = keiner).
 func landmark() -> String:
 	return _landmark.text if _landmark.visible else ""
+
+
+## Name der Kameraperspektive (#59) kurz einblenden; ein neuer Name ersetzt den alten sofort.
+func show_camera_view(perspective: String) -> void:
+	if _camera_view_tween != null:
+		_camera_view_tween.kill()
+	_camera_view.text = "Kamera: %s" % perspective
+	_camera_view.visible = true
+	_camera_view.modulate.a = 1.0
+	_camera_view_tween = create_tween()
+	_camera_view_tween.tween_interval(CAMERA_VIEW_S - LANDMARK_FADE_S)
+	_camera_view_tween.tween_property(_camera_view, "modulate:a", 0.0, LANDMARK_FADE_S)
+	_camera_view_tween.tween_callback(_camera_view.hide)
+
+
+## Eingeblendete Kameraperspektive („Kamera: Nah“, "" = keine).
+func camera_view() -> String:
+	return _camera_view.text if _camera_view.visible else ""
 
 
 ## Beschriftung des Rundenfortschritts: „Runde“ bei einer Runde, „Runde 2 / 3“, endlos „Runde 2“.
