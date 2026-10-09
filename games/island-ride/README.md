@@ -719,7 +719,7 @@ engere Zielzonen, längere Herausforderungen, zähere Bosse (jede Boss-Phase hä
 Zeitfenster wächst mit), mehr Punkte und eine höhere Grundqualität der Beute (`ArcadeRun.loot_quality`, multipliziert sich
 mit der Beute-Qualität von Bossen und Elite-Gruppen; öfter seltene Teile). Schwellen steigen wie bisher um die halbe
 Differenz zur Zonenbreite von Stufe 1, auf ganze rpm gerundet (Stufe 4 und 5 +6 rpm, Stufe 6 +7 rpm; *Zugbrücke* 114 / 114 /
-115 rpm, *Spurt* am oberen Ende des Bereichs). Stufe 1–3 sind von Anfang an wählbar und bleiben, wie sie waren. Eine Stufe
+115 rpm, *Spurt* 117 / 117 / 118 rpm). Stufe 1–3 sind von Anfang an wählbar und bleiben, wie sie waren. Eine Stufe
 ist **abgeschlossen**, wenn auf ihr jeder Boss des Rundkurses (Tramuntana, Drac de na Coca, Dimonis) mindestens einmal
 besiegt wurde – über beliebig viele Läufe gesammelt, gespeichert mit dem Fahrteintrag. Der Abschluss der **höchsten freien**
 Stufe schaltet die nächste frei; der Abschluss einer niedrigeren schaltet nichts frei. Die Zusammenfassung nennt „Stufe 4
@@ -760,7 +760,7 @@ Starttor trägt „Start  ab 108 rpm“, der Zonenbalken zeigt [Schwelle, oberes
   der Schwelle, darunter sinkt er langsam (mit halber Füllrate, `decay` 0,5, nie unter null) – ein Nachlassen kostet,
   ein Einbruch nicht alles. Voll → **geschafft** („Durchbruch geschafft! +140 Punkte“); läuft vorher das Zeitfenster
   ab → **verfehlt** – weich: keine Punkte, „Durchbruch verfehlt – weiter geht's“, die Fahrt geht weiter. Zwei
-  Einträge: *Zugbrücke* (Schwelle bei 80 % des Bereichs = 108 rpm, 6 s in 18 s, 140 Punkte) und *Spurt* (90 % = 114 rpm,
+  Einträge: *Zugbrücke* (Schwelle bei 80 % des Bereichs = 108 rpm, 6 s in 18 s, 140 Punkte) und *Spurt* (85 % = 111 rpm,
   4 s in 14 s, 160 Punkte).
 - **Jagd** (nach Lanebreaks „Verfolgung“): Ein Verfolger ist hinter dir. Der **Abstand** (0 = auf den Fersen, 1 =
   abgehängt) beginnt mit einem Vorsprung (`start_gap`), wächst über der Schwelle (in `escape_s` Sekunden von 0 auf 1)
@@ -770,7 +770,7 @@ Starttor trägt „Start  ab 108 rpm“, der Zonenbalken zeigt [Schwelle, oberes
   Vorsprung 0,4, 140 Punkte) und *wild* (65 % = 99 rpm, 10 s / 8 s, Fenster 28 s, Vorsprung 0,35, 170 Punkte).
 
 **Stufe:** Höhere Stufen heben die Schwelle um die halbe Differenz zur Zonenbreite von Stufe 1 (Stufe 2 +3 rpm, Stufe 3
-+5 rpm; höchstens bis zum oberen Ende des Bereichs – *Spurt* auf Stufe 3: 119 rpm, *Zugbrücke* 108 / 111 / 113 rpm). Die
++5 rpm; höchstens bis zum oberen Ende des Bereichs – *Spurt* auf Stufe 3: 116 rpm, *Zugbrücke* 108 / 111 / 113 rpm). Die
 Dauer (`fill_s`, `escape_s`, Zeitfenster) wächst wie bei Zone halten × 1 / 1,25 / 1,5, die Punkte × 1 / 2 / 3; die Zeit
 bis zum Einholen (`catch_s`) bleibt.
 
@@ -1293,6 +1293,73 @@ verändert Fähigkeiten, Schwellen oder Werte; Gegenproben ohne Kadenz und zur Z
 Rückstoß der Jagd, Punkte der Fahrt zählen zum Arcade-Level und stehen im Ergebnis, Rundfahrt und Training unverändert,
 Talentmenü samt Layout in 960×1040, 1920×1080 und 1152×648, Ausrüstungsmenü zeigt den Effekt).
 
+### Balancing-Simulation (#55)
+
+Eine Simulation ohne Grafik fährt Tausende Arcade-Läufe und schreibt einen Bericht, an dem die Werte der Daten (Stufen,
+Herausforderungen, Beute) geprüft und nachjustiert werden (`src/balancing.gd`, Startskript `tools/balancing_sim.gd`). Sie
+baut nichts nach: Jede Fahrt ist ein echter `ArcadeRun` auf dem echten Rundkurs (`Track` mit `IslandCourse`, seine Abschnitte,
+die Bosse an ihren Orten, Standardbereich 60–120 rpm); Zonen, Schwellen, Stufen, Rundensteigerung, Elite-Gruppen, Würfe und
+Beute kommen aus `Encounters`, `EliteGroups`, `ArcadeTiers`, `Loot` und den übrigen Modulen, das Tempo aus `RideModel`
+(Standardwerte von `RideConfig`; Kadenz → Tempo → Strecke, mit der Steigung des Kurses). Die Werte bleiben in den Daten – die
+Simulation liest sie nur, und was sie verändert, ändert das Spiel. Gefahren wird in Schritten von 0,5 s in und kurz vor
+Herausforderungen, sonst 2 s.
+
+Gestartet wird im Repo-Wurzelordner (Godot 4.4.1; nach neuen Skripten einmal `--import`, wie bei den Tests):
+
+    godot --headless --path games/island-ride -s res://tools/balancing_sim.gd -- --runs=1000 --gear-runs=300 --careers=100 --seed=1
+
+Das dauert rund 6 Minuten auf einem Kern. Optionen (alle optional): `--runs=N` Fahrten je Kadenzverlauf und Stufe ohne
+Ausrüstung (Standard 200), `--gear-runs=N` dasselbe mit der Ausrüstung der Empfohlenen Stärke (100), `--careers=N`
+Laufbahnen je Kadenzverlauf (30), `--career-max-runs=N` (120), `--seed=S` (1), `--ride-minutes=M` Länge einer Fahrt (45),
+`--out=<Pfad>` (Standard `docs/balancing/arcade-balancing.md`), `--commit=`, `--date=` und `--note=` für den Kopf des
+Berichts, `--appendix=<Datei>` hängt Markdown an (Auffälligkeiten und Nachjustierung). **Reproduzierbar:** Jede Fahrt
+bekommt aus Seed, Kadenzverlauf, Stufe, Ausrüstungsvariante und Nummer einen eigenen Seed; gleicher Seed und gleiche
+Optionen ergeben denselben Bericht, Byte für Byte, ein anderer Seed einen anderen (Kopf: Seed, Befehl, Stand, Datum). Die
+Simulation schreibt nur den Bericht – nie in `user://`, der Spielstand der Laufbahnen liegt im Speicher.
+
+**Kadenzverläufe** (Daten in `Balancing.PROFILES`, erfunden und beschrieben, keine Messung): Die Kadenz folgt einer
+Grundkadenz mit langsamer Schwankung, Rauschen und Ermüdung; vor und in einer Herausforderung stellt sich der Fahrer auf die
+Zone ein (mit Verzögerung), ist aber nur einen Teil der Zeit „bei der Sache“.
+
+| Verlauf | Grundkadenz | Bei der Sache | Folgt der Zone in | Höchstens | Ermüdung |
+|---|---|---|---|---|---|
+| Einsteiger | 74 rpm (±7) | 70 % | 3,5 s | 118 rpm | −10 rpm/h |
+| Trainierter | 88 rpm (±4) | 90 % | 1,5 s | 124 rpm | −4 rpm/h |
+| Sprinter | 92 rpm (±6), Spitzen +22 rpm für 6 s alle ~90 s | 75 % | 0,9 s | 140 rpm | −8 rpm/h |
+
+**Nicht simuliert** sind Fähigkeiten und legendäre Effekte: Sie brauchen die ungeglättete Kadenz mit gezielten Gesten (Antritt,
+Gleichmaß, Innehalten, Rhythmus), die ein erfundener Verlauf nur vortäuschen könnte. Alle Zahlen sind deshalb eine Untergrenze (Fähigkeiten verstärken nur den Fortschritt
+mit Kadenz in der Zone). Wer nicht tritt, bekommt auch hier nichts, mit Ausrüstung ebenso wenig. Absolut zählen die Quoten
+nur unter diesen Annahmen; belastbar sind Verhältnisse und Brüche (eine Herausforderung, die gegenüber ihrer Schwester oder
+den Nachbarstufen abbricht, eine Stufe, die niemand erreicht).
+
+**Der Bericht** (Markdown, Standard `docs/balancing/arcade-balancing.md`) nennt je Kadenzverlauf und Stufe: die
+**Häufigkeit je Seltenheit** (Funde, Funde je Stunde), die **Erfolgsquote je Herausforderung und Stufe** (jede Herausforderung
+des Pools, die Elite-Gruppen *Champions* und *Seltene*, die drei Bosse, alle zusammen, Elite-Anteil) und der Boss-Phasen, die
+**Dauer je Boss** (Sieg und Entkommen, Median und 90 %-Quantil in Sekunden) sowie die Erfolgsquote mit Ausrüstung der
+Empfohlenen Stärke; dazu die Zielzonen und Schwellen je Stufe aus den Daten und die **Erreichbarkeit der Stufen**:
+Laufbahnen (neuer Spielstand im Speicher, immer auf der höchsten freien Stufe gefahren, bessere Teile angelegt, Rest
+verwertet, Talente und Arcade-Level wachsen mit) mit der Zahl der Läufe und Stunden bis zur Freischaltung von Stufe 4–6, bis
+Stufe 6 abgeschlossen ist und bis die Ausrüstung die Empfohlene Stärke erreicht.
+
+**Nachjustiert** wurde nach vorab festgelegten Schwellen nur eine Auffälligkeit: *Spurt* (`durchbruch_spurt`) lag mit
+`threshold_at` 0,9 bei 114 rpm und erreichte ab Stufe 4 mit Hub das obere Ende des Bereichs (120 rpm – dort genügt nur das
+Maximum selbst); der Trainierte schaffte ihn auf Stufe 1–6 zu 92 / 85 / 49 / 34 / 33 / 29 %, die Schwester *Zugbrücke* zu
+91–93 %. Mit 0,85 (111 rpm auf Stufe 1, 118 rpm auf Stufe 6) sind es 94 / 93 / 89 / 89 / 86 / 84 %. Geändert ist allein dieser
+Wert in `src/challenges/breakthrough_challenges.gd`; der Wächter des Kadenzbereichs und alle Prüfungen blieben, wie sie waren.
+Alles, was eine Frage des Spielgefühls ist (Länge der Bosse, Takt-Tore bei konstanter Kadenz, Elite-Chance je Stufe, Tempo von
+Beute und Freischalten, Sammeln für Einsteiger und auf *Ufer*, Empfehlung oder Pflicht), steht als offene Frage im Anhang
+des Berichts und ist nicht entschieden. Der Bericht vom Datenstand davor liegt als `docs/balancing/arcade-balancing-vorher.md`
+bei, die Auffälligkeiten und Fragen in `arcade-balancing-notes.md` (Anhang des Berichts).
+
+Tests: `tests/test_balancing.gd` (Kadenzverläufe als Daten im Standardbereich, Kadenz nie unter 0 und über der Spitze, stabile
+und verschiedene Seeds, die Ausrüstung der Variante „empfohlen“ ergibt genau die Empfohlene Stärke, Rundkurs mit den Abschnitten
+der Bosse, Fahrt mit Seed reproduzierbar und mit aufgezeichneten Herausforderungen, ohne Treten nichts – auch mit Ausrüstung,
+Bericht reproduzierbar und vom Seed abhängig, Bericht nennt alle Kennzahlen, Laufbahn im Speicher, Quantile); kleine Läufe, die
+volle Simulation startet das Skript. Die Gegenprobe des Wächters (`tests/test_arcade_tiers.gd`) hält seit #55 eine eigene Kopie
+von *Spurt* mit 0,9 – eine Definition, die ohne Wächter über den Bereich hinausschösse –, statt vom Pool abzuhängen; ihre
+Prüfungen sind unverändert.
+
 ### Ton (#44)
 
 Dezent und standardmäßig leise (Lautstärke 30 %, jeder Klang zusätzlich gedämpft), auf einem eigenen Audio-Bus
@@ -1523,6 +1590,7 @@ src/cadence_patterns.gd CadencePatterns: Kadenzmuster Antritt, Gleichmaß, Inneh
 src/abilities.gd        Abilities: Fähigkeiten Windböe, Fokus, Schild, Kombo – Auslösung durch Muster, Abklingzeit, Wirkung auf den laufenden Baustein – reine Logik (#50)
 src/ability_extension.gd AbilityExtension: Erweiterung der Arcade-Bühne (`ArcadeStage.EXTENSIONS`) – füttert Muster und Fähigkeiten je Fahrschritt, Anzeige, Zusammenfassungszeile (#50)
 src/tier_arcade.gd      TierArcade: Erweiterung der Arcade-Bühne (`ArcadeStage.EXTENSIONS`) – Hinweis beim Rundenwechsel, besiegte Bosse eintragen und die nächste Stufe freischalten, Zusammenfassungszeilen (#54)
+src/balancing.gd        Balancing: Simulation des Arcade-Modus ohne Grafik – Kadenzverläufe (Einsteiger, Trainierter, Sprinter) als Daten, Läufe und Laufbahnen über die echten Module, Bericht als Markdown – reine Logik (#55)
 src/ability_hud.gd      AbilityHud: Leiste „bereit / aktiv / Abklingzeit“ und Einblendung „… ausgelöst“ unter dem HUD (#50)
 trainings/              Trainingseinheiten als Dateien (JSON): Intervalle kurz, Pyramide, Tempo-Blöcke
 src/medals.gd           Medals: Medaillen-Schwellen aus dem Fahrmodell (70/85/95 rpm), Medaille einer Zeit – reine Logik
@@ -1558,7 +1626,7 @@ src/sound_synth.gd      SoundSynth: alle Klänge prozedural als AudioStreamWAV (
 src/shaders/            Wind (Vegetation), Meer (Wellen, Flachwasser, Brandung), Lichtkegel, Leuchtpunkte, Geschwindigkeitslinien
 src/graybox_track.gd    GrayboxTrack: Rundkurs ~900 m, flach → +6 % → Kuppe → −6 % → flach (`[world] track="graybox"`)
 tests/                  GUT-Tests, support/ (Fake-Bus, Bridge-Profile als Drehbuch, Basisklasse, Testisolation und Wächter, Hooks), fixtures/
-tools/                  E2E-Prüfhilfe gegen die echte Bridge, Sichtprüfung/fps (view_probe.gd), Fenstermodi (window_probe.gd)
+tools/                  E2E-Prüfhilfe gegen die echte Bridge, Sichtprüfung/fps (view_probe.gd), Fenstermodi (window_probe.gd), Balancing-Simulation (balancing_sim.gd, #55)
 addons/gut/             GUT 9.4.0 (MIT, Lizenz in addons/gut/LICENSE.md)
 assets/kenney/          Low-Poly-Modelle (CC0) für alle Stationen
 icon.svg / icon.ico     VSpin-Symbol (Faltband mit Schattenfalte): Projekt-, Fenster- und Browser-Symbol; .ico für Windows
