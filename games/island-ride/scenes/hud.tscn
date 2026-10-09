@@ -493,6 +493,56 @@ size_flags_horizontal = 3
 text = "Ende"
 text_overrun_behavior = 3
 
+[node name="Arcade" type="HBoxContainer" parent="Layout/Rows/Bottom/Box"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="ChallengeValue" type="Label" parent="Layout/Rows/Bottom/Box/Arcade"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"HudTitle"
+text = "Zone halten"
+
+[node name="ChallengeTargetCaption" type="Label" parent="Layout/Rows/Bottom/Box/Arcade"]
+layout_mode = 2
+theme_type_variation = &"HudCaption"
+text = "Ziel"
+
+[node name="ChallengeTarget" type="Label" parent="Layout/Rows/Bottom/Box/Arcade"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"HudTitle"
+theme_override_colors/font_color = Color(0.62, 0.9, 1, 1)
+text = "80–100 rpm"
+
+[node name="ChallengeRemainingCaption" type="Label" parent="Layout/Rows/Bottom/Box/Arcade"]
+layout_mode = 2
+theme_type_variation = &"HudCaption"
+text = "noch"
+
+[node name="ChallengeRemaining" type="Label" parent="Layout/Rows/Bottom/Box/Arcade"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(64, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"HudTitle"
+text = "0:00"
+
+[node name="PointsCaption" type="Label" parent="Layout/Rows/Bottom/Box/Arcade"]
+layout_mode = 2
+theme_type_variation = &"HudCaption"
+text = "Punkte"
+
+[node name="PointsValue" type="Label" parent="Layout/Rows/Bottom/Box/Arcade"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(56, 0)
+layout_mode = 2
+theme_type_variation = &"HudTitle"
+text = "0"
+horizontal_alignment = 2
+
 [node name="Zone" type="HBoxContainer" parent="Layout/Rows/Bottom/Box"]
 unique_name_in_owner = true
 visible = false

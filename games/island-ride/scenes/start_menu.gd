@@ -1,9 +1,12 @@
 ## Startmenü der Inselfahrt (#30): Titel über dem Kameraflug, Menüpunkte und unten dauerhaft der Status des Rads.
-##   Fahren        → Modus-Auswahl: Rundfahrt, Training, Arcade noch ausgegraut („bald“)
+##   Fahren        → Modus-Auswahl: Rundfahrt, Training, Arcade
 ##   Rundfahrt     → Rundenzahl (1–n oder endlos), Richtung (im / gegen den Uhrzeigersinn, #34), Tageszeit (wie im
 ##                   Einstellungsmenü), Ghost (aus, Bestzeit, letzte Fahrt; ohne Aufzeichnung ausgegraut, #32), Bestzeit
 ##                   der gewählten Richtung; „Losfahren“ (#31)
 ##   Training      → Einheit (aus `res://trainings`, Training.load_all) mit Beschreibung und Dauer; „Losfahren“ (#37)
+##   Arcade        → Stufe (ArcadeTiers, drei) mit Beschreibung, persönlicher Kadenzbereich (von/bis, CadenceRange),
+##                   beste Punktzahl der Stufe; „Losfahren“ (#46). Der Kadenzbereich steht hier, weil er nur im Arcade
+##                   wirkt (Grenze aller Zielzonen) und vor dem Losfahren gewählt wird wie die Stufe.
 ##   Fahrtenbuch   öffnet das Fahrtenbuch (Statistik, Bestzeiten, Erfolge, letzte Fahrten; #35)
 ##   Garderobe     öffnet die Garderobe (Trikot, Radfarbe, Helm mit Vorschau; #36)
 ##   Einstellungen öffnet das Menü „Grafik und Fenster“ (wie F2)
@@ -15,8 +18,11 @@ extends CanvasLayer
 
 ## „Fahren → Rundfahrt → Losfahren“ gewählt (Modus wie SaveGame.MODE_*); Rundenzahl und Tageszeit siehe
 ## `round_trip_laps()`, `ride_direction()`, `time_index()` und `ghost_choice()`. „Fahren → Training → Losfahren“: Modus
-## SaveGame.MODE_TRAINING, die Einheit liefert `training_unit()`.
+## SaveGame.MODE_TRAINING, die Einheit liefert `training_unit()`. „Fahren → Arcade → Losfahren“: Modus
+## SaveGame.MODE_ARCADE, Stufe und Kadenzbereich liefern `arcade_tier()` und `cadence_range()`.
 signal ride_requested(mode: String)
+## Stufe oder Kadenzbereich auf der Seite „Arcade“ geändert (#46); die Hauptszene speichert sie.
+signal arcade_changed
 ## Richtung auf der Seite „Rundfahrt“ gewechselt (Track.DIRECTION_*): Bestzeit und Ghosts gelten je Richtung (#34).
 signal direction_changed(direction: String)
 ## „Fahrtenbuch“ gewählt (#35).
@@ -47,9 +53,11 @@ const GHOST_CHOICES := ["", Ghost.BEST, Ghost.LAST]
 var web := OS.has_feature("web")
 
 ## Knöpfe je Menüpunkt (Schlüssel: drive, round_trip, training, arcade, back, logbook, wardrobe, settings, quit;
-## auf der Seite „Rundfahrt“: start, trip_back; auf der Seite „Training“: training_start, training_back).
+## auf der Seite „Rundfahrt“: start, trip_back; auf der Seite „Training“: training_start, training_back; auf der Seite
+## „Arcade“: arcade_start, arcade_back).
 var buttons := {}
-## Auswahlfelder der Seite „Rundfahrt“ (Schlüssel: laps, direction, time, ghost) und der Seite „Training“ (unit).
+## Auswahlfelder der Seite „Rundfahrt“ (Schlüssel: laps, direction, time, ghost), der Seite „Training“ (unit) und der
+## Seite „Arcade“ (tier, cadence_min, cadence_max).
 var options := {}
 ## Einheiten zur Auswahl auf der Seite „Training“ (wie Training.load_file).
 var training_units: Array = []
@@ -59,6 +67,9 @@ var _main_page: VBoxContainer
 var _mode_page: VBoxContainer
 var _trip_page: VBoxContainer
 var _training_page: VBoxContainer
+var _arcade_page: VBoxContainer
+var _arcade_info: Label
+var _arcade_best: Label
 var _best_label: Label
 var _training_info: Label
 var _center: CenterContainer
@@ -92,6 +103,7 @@ func show_page(modes: bool) -> void:
 	_mode_page.visible = modes
 	_trip_page.visible = false
 	_training_page.visible = false
+	_arcade_page.visible = false
 	if visible:
 		focus_default()
 
@@ -102,6 +114,7 @@ func show_round_trip() -> void:
 	_mode_page.visible = false
 	_trip_page.visible = true
 	_training_page.visible = false
+	_arcade_page.visible = false
 	if visible:
 		focus_default()
 
@@ -112,6 +125,18 @@ func show_training() -> void:
 	_mode_page.visible = false
 	_trip_page.visible = false
 	_training_page.visible = true
+	_arcade_page.visible = false
+	if visible:
+		focus_default()
+
+
+## Seite „Arcade“: Stufe, Kadenzbereich, beste Punktzahl; Fokus auf „Losfahren“.
+func show_arcade() -> void:
+	_main_page.visible = false
+	_mode_page.visible = false
+	_trip_page.visible = false
+	_training_page.visible = false
+	_arcade_page.visible = true
 	if visible:
 		focus_default()
 
@@ -123,6 +148,8 @@ func focus_default() -> void:
 		first = buttons["start"]
 	elif _training_page.visible:
 		first = buttons["training_start"] if not buttons["training_start"].disabled else buttons["training_back"]
+	elif _arcade_page.visible:
+		first = buttons["arcade_start"]
 	elif _mode_page.visible:
 		first = buttons["round_trip"]
 	first.grab_focus()
@@ -198,6 +225,48 @@ func _show_training_info() -> void:
 	var text: String = unit["description"]
 	_training_info.text = "%s%d min" % [text + " · " if not text.is_empty() else "",
 			roundi(Training.new(unit).duration_s() / 60.0)]
+
+
+## Seite „Arcade“: Stufe `tier` (ArcadeTiers) und Kadenzbereich `range_` auswählen. Grenzen, die nicht in der Auswahl
+## stehen, nehmen den nächsten Eintrag.
+func set_arcade_choices(tier: int, range_: CadenceRange) -> void:
+	(options["tier"] as OptionButton).select(maxi(ArcadeTiers.LIST.find(ArcadeTiers.get_tier(tier)), 0))
+	(options["cadence_min"] as OptionButton).select(_nearest(CadenceRange.MIN_CHOICES, range_.minimum))
+	(options["cadence_max"] as OptionButton).select(_nearest(CadenceRange.MAX_CHOICES, range_.maximum))
+	_show_arcade_info()
+
+
+## Gewählte Stufe (ArcadeTiers).
+func arcade_tier() -> int:
+	return ArcadeTiers.LIST[maxi((options["tier"] as OptionButton).selected, 0)]["tier"]
+
+
+## Gewählter Kadenzbereich.
+func cadence_range() -> CadenceRange:
+	return CadenceRange.new(CadenceRange.MIN_CHOICES[maxi((options["cadence_min"] as OptionButton).selected, 0)],
+			CadenceRange.MAX_CHOICES[maxi((options["cadence_max"] as OptionButton).selected, 0)])
+
+
+## Beste Punktzahl der gewählten Stufe (0 = noch keine).
+func show_arcade_best(points: int) -> void:
+	_arcade_best.text = "Bestpunktzahl: %s" % (str(points) if points > 0 else "noch keine")
+
+
+func _on_arcade_option(_index: int) -> void:
+	_show_arcade_info()
+	arcade_changed.emit()
+
+
+func _show_arcade_info() -> void:
+	_arcade_info.text = ArcadeTiers.get_tier(arcade_tier())["description"]
+
+
+static func _nearest(choices: Array, value: float) -> int:
+	var best := 0
+	for i in range(choices.size()):
+		if absf(choices[i] - value) < absf(choices[best] - value):
+			best = i
+	return best
 
 
 ## Bestzeit der Strecke anzeigen, als fertiger Zeittext ("" = noch keine).
@@ -299,7 +368,7 @@ func _build() -> void:
 	_mode_page.add_child(heading)
 	_add_button(_mode_page, "round_trip", "Rundfahrt", show_round_trip)
 	_add_button(_mode_page, "training", "Training", show_training)
-	_add_button(_mode_page, "arcade", "Arcade – bald", Callable(), true)
+	_add_button(_mode_page, "arcade", "Arcade", show_arcade)
 	_add_button(_mode_page, "back", "Zurück", show_page.bind(false))
 	_trip_page = _page(pages, "RoundTrip")
 	var trip_heading := Label.new()
@@ -353,6 +422,51 @@ func _build() -> void:
 	_add_button(training_actions, "training_start", "Losfahren", ride_requested.emit.bind(SaveGame.MODE_TRAINING))
 	_add_button(training_actions, "training_back", "Zurück", show_page.bind(true))
 	set_training_units(Training.load_all())
+	_arcade_page = _page(pages, "Arcade")
+	var arcade_heading := Label.new()
+	arcade_heading.text = "Arcade"
+	arcade_heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	arcade_heading.add_theme_font_size_override("font_size", 26)
+	_arcade_page.add_child(arcade_heading)
+	var arcade_grid := GridContainer.new()
+	arcade_grid.columns = 2
+	arcade_grid.add_theme_constant_override("h_separation", 16)
+	arcade_grid.add_theme_constant_override("v_separation", 10)
+	_arcade_page.add_child(arcade_grid)
+	_add_option(arcade_grid, "tier", "Stufe", ArcadeTiers.LIST.map(func(t): return t["name"]))
+	# Kadenzbereich in einer Zeile („von … bis …“): mit zwei Zeilen passte die Seite nicht in 1152×648.
+	var range_caption := Label.new()
+	range_caption.text = "Kadenzbereich"
+	arcade_grid.add_child(range_caption)
+	var range_row := HBoxContainer.new()
+	range_row.add_theme_constant_override("separation", 8)
+	arcade_grid.add_child(range_row)
+	_add_option(range_row, "cadence_min", "", CadenceRange.MIN_CHOICES.map(func(r): return "%d rpm" % r))
+	var until := Label.new()
+	until.text = "bis"
+	range_row.add_child(until)
+	_add_option(range_row, "cadence_max", "", CadenceRange.MAX_CHOICES.map(func(r): return "%d rpm" % r))
+	for key in ["cadence_min", "cadence_max"]:
+		options[key].custom_minimum_size = Vector2(118, 44)
+	for key in ["tier", "cadence_min", "cadence_max"]:
+		options[key].item_selected.connect(_on_arcade_option)
+	_arcade_info = Label.new()
+	_arcade_info.name = "ArcadeInfo"
+	_arcade_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_arcade_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_arcade_info.custom_minimum_size = Vector2(420, 0)
+	_arcade_page.add_child(_arcade_info)
+	_arcade_best = Label.new()
+	_arcade_best.name = "ArcadeBest"
+	_arcade_best.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_arcade_page.add_child(_arcade_best)
+	var arcade_actions := HBoxContainer.new()
+	arcade_actions.add_theme_constant_override("separation", 10)
+	_arcade_page.add_child(arcade_actions)
+	_add_button(arcade_actions, "arcade_start", "Losfahren", ride_requested.emit.bind(SaveGame.MODE_ARCADE))
+	_add_button(arcade_actions, "arcade_back", "Zurück", show_page.bind(true))
+	set_arcade_choices(ArcadeTiers.DEFAULT, CadenceRange.new())
+	show_arcade_best(0)
 	var status := PanelContainer.new()
 	status.name = "Status"
 	status.add_theme_stylebox_override("panel", _panel_style(0.6, 12))
@@ -383,10 +497,12 @@ func _page(parent: Container, page_name: String) -> VBoxContainer:
 	return page
 
 
-func _add_option(grid: GridContainer, key: String, text: String, labels: Array) -> void:
-	var label := Label.new()
-	label.text = text
-	grid.add_child(label)
+## Auswahlfeld mit Beschriftung `text` in `grid` (zwei Zellen); ohne Text nur das Feld.
+func _add_option(grid: Container, key: String, text: String, labels: Array) -> void:
+	if not text.is_empty():
+		var label := Label.new()
+		label.text = text
+		grid.add_child(label)
 	var option := OptionButton.new()
 	option.name = key
 	option.custom_minimum_size = Vector2(260, 44)

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from bridge_harness import PROFILES_DIR, port_open, receive_json, run_bridge
+from vspin_bridge.sources.profile import Ride, load_profile
 
 RAMP_PROFILE = """
 name = "Test-Rampe"
@@ -164,6 +165,31 @@ def test_example_profile_starts(bridge_process, bus_client, name):
     assert telemetry["type"] == "telemetry" and 0 <= telemetry["cadence"] <= 200
     assert bridge.stop() == 0
     assert "Profil: " in bridge.log()
+
+
+# Arcade-Szenarien (#46): dieselben Profile spielt games/island-ride/tests/test_arcade_ride.gd über den Fake-Bus
+# durch das Spiel und prüft dort das Ergebnis (geschafft, weich verfehlt, Pause bei Abbruch).
+ARCADE_DIR = PROFILES_DIR / "arcade"
+ARCADE_PROFILES = sorted(p.name for p in ARCADE_DIR.glob("*.toml"))
+
+
+def test_arcade_profiles_exist():
+    assert {"zone_perfekt.toml", "zone_knapp_daneben.toml", "zone_abbruch.toml"} <= set(ARCADE_PROFILES)
+
+
+@pytest.mark.parametrize("name", ARCADE_PROFILES)
+def test_arcade_profile_loads_and_starts(bridge_process, bus_client, name):
+    profile = load_profile(ARCADE_DIR / name)
+    assert profile.name.startswith("Arcade: ")
+    assert not profile.repeat  # endet nach dem Szenario (Quelle beendet)
+    first = next(step for step in profile.steps if isinstance(step, Ride))
+    bridge = bridge_process("--source", "sim", "--profile", str(ARCADE_DIR / name))
+    client = bus_client()
+    assert receive_json(client)["state"] == "connected"
+    telemetry = receive_json(client)
+    assert telemetry["type"] == "telemetry" and telemetry["cadence"] == first.cadence
+    assert bridge.stop() == 0
+    assert f"Profil: {profile.name}" in bridge.log()
 
 
 BAD_PROFILES = [

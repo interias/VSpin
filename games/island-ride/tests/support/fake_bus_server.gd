@@ -28,6 +28,9 @@ var received_ms: Array = []
 var replies := {}
 ## Anzahl der bisher geöffneten Client-Verbindungen.
 var connections_opened := 0
+## Uhr des Drehbuchs in ms: < 0 = Echtzeit (`Time.get_ticks_msec()`), sonst dieser Wert – so kann ein Test das
+## Drehbuch in festen Schritten vorrücken, gleichauf mit einer Hauptszene, die er selbst schrittweise fährt (#46).
+var manual_clock_ms := -1
 var port := DEFAULT_PORT
 
 var _server := TCPServer.new()
@@ -70,7 +73,7 @@ func poll() -> void:
 		var peer := WebSocketPeer.new()
 		peer.accept_stream(_server.take_connection())
 		_connections.append({"peer": peer, "opened_ms": -1, "next": 0})
-	var now := Time.get_ticks_msec()
+	var now := manual_clock_ms if manual_clock_ms >= 0 else Time.get_ticks_msec()
 	for c in _connections.duplicate():
 		var peer: WebSocketPeer = c["peer"]
 		peer.poll()

@@ -351,7 +351,8 @@ Reihenfolge egal: Startet das Spiel zuerst, zeigt es „Bridge nicht erreichbar 
    wird gestartet (Quelle sim) …“, „… – Bridge-Programm fehlt (config.cfg [bridge] program)“ oder „… – Bridge-Start
    gescheitert“. Im Web-Export und in Tests/Prüfhilfen (Bus nicht auf 8765 bzw. `autostart` aus) startet nichts.
 3. Im Startmenü **Fahren → Rundfahrt** wählen, Rundenzahl und Tageszeit einstellen, **Losfahren** – oder
-   **Fahren → Training**, Einheit wählen, **Losfahren**.
+   **Fahren → Training**, Einheit wählen, **Losfahren** – oder **Fahren → Arcade**, Stufe und Kadenzbereich wählen,
+   **Losfahren**.
 
 ### Startmenü und Spielstand (#30)
 
@@ -362,9 +363,10 @@ Enter/Leertaste):
 
 | Punkt | Wirkung |
 |---|---|
-| **Fahren** | Modus-Auswahl: **Rundfahrt**, **Training**, *Arcade – bald* ausgegraut, „Zurück“ |
+| **Fahren** | Modus-Auswahl: **Rundfahrt**, **Training**, **Arcade**, „Zurück“ |
 | **Fahren → Rundfahrt** | **Runden** 1–20 oder *Endlos* (Standard 1), **Richtung** (*Im Uhrzeigersinn*, *Gegen den Uhrzeigersinn*, #34), **Tageszeit** (dieselbe Auswahl wie im Einstellungsmenü, Standard *Echtzeit*; wirkt und bleibt wie dort gewählt), **Ghost** (*Aus*, *Bestzeit*, *Letzte Fahrt*; ohne Aufzeichnung ausgegraut, Standard *Bestzeit*, sobald es sie gibt, #32), die **Bestzeit** der Strecke in der gewählten Richtung; **Losfahren** startet die Fahrt (#31) |
 | **Fahren → Training** | **Einheit** (*Intervalle kurz*, *Pyramide*, *Tempo-Blöcke*) mit Beschreibung und Dauer; **Losfahren** startet das Training (#37, siehe unten) |
+| **Fahren → Arcade** | **Stufe** (*Stufe 1–3*) mit Beschreibung, persönlicher **Kadenzbereich** (von 40–80 bis 100–150 rpm, Standard 60–120 rpm), die **Bestpunktzahl** der Stufe; **Losfahren** startet den Arcade-Lauf (#46, siehe unten). Stufe und Kadenzbereich werden bei jeder Änderung gespeichert |
 | **Fahrtenbuch** | Statistik, Bestzeiten, Segmentzeiten, Medaillen, Erfolge und die letzten Fahrten (#35, siehe unten) |
 | **Garderobe** | Trikot, Radfarbe und Helm mit Vorschau, freigeschaltet über das Fahrerlevel (#36, siehe unten) |
 | **Einstellungen** | öffnet das Menü „Grafik und Fenster“ (wie `Esc`/`F2`) |
@@ -386,7 +388,9 @@ Abbruch („Fahrt beenden“, Beenden, Fenster schließen), sofern gefahren wurd
 Sekunden, z. B. `{"island": {"cw": 873.4}}`), Segment-Bestzeiten unter `segment_best_times` und die beste Medaille je Runde
 (`lap`) und Segment unter `medals` (Strecke → Richtung → Segment-ID, #33), die Ghosts unter `ghosts` (Strecke → Richtung →
 `best`/`last`, je nur `lap_length_m`, `sample_s`, `time_s` und `distance_m`, #32), die freigeschalteten Erfolge unter
-`achievements` (Erfolg-ID → Datum, #35). Spätere Bereiche kommen additiv dazu; ältere
+`achievements` (Erfolg-ID → Datum, #35), Arcade unter `arcade` (Kadenzbereich `cadence_range`, gewählte Stufe `tier`,
+beste Punktzahl je Stufe `best_points`, #46; eine Arcade-Fahrt trägt zusätzlich `arcade` mit Stufe, Punkten, geschafften
+und verfehlten Herausforderungen). Spätere Bereiche kommen additiv dazu – so auch `arcade`, die Formatversion bleibt 1; ältere
 Stände werden beim Laden hochgestuft, ein Stand einer neueren Version bleibt unverändert erhalten, eine unlesbare
 Datei wird als `savegame.json.defekt` beiseitegelegt statt überschrieben.
 
@@ -449,7 +453,9 @@ Schlicht, halbtransparente Panels, Standardschrift der Engine:
   höchstem Punkt und Marker an der Fahrerposition; der gefahrene Teil ist hinterlegt. Mit Ghost rechts neben der
   Restdistanz der **Abstand** zu ihm („Ghost +1.4 s“, siehe Ghost). Im Training darüber die **Trainingszeile**:
   Phase, Zielkadenz, Restzeit der Phase und die nächste Phase, darunter der **Zonenbalken** (#58); die **Ansage** zum
-  Widerstandsknopf steht groß über dem unteren Panel (siehe Training).
+  Widerstandsknopf steht groß über dem unteren Panel (siehe Training). Im Arcade an derselben Stelle die
+  **Arcade-Zeile** (Herausforderung, Zielzone, Restzeit bzw. Meter bis zum Start, Punkte) und während Zone halten der
+  Zonenbalken mit dem **Fortschritt** (siehe Arcade).
 - Über dem unteren Panel dezent der `set_grade`-Hinweis, mittig zwischen oben und unten Pause-/Verbindungs-/Ziel-Meldungen.
 
 Layout nur über Anker und Container: passt im schmalen Halbbild-Fenster (960 × 1040) wie in 1920 × 1080 und
@@ -678,6 +684,54 @@ die Trainingszeile mit Ansage (`training.png`), Starttor (`gate_start.png`), Zon
 (`zone_below.png`, `zone_inside.png`, `zone_above.png`), Zieltor (`gate_finish.png`) und das Ergebnis
 (`training_result.png`).
 
+### Arcade (#46)
+
+**Fahren → Arcade** startet einen **Arcade-Lauf** auf der gewählten **Stufe**: endlos (beliebig viele Runden), im
+Uhrzeigersinn, ohne Ghost. Je Runde und Abschnitt (Station des Rundkurses; auf der Graybox ist die ganze Runde ein
+Abschnitt) würfelt der Lauf 1–2 **Herausforderungen** – jede Runde neu, die nächste Runde schon beim Einfahren in die
+laufende. Die erste eines Abschnitts beginnt 50 m hinter seinem Anfang, eine zweite in der Mitte des Rests; läuft dort
+noch eine, beginnt sie direkt danach, solange ihr Abschnitt nicht verlassen ist (sonst verfällt sie ungespielt).
+
+| Stufe | Zielzone | Dauer | Punkte |
+|---|---|---|---|
+| Stufe 1 | 20 rpm breit | × 1 | × 1 |
+| Stufe 2 | 14 rpm | × 1,25 | × 2 |
+| Stufe 3 | 10 rpm | × 1,5 | × 3 |
+
+Erster Baustein ist **Zone halten** (nach Lanebreaks „Streams“): die Kadenz eine Zeit lang in einer Zielzone halten. Jede
+Sekunde in der Zone (Grenzen eingeschlossen) füllt den Fortschritt, außerhalb steht er. Voll → **geschafft** (Punkte,
+Einblendung „Zone halten geschafft! +100 Punkte“); läuft vorher das Zeitfenster ab → **verfehlt** – weich: keine Punkte,
+eine Einblendung („Zone halten verfehlt – weiter geht's“), die Fahrt geht weiter. Die Herausforderungen sind Daten
+(`Encounters.CHALLENGES`): Zone halten in der Mitte (15 s in 30 s, 100 Punkte), im unteren Drittel (20 s in 35 s, 120)
+und zügig (12 s in 25 s, 120); die Lage der Zone ist relativ zum eigenen Kadenzbereich, ihre Breite gibt die Stufe vor.
+
+**Kadenzbereich** (Standard 60–120 rpm, auf der Seite „Arcade“ einstellbar): keine Zielzone liegt außerhalb. Ragt eine
+Zone hinaus, rückt sie mit gleicher Breite hinein; ist sie breiter als der Bereich, wird sie der ganze Bereich. Das
+geschieht an einer Stelle (`Encounters.build` → `CadenceRange.limit_zone`), durch die jede Zielzone muss – auch die von
+Stufen und späteren Elite-Eigenschaften.
+
+Im HUD steht die Arcade-Zeile (vor dem Start „Nächste: Zone halten · Ziel 80–100 rpm · noch 45 m“, während der
+Herausforderung Restzeit und Zonenbalken mit Fortschritt); auf der Strecke steht am Startpunkt ein grünes **Starttor**
+(„Start 80–100 rpm“) und während der Herausforderung ein **Zieltor** dort, wo der Fahrer beim aktuellen Tempo das Ende
+des Zeitfensters erreicht (wie die Intervall-Tore, #58). In jeder Pause (manuell oder Verbindung, ADR-0004) läuft keine
+Herausforderung weiter und keine scheitert. **Fahrt beenden** zeigt die **Zusammenfassung**: Stufe, Zeit, Runden, Strecke,
+Punkte (mit „neue Bestpunktzahl!“), Herausforderungen geschafft/verfehlt und je Herausforderung.
+
+**Getrennte Welten (ADR-0010):** Arcade-Kilometer und -Runden zählen für Fahrtenbuch („Arcade“), Fahrerlevel und Erfolge;
+Runden im Arcade schreiben nie Bestzeit, Segmentzeit, Medaille oder Ghost (`records_count()` der Hauptszene). Logik in
+`src/challenge_block.gd`, `src/zone_hold.gd`, `src/encounters.gd`, `src/arcade_tiers.gd`, `src/cadence_range.gd` und
+`src/arcade_run.gd` (alles ohne Szene und Bus).
+
+**Simulator-Szenarien:** `bridge/profiles/arcade/` – *perfekt in der Zone* (`zone_perfekt.toml`, 90 rpm: geschafft),
+*knapp daneben* (`zone_knapp_daneben.toml`, 102 rpm: weich verfehlt), *Abbruch* (`zone_abbruch.toml`: mitten im Halten
+stale und 30 s disconnected – Pause, danach geschafft). Von Hand: `vspin-bridge --source sim --profile
+profiles/arcade/zone_perfekt.toml`, im Spiel Arcade auf Stufe 1 mit 60–120 rpm. `tests/test_arcade_ride.gd` spielt
+dieselben Dateien über den Fake-Bus durchs Spiel.
+
+Sichtprüfung: `view_probe.gd -- --title --arcade` speichert `title_arcade.png`, `--hud --arcade` Starttor mit nächster
+Herausforderung (`arcade_gate.png`), Zone halten (`zone_hold.png`, Kadenz zu hoch `zone_hold_above.png`), Erfolg
+(`zone_hold_success.png`) und die Zusammenfassung (`arcade_result.png`).
+
 ### Ton (#44)
 
 Dezent und standardmäßig leise (Lautstärke 30 %, jeder Klang zusätzlich gedämpft), auf einem eigenen Audio-Bus
@@ -789,6 +843,11 @@ spielt von vorn (so lässt sich auch Reconnect prüfen):
 ]
 ```
 
+Simulator-Profile der Bridge als Drehbuch (#46): `SimProfile.to_script(SimProfile.load_toml(SimProfile.path(
+"arcade/zone_perfekt.toml")))` (`tests/support/sim_profile.gd`) – derselbe Kadenzverlauf, mit `stale`/`disconnected`
+wie von der Bridge. Mit `bus.manual_clock_ms = 0` läuft das Drehbuch nicht in Echtzeit, sondern so, wie der Test die Uhr
+vorrückt – gleichauf mit einer Hauptszene, die er in festen Schritten fährt (`tests/test_arcade_ride.gd`).
+
 Bausteine in GDScript: `FakeBusServer.status(state, source, capabilities, at)`, `telemetry(cadence, at, fields)`,
 `steady_cadence(cadence, from_s, to_s, interval_s = 0.25, fields)`, `close_at(at)`, `ack(for, ok, reason)`
 (`fields` ergänzt Telemetrie-Felder, z. B. `{"power_w": 142.0, "power_estimated": true}`); als Datei über
@@ -838,6 +897,12 @@ src/training.gd         Training: Einheit laden, Ablauf (Phase, Restzeit, Ansage
 src/zone_bar.gd         ZoneBar: Zonenbalken – Zielbereich, Wert als Marke, Zustand in Farbe und Form (#58)
 src/gate_placement.gd   GatePlacement: Lage eines zeitgebundenen Tors aus Restzeit und Tempo, Festsetzen – reine Logik (#58)
 src/course_gate.gd      CourseGate: Start- und Zieltor über der Straße, an einer Fahrtposition gestellt (#58)
+src/challenge_block.gd  ChallengeBlock: Baustein einer Herausforderung – update(Kadenz, Zeit) → Fortschritt, Zustand (#46)
+src/zone_hold.gd        ZoneHold: Baustein „Zone halten“ – reine Logik (#46)
+src/encounters.gd       Encounters: Herausforderungen als Daten, Würfeln, Bau der Bausteine mit Wächter des Kadenzbereichs (#46)
+src/arcade_tiers.gd     ArcadeTiers: Stufen als Daten (Zonenbreite, Dauer, Punkte), Auswahl im Spielstand (#46)
+src/cadence_range.gd    CadenceRange: persönlicher Kadenzbereich, begrenzt jede Zielzone (limit_zone) (#46)
+src/arcade_run.gd       ArcadeRun: Arcade-Lauf – Herausforderungen je Abschnitt und Runde, Punkte, Zusammenfassung (#46)
 trainings/              Trainingseinheiten als Dateien (JSON): Intervalle kurz, Pyramide, Tempo-Blöcke
 src/medals.gd           Medals: Medaillen-Schwellen aus dem Fahrmodell (70/85/95 rpm), Medaille einer Zeit – reine Logik
 src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik
@@ -847,10 +912,10 @@ src/rider_model.gd      RiderModel: Fahrer und Rennrad aus Grundkörpern, Pose a
 src/ride_config.gd      RideConfig: liest config.cfg
 src/graphics_settings.gd GraphicsSettings: Grafik-/Fenstereinstellungen, Tageszeit/Wetter (user://settings.cfg), Anwenden, Fensterhälften
 scenes/settings_menu.*  Menü „Grafik und Fenster“ (F2, F11), von der Hauptszene eingehängt
-scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt- und Training-Auswahl, Radstatus (#30, #31, #37)
+scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt-, Training- und Arcade-Auswahl, Radstatus (#30, #31, #37, #46)
 scenes/wardrobe.gd      Garderobe: Trikot, Radfarbe, Helm mit Vorschau (SubViewport), gesperrte mit Level (#36)
 src/wardrobe.gd         Wardrobe: Teile und Farben, Auswahl prüfen und wählen, Standard je Kategorie – reine Logik
-src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Bestzeiten, Segment-Bestzeiten, Medaillen, Ghosts, Erfolge, Garderobe, Kamera, Hochstufung
+src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Bestzeiten, Segment-Bestzeiten, Medaillen, Ghosts, Erfolge, Garderobe, Kamera, Arcade, Hochstufung
 src/camera_views.gd     CameraViews: Kameraperspektiven Nah/Verfolger/Weit als Daten, Durchblättern, Auswahl im Spielstand (#59) – reine Logik
 src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz), stations, station_at(), road_mesh(); Richtung (#34): set_direction(), path_distance(), ride_position_at(), ride_stations()
 src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil, Stationen, Segmente (reine Daten/Logik)
@@ -869,7 +934,7 @@ src/ride_sound.gd       RideSound: Ton – Pegel aus Tempo, Ort, Wetter, Tagesli
 src/sound_synth.gd      SoundSynth: alle Klänge prozedural als AudioStreamWAV (Rauschen, Filter, Teiltöne), keine Dateien (#44)
 src/shaders/            Wind (Vegetation), Meer (Wellen, Flachwasser, Brandung), Lichtkegel, Leuchtpunkte, Geschwindigkeitslinien
 src/graybox_track.gd    GrayboxTrack: Rundkurs ~900 m, flach → +6 % → Kuppe → −6 % → flach (`[world] track="graybox"`)
-tests/                  GUT-Tests, support/ (Fake-Bus, Basisklasse, Hook), fixtures/
+tests/                  GUT-Tests, support/ (Fake-Bus, Bridge-Profile als Drehbuch, Basisklasse, Hook), fixtures/
 tools/                  E2E-Prüfhilfe gegen die echte Bridge, Sichtprüfung/fps (view_probe.gd), Fenstermodi (window_probe.gd)
 addons/gut/             GUT 9.4.0 (MIT, Lizenz in addons/gut/LICENSE.md)
 assets/kenney/          Low-Poly-Modelle (CC0) für alle Stationen

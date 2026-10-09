@@ -18,6 +18,8 @@
 ##   Zone       (#58) im Training unter der Trainingszeile: Zonenbalken (ZoneBar) mit Zielbereich und Kadenz als Marke,
 ##                daneben der Zustand in Worten („zu niedrig“, „im Bereich“, „zu hoch“; Farbe wie die Marke) und der
 ##                Treffer der laufenden Phase (die Bewertung aus Training, keine eigene Rechnung)
+##   Arcade     (#46) an derselben Stelle: Herausforderung, Zielzone, Restzeit (vor dem Start: Meter bis dahin) und
+##                Punkte des Laufs; während Zone halten darunter der Zonenbalken mit dem Fortschritt statt des Treffers
 ##   Landmark     Panorama-Moment (#43): Name der Sehenswürdigkeit oben im freien Feld, blendet weich ein und aus
 ##   CameraView   Kameraperspektive (#59): nach dem Wechsel mit `C` kurz ihr Name („Kamera: Nah“) unter dem Landmark
 ##   Message/Hint/Debug  Zustandsmeldung (mittig zwischen oben und unten), `set_grade`-Hinweis (über dem unteren
@@ -94,6 +96,11 @@ const CADENCE_COMPACT_FONT_PX := 44
 @onready var _remaining_value: Label = %RemainingValue
 @onready var _next_value: Label = %NextValue
 @onready var _announcement: Label = %Announcement
+@onready var _arcade: Control = %Arcade
+@onready var _challenge_value: Label = %ChallengeValue
+@onready var _challenge_target: Label = %ChallengeTarget
+@onready var _challenge_remaining: Label = %ChallengeRemaining
+@onready var _points_value: Label = %PointsValue
 @onready var _zone: Control = %Zone
 @onready var _zone_bar: ZoneBar = %ZoneBar
 @onready var _zone_state: Label = %ZoneState
@@ -207,10 +214,23 @@ func show_training(phase_text: String, target_text: String, remaining_text: Stri
 	_next_value.text = next_text
 
 
+## Arcade (#46): Herausforderung, Zielzone, Restzeit bzw. Weg bis zum Start und Punkte als fertige Anzeigetexte; ""
+## als Herausforderung blendet die Zeile aus.
+func show_arcade(challenge_text: String, target_text: String, remaining_text: String, points_text: String) -> void:
+	_arcade.visible = not challenge_text.is_empty()
+	_challenge_value.text = challenge_text
+	_challenge_target.text = target_text
+	_challenge_remaining.text = remaining_text
+	_points_value.text = points_text
+
+
 ## Zonenbalken (#58): Zielbereich `range_min`..`range_max` (Grenzen eingeschlossen), aktuelle Kadenz `cadence_rpm`
-## und der Treffer der laufenden Phase als fertiger Anzeigetext (z. B. „87 %“).
-func show_zone(range_min: float, range_max: float, cadence_rpm: float, score_text: String) -> void:
+## und der Treffer der laufenden Phase als fertiger Anzeigetext (z. B. „87 %“); `score_caption` benennt ihn (Arcade:
+## „Fortschritt“, #46).
+func show_zone(range_min: float, range_max: float, cadence_rpm: float, score_text: String,
+		score_caption: String = "Treffer") -> void:
 	_zone.visible = true
+	(_zone.get_node("ScoreCaption") as Label).text = score_caption
 	_zone_bar.show_zone(range_min, range_max, cadence_rpm)
 	var zone := _zone_bar.state()
 	_zone_state.text = ZoneBar.state_text(zone)
@@ -220,7 +240,7 @@ func show_zone(range_min: float, range_max: float, cadence_rpm: float, score_tex
 	_zone_score.text = score_text
 
 
-## Zonenbalken ausblenden (ohne Training, im Ergebnis).
+## Zonenbalken ausblenden (ohne Training oder laufende Herausforderung, im Ergebnis).
 func hide_zone() -> void:
 	_zone.visible = false
 
@@ -363,7 +383,8 @@ static func grade_direction(grade: float) -> int:
 ## Die sichtbaren Werte als Textzeilen „Name: Wert Einheit“, genau wie angezeigt (Tests, Logs), z. B.
 ## "Kadenz: 90 rpm", "Steigung: +6.0 %", "Leistung: ~142 W", "Rundenzeit: 3:05", "Ghost: +1.4 s", "Bergwertung: 1:12.4",
 ## "Runde 2 / 3: 34 % (noch 6.08 km)"; im Training "Phase: Hart 3/10", "Zielkadenz: 95–105 rpm", "Restzeit: 0:23",
-## "Danach: Locker 3/10 · 80–90 rpm", "Zone: im Bereich (95–105 rpm, 98 rpm)", "Treffer: 87 %", "Ansage: In 8 s: …".
+## "Danach: Locker 3/10 · 80–90 rpm", "Zone: im Bereich (95–105 rpm, 98 rpm)", "Treffer: 87 %", "Ansage: In 8 s: …";
+## in Arcade "Herausforderung: Zone halten", "Ziel: 80–100 rpm", "Noch: 0:12", "Punkte: 100", "Fortschritt: 60 %".
 func readout() -> String:
 	var lines := []
 	for field in [%Cadence, %Speed, %Distance, %Time, %LapTime, %Grade, _section, _power, _ghost]:
@@ -383,10 +404,15 @@ func readout() -> String:
 		lines.append("Zielkadenz: %s" % _target_value.text)
 		lines.append("Restzeit: %s" % _remaining_value.text)
 		lines.append("Danach: %s" % _next_value.text)
+	if _arcade.is_visible_in_tree():
+		lines.append("Herausforderung: %s" % _challenge_value.text)
+		lines.append("Ziel: %s" % _challenge_target.text)
+		lines.append("Noch: %s" % _challenge_remaining.text)
+		lines.append("Punkte: %s" % _points_value.text)
 	if _zone.is_visible_in_tree():
 		lines.append("Zone: %s (%s, %d rpm)" % [_zone_state.text, zone_range_text(_zone_bar.range_min,
 				_zone_bar.range_max), roundi(_zone_bar.value)])
-		lines.append("Treffer: %s" % _zone_score.text)
+		lines.append("%s: %s" % [(_zone.get_node("ScoreCaption") as Label).text, _zone_score.text])
 	if _announcement.is_visible_in_tree():
 		lines.append("Ansage: %s" % _announcement.text)
 	lines.append("%s: %s (%s)" % [_lap_caption.text, _lap_percent.text, _lap_remaining.text])
