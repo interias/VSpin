@@ -34,6 +34,7 @@ func _select(option: OptionButton, index: int) -> void:
 ## `challenge`, damit das Ergebnis vorhersagbar ist.
 func _start_arcade(game: Node, challenge: String) -> void:
 	await run_for(0.2)
+	AbilityExtension.of(game.arcade_stage).enabled = false  # Fähigkeiten (#50) sind hier nicht der Gegenstand
 	game.arcade_seed = 1
 	game.arcade_pool = [Encounters.find(challenge)]
 	var menu: CanvasLayer = game.start_menu

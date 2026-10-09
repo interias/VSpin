@@ -44,6 +44,7 @@ func _spawn_on(bus: FakeBusServer, fast: bool = false) -> Node:
 func _start_arcade(game: Node, tier: int = 1, lower: float = 60.0, upper: float = 120.0,
 		challenge: String = "zone_mitte") -> void:
 	await run_for(0.2)
+	AbilityExtension.of(game.arcade_stage).enabled = false  # Fähigkeiten (#50) sind hier nicht der Gegenstand
 	game.arcade_seed = 1
 	game.arcade_pool = [Encounters.find(challenge)]
 	var menu: CanvasLayer = game.start_menu

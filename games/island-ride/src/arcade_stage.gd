@@ -56,7 +56,9 @@ const PROPS := {
 	"collect": preload("res://src/collect_prop.gd"),
 }
 ## Erweiterungen (f): Skripte mit `attach(stage)`, eine Zeile je Erweiterung, in der Reihenfolge der Anmeldung.
-const EXTENSIONS := []
+const EXTENSIONS := [
+	preload("res://src/ability_extension.gd"),
+]
 ## Beute (#49): so weit vor dem Fahrer (m) steht die Lichtsäule eines Fundes.
 const LOOT_AHEAD_M := 18.0
 

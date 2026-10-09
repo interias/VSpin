@@ -1,0 +1,127 @@
+# Arcade-Szenario „Rhythmus“ (#50): 6 s ruhig bei 80 rpm, dann sechs Pulse im Takt von 3 s (80 → 96 → 80 rpm, je Puls
+# 1,5 s hoch und 1,5 s runter) – der Takt ist erkannt, sobald die vierte Anstiegsflanke im Abstand der ersten drei kommt –,
+# danach 6 s Ruhe (der Takt reißt ab), fünf Pulse in Abständen von 1,6 / 4 / 1,8 / 3,6 s (kein Takt) und ruhig bis zum
+# Ende. Gespielt von games/island-ride/tests/test_abilities_ride.gd.
+name = "Arcade: Rhythmus"
+
+[[steps]]
+duration_s = 6
+cadence = 80
+
+[[steps]]
+duration_s = 1.5
+cadence = 80
+cadence_to = 96
+
+[[steps]]
+duration_s = 1.5
+cadence = 96
+cadence_to = 80
+
+[[steps]]
+duration_s = 1.5
+cadence = 80
+cadence_to = 96
+
+[[steps]]
+duration_s = 1.5
+cadence = 96
+cadence_to = 80
+
+[[steps]]
+duration_s = 1.5
+cadence = 80
+cadence_to = 96
+
+[[steps]]
+duration_s = 1.5
+cadence = 96
+cadence_to = 80
+
+[[steps]]
+duration_s = 1.5
+cadence = 80
+cadence_to = 96
+
+[[steps]]
+duration_s = 1.5
+cadence = 96
+cadence_to = 80
+
+[[steps]]
+duration_s = 1.5
+cadence = 80
+cadence_to = 96
+
+[[steps]]
+duration_s = 1.5
+cadence = 96
+cadence_to = 80
+
+[[steps]]
+duration_s = 1.5
+cadence = 80
+cadence_to = 96
+
+[[steps]]
+duration_s = 1.5
+cadence = 96
+cadence_to = 80
+
+[[steps]]
+duration_s = 6
+cadence = 80
+
+[[steps]]
+duration_s = 1.0
+cadence = 80
+cadence_to = 96
+
+[[steps]]
+duration_s = 0.6
+cadence = 96
+cadence_to = 80
+
+[[steps]]
+duration_s = 1.0
+cadence = 80
+cadence_to = 96
+
+[[steps]]
+duration_s = 3.0
+cadence = 96
+cadence_to = 80
+
+[[steps]]
+duration_s = 1.0
+cadence = 80
+cadence_to = 96
+
+[[steps]]
+duration_s = 0.8
+cadence = 96
+cadence_to = 80
+
+[[steps]]
+duration_s = 1.0
+cadence = 80
+cadence_to = 96
+
+[[steps]]
+duration_s = 2.6
+cadence = 96
+cadence_to = 80
+
+[[steps]]
+duration_s = 1.0
+cadence = 80
+cadence_to = 96
+
+[[steps]]
+duration_s = 1.0
+cadence = 96
+cadence_to = 80
+
+[[steps]]
+duration_s = 6
+cadence = 80
