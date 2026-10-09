@@ -86,12 +86,17 @@ unter [`profiles/`](profiles/):
 | `arcade/takt_verfehlt.toml` | Arcade-Szenario „Takt verfehlt“: 45 s 100 rpm (über der Zone 74–94 rpm der Takt-Tore), dann Ende |
 | `arcade/sammeln_viel.toml` | Arcade-Szenario „Sammeln viel“: 45 s 108 rpm (Magnetradius rund 3,9 m), dann Ende |
 | `arcade/sammeln_wenig.toml` | Arcade-Szenario „Sammeln wenig“: 45 s 78 rpm (knapp über der Rampe 75 rpm, Magnetradius rund 1,3 m), dann Ende |
-| `arcade/antritt.toml` | Messprofil Kadenzmuster (#45): drei Antritte aus 80 rpm (+30 in 0,5 s, +30 in 1,5 s, +26 in 2 s), dann Ende |
-| `arcade/innehalten.toml` | Messprofil Kadenzmuster (#45): zweimal 3 s Kadenz 0 (aus 80 und 110 rpm), am Ende 1,5 s (kein Innehalten), dann Ende |
+| `arcade/antritt.toml` | Kadenzmuster-Szenario (#45, #50): drei Antritte aus 80 rpm (+30 in 0,5 s, +30 in 1,5 s, +26 in 2 s), dann Ende |
+| `arcade/innehalten.toml` | Kadenzmuster-Szenario (#45, #50): zweimal 3 s Kadenz 0 (aus 80 und 110 rpm), am Ende 1,5 s (kein Innehalten), dann Ende |
+| `arcade/gleichmass.toml` | Kadenzmuster-Szenario (#50): 6 s Stillstand, Anfahren, 12 s ruhig um 80 rpm (Spanne 5 rpm), 8 s breite Wellen (70–100 rpm), 12 s ruhig bei 85 rpm, dann Ende |
+| `arcade/rhythmus.toml` | Kadenzmuster-Szenario (#50): 6 s 80 rpm, sechs Pulse 80 → 96 → 80 rpm im Takt von 3 s, 6 s Ruhe, fünf Pulse mit ungleichen Abständen (kein Takt), 6 s 80 rpm, dann Ende |
 
 Die Arcade-Szenarien `zone_*` spielt das Spiel auch in seinen Tests nach (`games/island-ride/tests/test_arcade_ride.gd`, gleicher
 Kadenzverlauf über den Fake-Bus) und prüft dort das Ergebnis: geschafft, weich verfehlt, Pause bei Abbruch. `takt_*` und `sammeln_*` (#48) spielt
-`games/island-ride/tests/test_arcade_rhythm_collect_ride.gd` nach (Takt getroffen/verfehlt, Sammeln viel/wenig).
+`games/island-ride/tests/test_arcade_rhythm_collect_ride.gd` nach (Takt getroffen/verfehlt, Sammeln viel/wenig). Die Kadenzmuster-Szenarien
+`antritt`, `innehalten`, `gleichmass` und `rhythmus` spielt `games/island-ride/tests/test_abilities_ride.gd` (#50) nach: das Muster wird erkannt,
+die Fähigkeit ausgelöst, die Anzeige zeigt „aktiv“ und danach die Abklingzeit. (`SimProfile.to_script` bildet `cadence_raw` nicht ab, der Fake-Bus fällt auf
+`cadence` zurück; die Unterscheidung geglättet/ungeglättet prüft ein eigener Test.)
 
 Format:
 
@@ -271,7 +276,7 @@ Session-Dateien und Terminal.
 Struktur (teils noch geplant):
 
 ```
-profiles/        Beispielprofile für den Simulator (--profile); arcade/: Arcade-Szenarien des Spiels (#46, #47), Messprofile Kadenzmuster (#45)
+profiles/        Beispielprofile für den Simulator (--profile); arcade/: Arcade-Szenarien des Spiels (#46–#48), Kadenzmuster-Szenarien (#45, #50)
 src/vspin_bridge/
   sources/      sim (+ profile), replay, später ble  – alle implementieren DeviceSource
   parsers/      rohe Notification → TelemetrySample (CSC, FTMS Indoor Bike Data)

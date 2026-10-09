@@ -170,7 +170,8 @@ def test_example_profile_starts(bridge_process, bus_client, name):
 # Arcade-Szenarien (#46, #47, #48): dieselben Profile `zone_*`, `durchbruch_*` und `jagd_*` spielt
 # games/island-ride/tests/test_arcade_ride.gd, `takt_*` und `sammeln_*` test_arcade_rhythm_collect_ride.gd über den
 # Fake-Bus durch das Spiel und prüft dort das Ergebnis (geschafft, weich verfehlt, Pause bei Abbruch). Die
-# Messprofile `antritt`/`innehalten` (#45) wertet tests/cadence_latency.py aus.
+# Messprofile `antritt`/`innehalten` (#45) wertet tests/cadence_latency.py aus; im Spiel spielt sie
+# test_abilities_ride.gd (#50) zusammen mit `gleichmass` und `rhythmus` nach: Muster erkannt, Fähigkeit ausgelöst.
 ARCADE_DIR = PROFILES_DIR / "arcade"
 ARCADE_PROFILES = sorted(p.name for p in ARCADE_DIR.glob("*.toml"))
 
@@ -188,6 +189,10 @@ def test_arcade_profiles_exist():
         "takt_verfehlt.toml",
         "sammeln_viel.toml",
         "sammeln_wenig.toml",
+        "antritt.toml",
+        "innehalten.toml",
+        "gleichmass.toml",
+        "rhythmus.toml",
     } <= set(ARCADE_PROFILES)
 
 
