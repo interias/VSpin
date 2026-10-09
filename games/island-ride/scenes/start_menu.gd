@@ -6,7 +6,8 @@
 ##   Training      → Einheit (aus `res://trainings`, Training.load_all) mit Beschreibung und Dauer; „Losfahren“ (#37)
 ##   Arcade        → Stufe (ArcadeTiers, drei) mit Beschreibung, persönlicher Kadenzbereich (von/bis, CadenceRange),
 ##                   beste Punktzahl der Stufe; „Losfahren“ (#46). Der Kadenzbereich steht hier, weil er nur im Arcade
-##                   wirkt (Grenze aller Zielzonen) und vor dem Losfahren gewählt wird wie die Stufe.
+##                   wirkt (Grenze aller Zielzonen) und vor dem Losfahren gewählt wird wie die Stufe. „Ausrüstung“ öffnet
+##                   das Inventar der Beute (#49) – aus demselben Grund hier und nicht auf der Hauptseite.
 ##   Fahrtenbuch   öffnet das Fahrtenbuch (Statistik, Bestzeiten, Erfolge, letzte Fahrten; #35)
 ##   Garderobe     öffnet die Garderobe (Trikot, Radfarbe, Helm mit Vorschau; #36)
 ##   Einstellungen öffnet das Menü „Grafik und Fenster“ (wie F2)
@@ -29,6 +30,8 @@ signal direction_changed(direction: String)
 signal logbook_requested
 ## „Garderobe“ gewählt (#36).
 signal wardrobe_requested
+## „Fahren → Arcade → Ausrüstung“ gewählt (#49).
+signal gear_requested
 ## „Einstellungen“ gewählt.
 signal settings_requested
 ## „Beenden“ gewählt.
@@ -54,7 +57,7 @@ var web := OS.has_feature("web")
 
 ## Knöpfe je Menüpunkt (Schlüssel: drive, round_trip, training, arcade, back, logbook, wardrobe, settings, quit;
 ## auf der Seite „Rundfahrt“: start, trip_back; auf der Seite „Training“: training_start, training_back; auf der Seite
-## „Arcade“: arcade_start, arcade_back).
+## „Arcade“: arcade_start, arcade_gear, arcade_back).
 var buttons := {}
 ## Auswahlfelder der Seite „Rundfahrt“ (Schlüssel: laps, direction, time, ghost), der Seite „Training“ (unit) und der
 ## Seite „Arcade“ (tier, cadence_min, cadence_max).
@@ -464,7 +467,10 @@ func _build() -> void:
 	arcade_actions.add_theme_constant_override("separation", 10)
 	_arcade_page.add_child(arcade_actions)
 	_add_button(arcade_actions, "arcade_start", "Losfahren", ride_requested.emit.bind(SaveGame.MODE_ARCADE))
+	_add_button(arcade_actions, "arcade_gear", "Ausrüstung", gear_requested.emit)
 	_add_button(arcade_actions, "arcade_back", "Zurück", show_page.bind(true))
+	for key in ["arcade_start", "arcade_gear", "arcade_back"]:  # drei nebeneinander passen sonst nicht in 960 px
+		buttons[key].custom_minimum_size.x = 200
 	set_arcade_choices(ArcadeTiers.DEFAULT, CadenceRange.new())
 	show_arcade_best(0)
 	var status := PanelContainer.new()

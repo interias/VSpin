@@ -17,6 +17,9 @@ const FAILED := "failed"
 var state := RUNNING
 ## Gefahrene Zeit im Baustein (s, ohne Pausen).
 var elapsed_s := 0.0
+## Ausrüstung (#49): Faktor (≥ 1) auf den Fortschritt, der **mit Kadenz in der Zone** entsteht. Bausteine wenden ihn nur
+## dort an – ohne Kadenz in der Zone entsteht kein Fortschritt, also auch mit Ausrüstung keiner. Setzt Encounters.build.
+var progress_factor := 1.0
 
 
 ## Einen Fahrschritt von `delta_s` Sekunden mit Kadenz `cadence_rpm` werten. Nach dem Ende wirkungslos.

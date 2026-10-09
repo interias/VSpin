@@ -108,6 +108,15 @@
 ## Fahrtenbuch, Fahrerlevel und Erfolge, aber Runden im Arcade schreiben nie Bestzeit, Segmentzeit, Medaille oder Ghost
 ## (ADR-0010).
 ##
+## Beute und Ausrüstung (#49): Jede beendete Herausforderung würfelt im Arcade-Lauf Beute (geschafft sicher, verfehlt nur
+## mit Chance nach dem Fortschritt). Ein Fund zeigt sich als Lichtsäule in der Farbe seiner Seltenheit kurz vor dem
+## Fahrer (LootBeam unter `Track`) und als Popup im HUD, Punkte ebenso („+100“); die Zusammenfassung nennt die Funde, am
+## Fahrtende kommen sie ins Inventar (Inventory, Spielstand). Verwaltet wird nur im Menü („Fahren → Arcade →
+## Ausrüstung“, `scenes/gear_menu.gd`). Die angelegten Teile wirken nur im Arcade-Lauf (`arcade.gear`: breitere Zone,
+## Fortschritt in der Zone, Punkte, Beute-Glück – ohne Kadenz in der Zone nichts) und zeigen sich nur dort am Fahrer:
+## Im Arcade überdeckt jedes angelegte Teil die Garderobe an seinem Platz, sonst gilt die Garderobe (ADR-0010:
+## Rundfahrt und Training sehen und spüren keine Ausrüstung).
+##
 ## Bridge aus dem Spiel (#25, BridgeLauncher, nur Windows-Desktop): Ist beim Start keine Bridge auf der Bus-Adresse
 ## erreichbar, startet das Spiel sie unsichtbar mit der Quelle aus `config.cfg [bridge]`; eine laufende wird nur
 ## mitbenutzt. Beim Schließen (Fenster, „Beenden“) beendet das Spiel nur die eigene, sauber über die Stoppdatei.
@@ -141,6 +150,8 @@ const START_MENU := preload("res://scenes/start_menu.tscn")
 const LOGBOOK := preload("res://scenes/logbook.gd")
 ## Garderobe (Trikot, Radfarbe, Helm mit Vorschau; #36).
 const WARDROBE := preload("res://scenes/wardrobe.gd")
+## Ausrüstung des Arcade-Modus (Inventar der Beute; #49).
+const GEAR_MENU := preload("res://scenes/gear_menu.gd")
 ## Kamera: Abstand hinter dem Fahrer, Höhe und Blickpunkt voraus je Perspektive (CameraViews, „Weit“ und Blickpunkt
 ## aus `config.cfg [camera]`); Glättung (Zeitkonstante).
 const CAMERA_SMOOTHING_S := 0.45
@@ -178,6 +189,8 @@ const CAMERA_PANORAMA_LOOK_HEIGHT_M := 2.0
 const GHOST_OFFSET_M := -1.3
 ## Intervall-Tore (#58): so weit hinter dem Fahrer (m) bleibt ein durchfahrenes Tor noch stehen (hinter der Kamera).
 const GATE_KEEP_BEHIND_M := 20.0
+## Beute (#49): so weit vor dem Fahrer (m) steht die Lichtsäule eines Fundes.
+const LOOT_AHEAD_M := 18.0
 
 const BRIDGE_START_HINT := "Bridge starten: vspin-bridge --source sim"
 const RESISTANCE_NOT_SUPPORTED := "Widerstand: nicht unterstützt"
@@ -196,6 +209,7 @@ var settings_menu: CanvasLayer
 var start_menu: CanvasLayer
 var logbook: CanvasLayer
 var wardrobe: CanvasLayer
+var gear_menu: CanvasLayer
 ## Spielstand; "" = nicht laden/speichern, Fahrten nur im Speicher (Tests, Probe).
 var save_path := SaveGame.DEFAULT_PATH
 var save_game: SaveGame
@@ -223,6 +237,8 @@ var arcade_pool: Array = Encounters.CHALLENGES
 var arcade_start_gate: CourseGate
 var arcade_finish_gate: CourseGate
 var arcade_gate_placement := GatePlacement.new()
+## Lichtsäule des letzten Fundes (#49, Kind von `Track`).
+var loot_beam: LootBeam
 ## Mitfahrer des Ghosts auf der Strecke und sein halbtransparentes Fahrermodell.
 var ghost_rider: PathFollow3D
 var ghost_model: RiderModel
@@ -329,6 +345,12 @@ func _ready() -> void:
 	wardrobe.closed.connect(_on_wardrobe_closed)
 	wardrobe.part_chosen.connect(_on_part_chosen)
 	add_child(wardrobe)
+	gear_menu = GEAR_MENU.new()
+	gear_menu.name = "GearMenu"
+	gear_menu.closed.connect(_on_gear_menu_closed)
+	gear_menu.gear_changed.connect(_on_gear_changed)
+	add_child(gear_menu)
+	start_menu.gear_requested.connect(open_gear_menu)
 	settings_menu.visibility_changed.connect(_on_settings_visibility_changed)
 	_setup_track()
 	_setup_ghost_rider()
@@ -336,6 +358,9 @@ func _ready() -> void:
 	gate_passed = _new_gate("IntervalGatePassed")
 	arcade_start_gate = _new_gate("ArcadeStartGate")
 	arcade_finish_gate = _new_gate("ArcadeFinishGate")
+	loot_beam = LootBeam.new()
+	loot_beam.visible = false
+	track.add_child(loot_beam)
 	_apply_wardrobe()
 	sky = SkyController.new()
 	add_child(sky)
@@ -652,6 +677,11 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 		arcade = ArcadeRun.new(tier, CadenceRange.selection(save_game),
 				ArcadeRun.sections_from_stations(track.ride_stations(), track.length_m()), track.length_m(),
 				start_distance_m, arcade_seed, arcade_pool)
+		arcade.gear = Inventory.modifiers(save_game)  # angelegte Ausrüstung wirkt nur hier (ADR-0010)
+	_apply_wardrobe()
+	loot_beam.visible = false
+	loot_beam.ride_m = NAN
+	hud.clear_popups()
 	_arcade_gate_block = null
 	_arcade_new_best = false
 	arcade_start_gate.ride_m = NAN
@@ -815,9 +845,31 @@ func _on_part_chosen(_item: String) -> void:
 		save_game.save_file(save_path)
 
 
-## Der Fahrer trägt die gewählten Teile der Garderobe (der Ghost-Mitfahrer nicht).
+## Der Fahrer trägt die gewählten Teile der Garderobe (der Ghost-Mitfahrer nicht); im Arcade-Lauf überdeckt die
+## angelegte Ausrüstung sie an ihren Plätzen (#49) – nur dort, Rundfahrt und Training zeigen nur die Garderobe.
 func _apply_wardrobe() -> void:
+	rider_model.reset_look()
 	rider_model.wear(Wardrobe.outfit(Wardrobe.selection(save_game)))
+	if arcade != null:
+		rider_model.wear(Loot.appearance(Inventory.equipped(save_game)))
+
+
+## Ausrüstung (#49) aus der Seite „Arcade“ öffnen (das Menü tritt so lange zurück).
+func open_gear_menu() -> void:
+	start_menu.close()
+	gear_menu.open(save_game)
+
+
+func _on_gear_menu_closed() -> void:
+	start_menu.open()
+	start_menu.show_arcade()
+	start_menu.buttons["arcade_gear"].grab_focus()
+
+
+## Teil angelegt oder verwertet: gleich speichern.
+func _on_gear_changed() -> void:
+	if not save_path.is_empty():
+		save_game.save_file(save_path)
 
 
 func _on_settings_visibility_changed() -> void:
@@ -826,6 +878,7 @@ func _on_settings_visibility_changed() -> void:
 	if not settings_menu.visible:
 		logbook.focus_default.call_deferred()  # Einstellungen über dem Fahrtenbuch geschlossen
 		wardrobe.focus_default.call_deferred()  # … oder über der Garderobe
+		gear_menu.focus_default.call_deferred()  # … oder über der Ausrüstung
 
 
 ## Seite „Rundfahrt“ im Startmenü: Tageszeiten wie im Einstellungsmenü, die gespeicherten Ghosts und die Bestzeit der
@@ -862,6 +915,7 @@ func return_to_menu() -> void:
 func _enter_menu() -> void:
 	logbook.close()
 	wardrobe.close()
+	gear_menu.close()
 	state = STATE_MENU
 	_manual_pause = false
 	hud.visible = false
@@ -871,6 +925,8 @@ func _enter_menu() -> void:
 	_end_panorama()
 	_set_camera_mode(CAMERA_FOLLOW)
 	hud.show_landmark("")
+	hud.clear_popups()
+	loot_beam.visible = false
 	speed_effects.reset()
 	_update_round_trip_menu()
 	_update_arcade_menu()
@@ -885,6 +941,7 @@ func _enter_menu() -> void:
 func _finish_ride() -> void:
 	state = STATE_FINISHED
 	hud.end_celebration()  # „neu!“ steht im Ergebnis; die Einblendung stünde dahinter
+	hud.clear_popups()  # ebenso die Popups (#49)
 	if training != null and training.finished() and not _ride_saved:
 		_achievement_event({"type": Achievements.EVENT_TRAINING,
 				"total_trainings": save_game.finished_trainings() + 1, "score": training.total_score()}, false)
@@ -922,6 +979,8 @@ func _save_ride() -> void:
 	if arcade != null:
 		entry["arcade"] = arcade.to_entry()
 		_arcade_new_best = save_game.record_arcade_points(arcade.tier, arcade.points)
+		for item in arcade.found:  # Beute ins Inventar (#49)
+			Inventory.add(save_game, item)
 	save_game.add_ride(entry)
 	if records_count():
 		_record_round_trip()
@@ -1232,6 +1291,7 @@ func _ride(delta: float) -> void:
 	if arcade != null:
 		for result in arcade.advance(model.distance_m, bus.cadence, used):
 			hud.celebrate(arcade_result_text(result))
+			_show_loot(result)
 	var segments_before := lap_timing.segments.results.size()
 	var laps_done := lap_timing.advance(model.distance_m, used)
 	if laps_done > 0 and records_count() and lap_timing.last_lap_is_new_best():
@@ -1364,9 +1424,29 @@ func _show_arcade() -> void:
 	if next.is_empty():
 		hud.show_arcade("Arcade", "–", "–", points)
 		return
-	var zone := Encounters.zone_for(next["definition"], arcade.tier, arcade.cadence_range)
+	var zone := arcade.zone_of(next)
 	hud.show_arcade("Nächste: %s" % next["definition"]["name"], RideHud.zone_range_text(zone.x, zone.y),
 			"%d m" % maxi(ceili(next["at_m"] - model.distance_m), 0), points)
+
+
+## Feedback einer beendeten Herausforderung (#49): Punkte als Popup, ein Fund als Popup in der Farbe seiner Seltenheit
+## und als Lichtsäule LOOT_AHEAD_M vor dem Fahrer.
+func _show_loot(result: Dictionary) -> void:
+	if result["points"] > 0:
+		hud.popup("+%d" % result["points"])
+	var item: Dictionary = result.get("loot", {})
+	if item.is_empty():
+		return
+	hud.popup(Loot.item_name(item), Loot.color_of(item["rarity"]))
+	loot_beam.set_rarity(item["rarity"])
+	loot_beam.place(track, model.distance_m + LOOT_AHEAD_M)
+
+
+## Lichtsäule (#49): zu sehen, bis sie GATE_KEEP_BEHIND_M hinter dem Fahrer liegt; ohne Arcade und im Menü nie.
+func _update_loot_beam() -> void:
+	var at := loot_beam.ride_m
+	loot_beam.visible = arcade != null and state != STATE_MENU and not is_nan(at) \
+			and at > model.distance_m - GATE_KEEP_BEHIND_M
 
 
 ## Tore der Arcade-Herausforderungen (#46): das Starttor („Start“ und Zielzone auf dem Banner, wie im Training) am Startpunkt der laufenden
@@ -1385,7 +1465,7 @@ func _update_arcade_gates() -> void:
 		arcade_start_gate.visible = false
 	else:
 		if arcade_start_gate.ride_m != start["at_m"]:
-			var zone := Encounters.zone_for(start["definition"], arcade.tier, arcade.cadence_range)
+			var zone := arcade.zone_of(start)
 			arcade_start_gate.configure(CourseGate.KIND_START, "Start  %s" % RideHud.zone_range_text(zone.x, zone.y))
 			arcade_start_gate.place(track, start["at_m"])
 		arcade_start_gate.visible = start["at_m"] > d - GATE_KEEP_BEHIND_M \
@@ -1467,6 +1547,7 @@ func _update_view() -> void:
 	_show_arcade()
 	_update_gates()
 	_update_arcade_gates()
+	_update_loot_beam()
 	var segment := lap_timing.segments.current()
 	hud.show_segment(segment.get("name", ""), format_time(segment["time_s"], true) if not segment.is_empty() else "")
 	if debug_label.visible:

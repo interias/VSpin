@@ -2,6 +2,7 @@
 ## Sekunde in der Zone (Grenzen eingeschlossen, wie Training.on_target) füllt den Fortschritt um 1/`hold_s`; außerhalb
 ## steht er, er sinkt nicht. Voll → geschafft. Läuft vorher das Zeitfenster `window_s` ab → verfehlt (weich: nur diese
 ## Herausforderung verfällt). Schritte über eine Grenze werden anteilig gezählt, damit Ergebnis und Zeit genau sind.
+## Ausrüstung (#49): `progress_factor` vervielfacht nur die Zeit in der Zone – außerhalb bleibt der Fortschritt stehen.
 class_name ZoneHold
 extends ChallengeBlock
 
@@ -10,7 +11,7 @@ var zone_max := 0.0
 ## Benötigte Zeit in der Zone (s) und Zeitfenster dafür (s).
 var hold_s := 1.0
 var window_s := 1.0
-## Zeit in der Zone bisher (s).
+## Angerechnete Zeit in der Zone bisher (s; mit Ausrüstung × progress_factor).
 var in_zone_s := 0.0
 
 
@@ -40,8 +41,8 @@ func zone() -> Vector2:
 func _step(cadence_rpm: float, delta_s: float) -> void:
 	var step := minf(delta_s, remaining_s())
 	if in_zone(cadence_rpm):
-		step = minf(step, hold_s - in_zone_s)  # nur bis zum Erfolg
-		in_zone_s += step
+		step = minf(step, (hold_s - in_zone_s) / progress_factor)  # nur bis zum Erfolg
+		in_zone_s += step * progress_factor
 	elapsed_s += step
 	if in_zone_s >= hold_s - 1e-6:
 		in_zone_s = hold_s

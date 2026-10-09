@@ -9,7 +9,12 @@
 ##   hold_s    so lange muss die Kadenz in der Zone liegen; window_s  Zeitfenster dafür (beides × Dauer-Faktor der Stufe)
 ##
 ## `build` ist die einzige Stelle, an der aus Daten ein Baustein wird; dort wird jede Zielzone auf den persönlichen
-## Kadenzbereich begrenzt (CadenceRange.limit_zone) – nach allem, was Stufe (und später Eigenschaften) an ihr ändern.
+## Kadenzbereich begrenzt (CadenceRange.limit_zone) – nach allem, was Stufe, Ausrüstung (#49) (und später
+## Eigenschaften) an ihr ändern.
+##
+## Ausrüstung (#49): `gear` sind die Modifikatoren der angelegten Beute (Loot.modifiers, {} = keine). Sie verbreitert die
+## Zielzone um `zone_width_rpm` (je zur Hälfte nach unten und oben, danach der Wächter) und setzt den Faktor auf den
+## Fortschritt in der Zone (`progress_pct`, ChallengeBlock.progress_factor). Nur der Arcade-Lauf reicht sie herein.
 class_name Encounters
 extends RefCounted
 
@@ -43,23 +48,30 @@ static func roll(rng: RandomNumberGenerator, count: int, pool: Array = CHALLENGE
 	return result
 
 
-## Baustein der Herausforderung `definition` auf Stufe `tier` im Kadenzbereich `cadence_range` (null bei unbekanntem
-## Baustein).
-static func build(definition: Dictionary, tier: int, cadence_range: CadenceRange) -> ChallengeBlock:
+## Baustein der Herausforderung `definition` auf Stufe `tier` im Kadenzbereich `cadence_range` mit der Ausrüstung
+## `gear` (null bei unbekanntem Baustein).
+static func build(definition: Dictionary, tier: int, cadence_range: CadenceRange,
+		gear: Dictionary = {}) -> ChallengeBlock:
 	var level := ArcadeTiers.get_tier(tier)
+	var block: ChallengeBlock = null
 	match definition.get("block"):
 		ZONE_HOLD:
-			var zone := zone_for(definition, tier, cadence_range)
+			var zone := zone_for(definition, tier, cadence_range, gear)
 			var factor: float = level["duration_factor"]
-			return ZoneHold.new(zone.x, zone.y, float(definition["hold_s"]) * factor,
+			block = ZoneHold.new(zone.x, zone.y, float(definition["hold_s"]) * factor,
 					float(definition["window_s"]) * factor)
-	push_warning("Encounters: unbekannter Baustein %s" % definition.get("block"))
-	return null
+	if block == null:
+		push_warning("Encounters: unbekannter Baustein %s" % definition.get("block"))
+		return null
+	block.progress_factor = 1.0 + maxf(float(gear.get("progress_pct", 0)), 0.0) / 100.0
+	return block
 
 
 ## Zielzone (min, max) in rpm der Herausforderung auf Stufe `tier`: feste Zone oder Lage im Bereich mit der Breite der
-## Stufe (Mitte auf ganze rpm) – immer begrenzt auf `cadence_range` (Wächter, CadenceRange.limit_zone).
-static func zone_for(definition: Dictionary, tier: int, cadence_range: CadenceRange) -> Vector2:
+## Stufe (Mitte auf ganze rpm), mit Ausrüstung `gear` um `zone_width_rpm` breiter – immer begrenzt auf
+## `cadence_range` (Wächter, CadenceRange.limit_zone).
+static func zone_for(definition: Dictionary, tier: int, cadence_range: CadenceRange,
+		gear: Dictionary = {}) -> Vector2:
 	var zone: Vector2
 	if definition.get("zone_rpm") is Array:
 		zone = Vector2(float(definition["zone_rpm"][0]), float(definition["zone_rpm"][1]))
@@ -67,7 +79,8 @@ static func zone_for(definition: Dictionary, tier: int, cadence_range: CadenceRa
 		var center := roundf(cadence_range.at(float(definition.get("zone_at", 0.5))))
 		var half: float = ArcadeTiers.get_tier(tier)["zone_width_rpm"] / 2.0
 		zone = Vector2(center - half, center + half)
-	return cadence_range.limit_zone(zone.x, zone.y)
+	var wider := maxf(float(gear.get("zone_width_rpm", 0)), 0.0) / 2.0
+	return cadence_range.limit_zone(zone.x - wider, zone.y + wider)
 
 
 ## Punkte für das Schaffen der Herausforderung auf Stufe `tier`.

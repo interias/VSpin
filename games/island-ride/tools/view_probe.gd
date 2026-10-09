@@ -7,7 +7,7 @@
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
 ##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4] [--logbook] [--rewards]
 ##         [--training] [--ccw] [--wardrobe=trikot_gelb,radfarbe_blau,helm_schwarz] [--fauna] [--effects-kmh=55] [--intro]
-##         [--panorama=aussichtspunkt,burg] [--view=nah|verfolger|weit] [--arcade]
+##         [--panorama=aussichtspunkt,burg] [--view=nah|verfolger|weit] [--arcade] [--gear]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -57,7 +57,12 @@
 ## nach den Streckenbildern einen Arcade-Lauf (Stufe 1, Kadenzbereich 60–120 rpm, Zone halten in der Mitte) kurz hinter
 ## dem Start: Starttor und nächste Herausforderung (`arcade_gate.png`), Zone halten mitten im Halten (`zone_hold.png`,
 ## Fortschritt und Zieltor), Kadenz zu hoch (`zone_hold_above.png`), geschafft (`zone_hold_success.png`) und die
-## Zusammenfassung nach „Fahrt beenden“ (`arcade_result.png`).
+## Zusammenfassung nach „Fahrt beenden“ (`arcade_result.png`). Beute (#49): direkt nach dem Erfolg die Lichtsäule des
+## Fundes mit den Popups (`loot_beam.png`, die Zusammenfassung nennt den Fund).
+## Ausrüstung (#49): `--gear` legt im Spielstand (nur im Speicher) je Platz ein Beispielteil an (alle Seltenheiten) und
+## legt weitere ins Inventar. Mit `--title` öffnet die Probe „Fahren → Arcade → Ausrüstung“ und speichert `gear.png`
+## statt der Titelbilder; mit `--hud --arcade` trägt der Fahrer die Ausrüstung im Arcade-Lauf, dazu vorher die
+## Nahaufnahmen `close_5_side.png` und `close_5_rear.png`.
 ## Gegenrichtung (#34): `--ccw` fährt gegen den Uhrzeigersinn – `--shots`, `--segments`, `--laps` und `--ghost` dann in
 ## Fahrtposition dieser Richtung, mit `--title` ist die Richtung auf der Seite „Rundfahrt“ gewählt.
 ## Garderobe (#36): `--wardrobe=TEIL,…` gibt dem Spielstand (nur im Speicher) Kilometer bis Level 12 und wählt die Teile
@@ -109,6 +114,8 @@ var _rewards := false
 var _training := false
 ## Arcade-Seite bzw. Arcade-Lauf im HUD (`--arcade`).
 var _arcade := false
+## Beispiel-Ausrüstung angelegt (`--gear`, #49).
+var _gear := false
 ## Garderobe: gewählte Teile (`--wardrobe`; null = ohne).
 var _outfit = null
 ## Tempo der Tempo-Effekte in `--shots` (`--effects-kmh`; NAN = wie die Fahrt) und Kamera-Intro (`--intro`).
@@ -194,6 +201,8 @@ func _initialize() -> void:
 			_training = true
 		elif arg == "--arcade":
 			_arcade = true
+		elif arg == "--gear":
+			_gear = true
 		elif arg.begins_with("--wardrobe"):
 			_outfit = Array(value.split(",", false)) if arg.contains("=") else []
 		elif arg == "--fauna":
@@ -273,8 +282,12 @@ func _initialize() -> void:
 			_ride._update_round_trip_menu()
 	if _outfit != null:
 		_dress()
+	if _gear:
+		_equip_samples()
 	if title:
-		if _outfit != null:
+		if _gear:
+			await _gear_shot(out_dir)
+		elif _outfit != null:
 			await _wardrobe_shot(out_dir)
 		elif _logbook:
 			await _logbook_shots(out_dir)
@@ -449,6 +462,44 @@ func _dress() -> void:
 	_ride._apply_wardrobe()
 
 
+## Ausrüstung (nur im Speicher, #49): je Platz ein angelegtes Beispielteil in allen Seltenheiten, dazu Kandidaten im
+## Inventar und ein paar Splitter.
+func _equip_samples() -> void:
+	var save: SaveGame = _ride.save_game
+	var worn := [
+		{"slot": "rahmen", "rarity": Loot.LEGENDARY, "stats": {"progress_pct": 15, "points_pct": 22, "luck_pct": 18,
+			"zone_width_rpm": 4}},
+		{"slot": "laufraeder", "rarity": Loot.RARE, "stats": {"progress_pct": 11, "points_pct": 16, "luck_pct": 14}},
+		{"slot": "trikot", "rarity": Loot.MAGIC, "stats": {"points_pct": 12, "zone_width_rpm": 2}},
+		{"slot": "helm", "rarity": Loot.LEGENDARY, "stats": {"zone_width_rpm": 5, "progress_pct": 14, "points_pct": 25,
+			"luck_pct": 21}},
+		{"slot": "schuhe", "rarity": Loot.COMMON, "stats": {"zone_width_rpm": 2}},
+		{"slot": "talisman", "rarity": Loot.RARE, "stats": {"luck_pct": 19, "progress_pct": 9, "points_pct": 14}},
+	]
+	for item in worn:
+		item["effect"] = ""
+		Inventory.equip(save, Inventory.add(save, item)["id"])
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 49
+	for i in range(9):
+		Inventory.add(save, Loot.roll(rng, 2.0))
+	save.arcade()["shards"] = 27
+
+
+## Ausrüstung aus der Seite „Arcade“ des Startmenüs; gewählt ist ein Helm (Vergleich mit dem angelegten).
+func _gear_shot(out_dir: String) -> void:
+	await _frames(20)
+	_ride.start_menu.buttons["drive"].pressed.emit()
+	_ride.start_menu.buttons["arcade"].pressed.emit()
+	_ride.start_menu.buttons["arcade_gear"].pressed.emit()
+	var helms := Inventory.items(_ride.save_game).filter(func(item): return item["slot"] == "helm" \
+			and not Inventory.is_equipped(_ride.save_game, int(item["id"])))
+	if not helms.is_empty():
+		_ride.gear_menu.select(int(helms[0]["id"]))
+	await _frames(10)
+	_save_image(out_dir.path_join("gear.png"))
+
+
 ## Garderobe aus dem Startmenü mit Vorschau.
 func _wardrobe_shot(out_dir: String) -> void:
 	await _frames(20)
@@ -536,6 +587,13 @@ func _arcade_shots(out_dir: String) -> void:
 	_ride.stats = RideStats.new()
 	_ride.arcade = ArcadeRun.new(1, CadenceRange.new(), ArcadeRun.sections_from_stations(_ride.track.ride_stations(),
 			length), length, 0.0, 3, [Encounters.find("zone_mitte")])
+	_ride.arcade.gear = Inventory.modifiers(_ride.save_game)
+	var dummy: RiderModel = _ride.rider_model
+	_ride.rider_model = _model  # das echte Modell trägt die Ausrüstung (wie start_ride im Arcade)
+	_ride._apply_wardrobe()
+	_ride.rider_model = dummy
+	if _gear:
+		await _close_ups(out_dir, 5.0)
 	_ride.hud.end_celebration()
 	_ride._update_view()
 	_ride._update_camera(0.0, true)
@@ -552,6 +610,9 @@ func _arcade_shots(out_dir: String) -> void:
 	_ride.bus.cadence = _cadence
 	while not _ride.arcade.active.is_empty():
 		await _ride_arcade(0.5, false)
+	_ride._update_camera(0.0, true)
+	await _frames(6)
+	_save_image(out_dir.path_join("loot_beam.png"))
 	_ride._update_view()
 	await _frames(8)
 	_save_image(out_dir.path_join("zone_hold_success.png"))
@@ -572,6 +633,7 @@ func _ride_arcade(seconds: float, settle: bool = true, dt: float = 1.0 / 30.0) -
 		_ride.lap_timing.advance(_ride.model.distance_m, dt)
 		for result in _ride.arcade.advance(_ride.model.distance_m, _ride.bus.cadence, dt):
 			_ride.hud.celebrate(_ride.arcade_result_text(result))
+			_ride._show_loot(result)
 		_ride._update_view()
 		_ride._update_camera(dt)
 	if settle:
