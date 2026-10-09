@@ -244,7 +244,11 @@ func test_the_dice_draw_the_new_types_too() -> void:
 	for seed_value in range(1, 30):
 		var run := ArcadeRun.new(1, CadenceRange.new(), [], 1000.0, 0.0, seed_value)
 		for entry in run.planned:
-			seen[entry["definition"]["block"]] = true
+			var definition: Dictionary = entry["definition"]
+			# Eine Elite-Gruppe (#52) ist eine gewürfelte Herausforderung: es zählt der Typ ihres Anführers.
+			if definition["block"] == EliteGroups.ID:
+				definition = definition["phases"][0]
+			seen[definition["block"]] = true
 	# Typen ohne gewürfelte Einträge (Bosse #51: `CHALLENGES` leer, feste Orte) gehören nicht in den Pool.
 	var rolled := EncounterRegistry.TYPES.values().filter(func(type): return not type.CHALLENGES.is_empty())
 	assert_eq(seen.keys().size(), rolled.size(), "alle gewürfelten Typen im Pool (Zone halten, Durchbruch, Jagd, …)")

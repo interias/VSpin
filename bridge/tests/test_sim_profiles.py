@@ -173,6 +173,7 @@ def test_example_profile_starts(bridge_process, bus_client, name):
 # Messprofile `antritt`/`innehalten` (#45) wertet tests/cadence_latency.py aus; im Spiel spielt sie
 # test_abilities_ride.gd (#50) zusammen mit `gleichmass` und `rhythmus` nach: Muster erkannt, Fähigkeit ausgelöst.
 # Die Boss-Szenarien `boss_*` (#51) spielt test_bosses_ride.gd: besiegt, entkommen, Pause beim Abbruch im Bosskampf.
+# Die Elite-Szenarien `elite_*` (#52) spielt test_elite_groups_ride.gd: Champions abgehängt, Seltene mit Gefolge verfehlt.
 ARCADE_DIR = PROFILES_DIR / "arcade"
 ARCADE_PROFILES = sorted(p.name for p in ARCADE_DIR.glob("*.toml"))
 
@@ -199,6 +200,8 @@ def test_arcade_profiles_exist():
         "boss_drac.toml",
         "boss_dimonis_besiegt.toml",
         "boss_dimonis_entkommen.toml",
+        "elite_champion.toml",
+        "elite_selten.toml",
     } <= set(ARCADE_PROFILES)
 
 

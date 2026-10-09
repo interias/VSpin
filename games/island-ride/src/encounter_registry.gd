@@ -28,6 +28,7 @@ const TYPES := {
 	"rhythm_gates": preload("res://src/challenges/rhythm_gates_challenges.gd"),
 	"collect": preload("res://src/challenges/collect_challenges.gd"),
 	"boss": preload("res://src/challenges/boss_challenges.gd"),
+	"elite": preload("res://src/challenges/elite_challenges.gd"),
 }
 
 

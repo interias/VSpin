@@ -1,0 +1,20 @@
+# Arcade-Szenario „Elite: Champions“ (#52): Stufe 1, Kadenzbereich 60–120 rpm. Eine Elite-Gruppe Champions (blau) aus
+# der Jagd „Verfolger“ mit den Eigenschaften Windschnell und Gegenwind: Schwelle 98 statt 93 rpm, 15 s statt 12 s über
+# der Schwelle zum Abhängen, Vorsprung 0,4 – und unter der Schwelle holt er in 9,6 s statt 12 s auf: 6 s 90 rpm, dann
+# schon vor dem Startpunkt (50 m) 16 s mit 104 rpm über der Schwelle, 10 s 90 rpm. Erwartet im Spiel: Standarte und
+# Schild in Blau mit „Windschnell · Gegenwind“, abgehängt, +210 Punkte (140 × 1,5) und Beute mit höherer Qualität, die
+# Fahrt geht weiter. Endet danach (Quelle beendet → disconnected).
+# Im Spiel nachgespielt von games/island-ride/tests/test_elite_groups_ride.gd (der Test erzwingt die Gruppe).
+name = "Arcade: Elite Champions"
+
+[[steps]]
+duration_s = 6
+cadence = 90
+
+[[steps]]
+duration_s = 16
+cadence = 104
+
+[[steps]]
+duration_s = 10
+cadence = 90
