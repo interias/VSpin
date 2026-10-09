@@ -100,7 +100,9 @@ func test_cadence_range_default_and_validation() -> void:
 
 
 func test_three_tiers_narrow_zones_and_raise_duration_and_points() -> void:
-	assert_eq(ArcadeTiers.LIST.map(func(t): return t["tier"]), [1, 2, 3])
+	# Die drei Startstufen (#46); #54 hängt weitere freischaltbare an (test_arcade_tiers.gd).
+	assert_eq(ArcadeTiers.LIST.slice(0, 3).map(func(t): return t["tier"]), [1, 2, 3])
+	assert_eq(ArcadeTiers.START_UNLOCKED, 3)
 	var definition := Encounters.find("zone_mitte")
 	var personal := CadenceRange.new()
 	var widths := []

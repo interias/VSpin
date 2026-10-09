@@ -352,7 +352,11 @@ func test_gear_in_the_run_points_zone_and_counterproof() -> void:
 	_ride(run, 102.0, 6.4 + 15.2)  # ohne Ausrüstung knapp daneben (80–100), mit ihr in der Zone (77–103)
 	assert_true(run.results[0]["succeeded"], "nachsichtiger: breitere Zone")
 	assert_eq(run.results[0]["points"], 120, "lohnender: +20 % Punkte")
-	assert_eq(run.zone_of(run.next_challenge()), Vector2(77.0, 103.0), "Anzeige zeigt dieselbe Zone wie der Baustein")
+	# Die nächste liegt in Runde 2 des Laufs: Rundensteigerung (#54) 1 rpm schmaler, 90 ± (19 + 6) / 2.
+	var next := run.next_challenge()
+	assert_eq(run.lap_index_of(next), 1)
+	assert_eq(run.zone_of(next), Vector2(77.5, 102.5), "Anzeige zeigt dieselbe Zone wie der Baustein")
+	assert_eq(run.zone_of(next), Encounters.build(next["definition"], 1, run.cadence_range, gear, 1).zone())
 	# Gegenprobe: außerhalb der (breiteren) Zone nichts – keine Punkte, kein Fortschritt, keine Beute; wie ohne.
 	var outside := _run(2, gear)
 	var plain := _run(2)

@@ -9,9 +9,10 @@
 ##       const ID := "<name>"                       # der Wert von `block` in den Herausforderungen
 ##       const CHALLENGES := [ {"id", "block": ID, "name", "points", …Parameter}, … ]
 ##       static func build(definition: Dictionary, level: Dictionary, zone: Vector2) -> ChallengeBlock
-##     `level` = ArcadeTiers.get_tier(tier); `zone` = `Encounters.zone_for(...)`, also schon durch den Wächter
-##     (CadenceRange.limit_zone) gelaufen und mit Ausrüstung. Braucht der Typ eine andere Zielgeometrie, entsteht sie in
-##     `Encounters.zone_for` – vor `limit_zone`. `progress_factor` setzt `Encounters.build` danach für alle Typen.
+##     `level` = ArcadeTiers.level(tier, lap_index, boss) (Stufe mit Rundensteigerung, #54); `zone` =
+##     `Encounters.zone_for(...)`, also schon durch den Wächter (CadenceRange.limit_zone) gelaufen und mit Ausrüstung.
+##     Braucht der Typ eine andere Zielgeometrie, entsteht sie in `Encounters.zone_for` – vor `limit_zone`.
+##     `progress_factor` setzt `Encounters.build` danach für alle Typen.
 ##  3. Diese Liste: `"<name>": preload("res://src/challenges/<name>_challenges.gd"),` (Schlüssel = `ID` des Typs).
 ## Sollen Einträge des Typs **nicht** gewürfelt werden (feste Gegner, Bosse #51): `CHALLENGES` des Typs leer lassen und die
 ## Einträge in einer eigenen Konstante führen – `Encounters.build` baut jede Definition nach ihrem `block`, ohne Pool.

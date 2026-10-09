@@ -810,10 +810,15 @@ func _on_arcade_changed() -> void:
 	start_menu.show_arcade_best(save_game.best_arcade_points(start_menu.arcade_tier()))
 
 
-## Seite „Arcade“: Stufe und Kadenzbereich wie im Spielstand, dazu die beste Punktzahl der Stufe.
+## Seite „Arcade“: freigeschaltete Stufen (#54), Stufe und Kadenzbereich wie im Spielstand, dazu die beste Punktzahl der
+## Stufe, Arcade-Level und eigene Stärke aus Ausrüstung und Talenten (#54).
 func _update_arcade_menu() -> void:
 	var tier := ArcadeTiers.selection(save_game)
+	var unlocked := ArcadeTiers.unlocked(save_game)
+	start_menu.set_arcade_unlocked(unlocked, ArcadeTiers.defeated(save_game, unlocked).size(),
+			ArcadeTiers.bosses().size())
 	start_menu.set_arcade_choices(tier, CadenceRange.selection(save_game))
+	start_menu.show_arcade_strength(ArcadeTiers.strength(save_game))
 	start_menu.show_arcade_best(save_game.best_arcade_points(tier))
 	start_menu.show_arcade_level(ArcadeLevel.level(save_game), Talents.available(save_game))
 
@@ -883,6 +888,7 @@ func _on_talents_changed() -> void:
 func _on_gear_menu_closed() -> void:
 	start_menu.open()
 	start_menu.show_arcade()
+	_update_arcade_menu()  # neue Ausrüstung: neue Stärke (#54)
 	start_menu.buttons["arcade_gear"].grab_focus()
 
 

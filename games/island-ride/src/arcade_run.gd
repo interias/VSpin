@@ -29,6 +29,11 @@
 ## (`gear`, Loot.modifiers) wirkt nur hier: breitere Zielzone und mehr Fortschritt in der Zone (über Encounters.build),
 ## mehr Punkte und Beute-Glück. Ein eigener Würfel für die Beute lässt die Planung der Herausforderungen unberührt.
 ##
+## Rundensteigerung (#54): Jede weitere Runde im selben Lauf wird etwas härter und lohnender – die Runde im Lauf
+## (`lap_index`, 0 = erste) geht beim Bau des Bausteins, bei Zielzone, Punkten und Beute-Qualität mit (ArcadeTiers.level,
+## die Daten stehen dort). Gewürfelt wird unverändert: Auswahl und Lage der Herausforderungen bleiben bei gleichem Seed
+## gleich, nur ihre Parameter ändern sich. Die Stufe hebt die Grundqualität der Beute (`loot_quality`, ab Konstruktor).
+##
 ## Positionen sind Fahrtpositionen wie `RideModel.distance_m` (steigend über die Runden).
 class_name ArcadeRun
 extends RefCounted
@@ -60,7 +65,8 @@ var results: Array = []
 var points := 0
 ## Modifikatoren der angelegten Ausrüstung (Loot.modifiers; {} = keine) – nur im Arcade-Lauf (ADR-0010).
 var gear: Dictionary = {}
-## Grundqualität der Beute (1 = Grundverteilung; die Stufe #54 hebt sie, Bosse und Elite-Gruppen über ihre Definition).
+## Grundqualität der Beute (1 = Grundverteilung; die Stufe #54 setzt sie im Konstruktor, Hooks dürfen sie weiter heben;
+## Bosse und Elite-Gruppen über ihre Definition, spätere Runden über die Rundensteigerung).
 var loot_quality := 1.0
 ## In diesem Lauf gefundene Teile (Loot.roll, noch ohne Inventar-`id`), in Fundreihenfolge.
 var found: Array = []
@@ -74,6 +80,8 @@ var _loot_rng := RandomNumberGenerator.new()
 var _elite_rng := RandomNumberGenerator.new()
 ## Runden bis ausschließlich dieser sind gewürfelt.
 var _planned_laps := 0
+## Runde (des Rundkurses) beim Start des Laufs: die erste Runde im Lauf (`lap_index` 0).
+var _first_lap := 0
 
 
 ## `seed_value` < 0 würfelt zufällig, sonst reproduzierbar. `fixed_list`: feste Begegnungen (null = die `FIXED` aller
@@ -83,6 +91,7 @@ func _init(tier_number: int, range_: CadenceRange, lap_sections: Array, lap_leng
 		seed_value: int = -1, challenges: Array = Encounters.CHALLENGES, fixed_list: Variant = null,
 		elite_chance_value: Variant = null) -> void:
 	tier = ArcadeTiers.valid(tier_number)
+	loot_quality = float(ArcadeTiers.get_tier(tier)["loot_quality"])
 	cadence_range = range_
 	sections = lap_sections if not lap_sections.is_empty() else [{"name": "", "start_m": 0.0, "end_m": lap_length}]
 	lap_length_m = lap_length
@@ -102,6 +111,7 @@ func _init(tier_number: int, range_: CadenceRange, lap_sections: Array, lap_leng
 		_loot_rng.randomize()
 		_elite_rng.randomize()
 	_planned_laps = floori(start / lap_length)
+	_first_lap = _planned_laps
 	_plan_until(start)
 
 
@@ -138,7 +148,7 @@ func advance(ride_m: float, cadence_rpm: float, delta_s: float) -> Array:
 		planned.pop_front()  # Abschnitt verlassen, bevor sie beginnen konnte
 	if active.is_empty() and not planned.is_empty() and planned[0]["at_m"] <= ride_m:
 		active = planned.pop_front()
-		active["block"] = Encounters.build(active["definition"], tier, cadence_range, gear)
+		active["block"] = Encounters.build(active["definition"], tier, cadence_range, gear, lap_index_of(active))
 		if active["block"] == null:
 			active = {}
 	return ended
@@ -147,7 +157,24 @@ func advance(ride_m: float, cadence_rpm: float, delta_s: float) -> Array:
 ## Zielzone der geplanten oder laufenden Herausforderung `entry` (wie in `planned`) mit der Ausrüstung dieses Laufs –
 ## dieselbe, die ihr Baustein bekommt (Anzeige, Starttor).
 func zone_of(entry: Dictionary) -> Vector2:
-	return Encounters.zone_for(entry["definition"], tier, cadence_range, gear)
+	return Encounters.zone_for(entry["definition"], tier, cadence_range, gear, 0.0, lap_index_of(entry))
+
+
+## Runde im Lauf (0 = erste) der geplanten oder laufenden Herausforderung `entry` – Grundlage der Rundensteigerung.
+func lap_index_of(entry: Dictionary) -> int:
+	return maxi(int(entry["lap"]) - _first_lap, 0)
+
+
+## Grundqualität der Beute der Herausforderung `entry` (vor dem Beute-Glück der Ausrüstung): die des Laufs (Stufe), × die
+## ihrer Definition (Boss, Elite-Gruppe, #51/#52; sonst 1) × die Rundensteigerung ihrer Runde (#54).
+func loot_quality_of(entry: Dictionary) -> float:
+	var definition: float = maxf(float(entry["definition"].get("loot_quality", 1.0)), 1.0)
+	return loot_quality * definition * float(ArcadeTiers.round_bonus(lap_index_of(entry))["loot_factor"])
+
+
+## Runde im Lauf (0 = erste) an der Fahrtposition `ride_m`.
+func lap_index_at(ride_m: float) -> int:
+	return maxi(floori(ride_m / lap_length_m) - _first_lap, 0)
 
 
 ## Nächste geplante Herausforderung ({} = keine).
@@ -203,14 +230,12 @@ func _finish(entry: Dictionary) -> Dictionary:
 	var gained := 0
 	if won:
 		var bonus := 1.0 + float(gear.get("points_pct", 0)) / 100.0  # Ausrüstung: mehr Punkte
-		gained = roundi(Encounters.points_for(entry["definition"], tier) * bonus)
+		gained = roundi(Encounters.points_for(entry["definition"], tier, lap_index_of(entry)) * bonus)
 	points += gained
 	var loot := {}
 	var chance := Loot.drop_chance(won, block.loot_progress())
 	if chance > 0.0 and _loot_rng.randf() <= chance:
-		# Boss- und Elite-Beute (#51, #52): die Definition hebt die Grundqualität (`loot_quality`, Faktor; sonst 1).
-		var quality := loot_quality * maxf(float(entry["definition"].get("loot_quality", 1.0)), 1.0)
-		loot = Loot.roll(_loot_rng, Loot.quality_for(gear, quality))
+		loot = Loot.roll(_loot_rng, Loot.quality_for(gear, loot_quality_of(entry)))
 		found.append(loot)
 	var result := {"id": entry["definition"]["id"], "name": entry["definition"]["name"], "section": entry["section"],
 			"lap": entry["lap"], "succeeded": won, "points": gained, "progress": block.progress(), "loot": loot,

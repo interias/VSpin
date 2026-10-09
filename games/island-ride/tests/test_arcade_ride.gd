@@ -108,9 +108,12 @@ func test_arcade_in_menu_with_three_tiers() -> void:
 	assert_eq(game.get_viewport().gui_get_focus_owner(), menu.buttons["arcade_start"], "Fokus auf „Losfahren“")
 	var tiers: OptionButton = menu.options["tier"]
 	var names := []
+	var open := []
 	for i in range(tiers.item_count):
 		names.append(tiers.get_item_text(i))
-	assert_eq(names, ["Stufe 1", "Stufe 2", "Stufe 3"], "drei Stufen")
+		open.append(not tiers.is_item_disabled(i))
+	assert_eq(names.slice(0, 3), ["Stufe 1", "Stufe 2", "Stufe 3"], "drei Stufen von Anfang an")
+	assert_eq(open, ArcadeTiers.LIST.map(func(t): return t["tier"] <= 3), "weitere gesperrt, bis sie freigeschaltet sind (#54)")
 	assert_eq(menu.arcade_tier(), 1, "Standard Stufe 1")
 	assert_eq(menu.cadence_range().to_dict(), {"min": 60.0, "max": 120.0}, "Standard-Kadenzbereich 60–120 rpm")
 	var info: Label = menu.find_child("ArcadeInfo", true, false)

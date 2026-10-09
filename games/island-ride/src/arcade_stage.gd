@@ -60,6 +60,7 @@ const PROPS := {
 ## Erweiterungen (f): Skripte mit `attach(stage)`, eine Zeile je Erweiterung, in der Reihenfolge der Anmeldung.
 const EXTENSIONS := [
 	preload("res://src/ability_extension.gd"),
+	preload("res://src/tier_arcade.gd"),
 ]
 ## Beute (#49): so weit vor dem Fahrer (m) steht die Lichtsäule eines Fundes.
 const LOOT_AHEAD_M := 18.0
