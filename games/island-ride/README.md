@@ -461,8 +461,8 @@ Schlicht, halbtransparente Panels, Standardschrift der Engine:
   Restdistanz der **Abstand** zu ihm („Ghost +1.4 s“, siehe Ghost). Im Training darüber die **Trainingszeile**:
   Phase, Zielkadenz, Restzeit der Phase und die nächste Phase, darunter der **Zonenbalken** (#58); die **Ansage** zum
   Widerstandsknopf steht groß über dem unteren Panel (siehe Training). Im Arcade an derselben Stelle die
-  **Arcade-Zeile** (Herausforderung, Zielzone, Restzeit bzw. Meter bis zum Start, Punkte) und während Zone halten der
-  Zonenbalken mit dem **Fortschritt** (siehe Arcade).
+  **Arcade-Zeile** (Herausforderung, Ziel, Restzeit bzw. Meter bis zum Start, Punkte) und während einer Herausforderung
+  der Zonenbalken mit dem **Fortschritt**, beim Durchbruch dem **Balken**, bei der Jagd dem **Abstand** (siehe Arcade).
 - Über dem unteren Panel dezent der `set_grade`-Hinweis, mittig zwischen oben und unten Pause-/Verbindungs-/Ziel-Meldungen.
 
 Layout nur über Anker und Container: passt im schmalen Halbbild-Fenster (960 × 1040) wie in 1920 × 1080 und
@@ -714,6 +714,51 @@ eine Einblendung („Zone halten verfehlt – weiter geht's“), die Fahrt geht 
 (`Encounters.CHALLENGES`): Zone halten in der Mitte (15 s in 30 s, 100 Punkte), im unteren Drittel (20 s in 35 s, 120)
 und zügig (12 s in 25 s, 120); die Lage der Zone ist relativ zum eigenen Kadenzbereich, ihre Breite gibt die Stufe vor.
 
+**Durchbruch und Jagd (#47):** Zwei weitere Bausteine, beide mit einer **Schwelle** statt einer Zone: es zählt jede
+Sekunde mit Kadenz ab der Schwelle (sie selbst eingeschlossen); mehr als der Bereich zählt weiter, schneller wird es
+dadurch nicht. Die Schwelle liegt relativ im eigenen Kadenzbereich (`threshold_at`, bei 60–120 rpm z. B. 0,8 → 108 rpm);
+die Zielzone der Anzeige reicht von der Schwelle bis zum oberen Ende des Bereichs. Im HUD steht „Ziel ab 108 rpm“, das
+Starttor trägt „Start  ab 108 rpm“, der Zonenbalken zeigt [Schwelle, oberes Ende].
+
+- **Durchbruch** (nach Lanebreaks „Sprint“, kurze harte Anstrengung): Ein **Balken** füllt sich in `fill_s` Sekunden über
+  der Schwelle, darunter sinkt er langsam (mit halber Füllrate, `decay` 0,5, nie unter null) – ein Nachlassen kostet,
+  ein Einbruch nicht alles. Voll → **geschafft** („Durchbruch geschafft! +140 Punkte“); läuft vorher das Zeitfenster
+  ab → **verfehlt** – weich: keine Punkte, „Durchbruch verfehlt – weiter geht's“, die Fahrt geht weiter. Zwei
+  Einträge: *Zugbrücke* (Schwelle bei 80 % des Bereichs = 108 rpm, 6 s in 18 s, 140 Punkte) und *Spurt* (90 % = 114 rpm,
+  4 s in 14 s, 160 Punkte).
+- **Jagd** (nach Lanebreaks „Verfolgung“): Ein Verfolger ist hinter dir. Der **Abstand** (0 = auf den Fersen, 1 =
+  abgehängt) beginnt mit einem Vorsprung (`start_gap`), wächst über der Schwelle (in `escape_s` Sekunden von 0 auf 1)
+  und schrumpft darunter (in `catch_s` Sekunden von 1 auf 0). Abstand 1 → **abgehängt** (geschafft, „Jagd geschafft!
+  +140 Punkte“); Abstand 0 (eingeholt) oder Zeitfenster vorbei → **verfehlt**, weich: der Verfolger zieht ab, die Fahrt
+  geht weiter. Zwei Einträge: *Verfolger* (Schwelle 55 % = 93 rpm, 12 s abhängen, 12 s bis zum Einholen, Fenster 30 s,
+  Vorsprung 0,4, 140 Punkte) und *wild* (65 % = 99 rpm, 10 s / 8 s, Fenster 28 s, Vorsprung 0,35, 170 Punkte).
+
+**Stufe:** Höhere Stufen heben die Schwelle um die halbe Differenz zur Zonenbreite von Stufe 1 (Stufe 2 +3 rpm, Stufe 3
++5 rpm; höchstens bis zum oberen Ende des Bereichs – *Spurt* auf Stufe 3: 119 rpm, *Zugbrücke* 108 / 111 / 113 rpm). Die
+Dauer (`fill_s`, `escape_s`, Zeitfenster) wächst wie bei Zone halten × 1 / 1,25 / 1,5, die Punkte × 1 / 2 / 3; die Zeit
+bis zum Einholen (`catch_s`) bleibt.
+
+**Wächter:** Auch die Schwelle läuft durch `Encounters.build` (`Encounters.zone_for` → `CadenceRange.limit_zone`): sie
+liegt nie über dem oberen Ende und nie unter dem unteren Ende des Bereichs, auch nicht durch Stufe oder Ausrüstung. Die
+Zielzone [Schwelle, oberes Ende] ist nie breiter als der Bereich.
+
+**Ausrüstung ersetzt nie das Treten:** Fortschritt (`progress_pct`) beschleunigt das Füllen des Balkens und das Wachsen des
+Abstands nur mit Kadenz über der Schwelle; darunter und ohne Kadenz ändert sich nichts, auch das Zeitfenster bleibt. Zonenbreite
+(`zone_width_rpm`) senkt die Schwelle um die halbe Breite (nie unter das Minimum des Bereichs).
+
+**Beute:** wie bei Zone halten – geschafft sicher, verfehlt mit 0,5 × Fortschritt. Beim Durchbruch zählt der Balken,
+bei der Jagd nur der **erarbeitete** Abstand (größter erreichter Abstand über dem Vorsprung, auf 0–1 umgerechnet;
+`ChallengeBlock.loot_progress()`), nicht der geschenkte Vorsprung: wer nie über der Schwelle tritt, bekommt nie etwas.
+
+**Zugbrücke** (`src/drawbridge.gd`): Beim Durchbruch steht statt des Zieltors zwischen zwei Steintürmen eine hochgezogene
+Holzklappe quer über der Straße, dort wo das Zeitfenster endet (GatePlacement wie beim Zieltor). Sie senkt sich mit dem
+Balken, bis sie auf der Straße liegt; nach dem Erfolg öffnet sie sich zügig ganz, nach dem Scheitern trotzdem – nur langsam
+(ohne Punkte und Beute). Wie ein durchfahrenes Tor bleibt sie kurz stehen. **Verfolger** (`src/pursuer.gd`): Beim Jagen
+läuft ein dunkelroter Hund mit Hörnern und glühenden Augen 1,9 m links hinter dem Fahrer, bei Abstand 0 in 4 m, bei
+Abstand 1 in 45 m (außer Sicht); nach der Jagd fällt er zurück und verschwindet. Beides ist reine Anzeige aus Grundkörpern
+(ADR-0010); die Hauptszene stellt sie in `_update_arcade_props`. Beide Herausforderungen kommen wie Zone halten in die Würfel
+der Arcade-Läufe (`Encounters.CHALLENGES`, jetzt sieben Einträge).
+
 **Kadenzbereich** (Standard 60–120 rpm, auf der Seite „Arcade“ einstellbar): keine Zielzone liegt außerhalb. Ragt eine
 Zone hinaus, rückt sie mit gleicher Breite hinein; ist sie breiter als der Bereich, wird sie der ganze Bereich. Das
 geschieht an einer Stelle (`Encounters.build` → `CadenceRange.limit_zone`), durch die jede Zielzone muss – auch die von
@@ -728,7 +773,8 @@ Punkte (mit „neue Bestpunktzahl!“), Herausforderungen geschafft/verfehlt und
 
 **Getrennte Welten (ADR-0010):** Arcade-Kilometer und -Runden zählen für Fahrtenbuch („Arcade“), Fahrerlevel und Erfolge;
 Runden im Arcade schreiben nie Bestzeit, Segmentzeit, Medaille oder Ghost (`records_count()` der Hauptszene). Logik in
-`src/challenge_block.gd`, `src/zone_hold.gd`, `src/encounters.gd`, `src/arcade_tiers.gd`, `src/cadence_range.gd` und
+`src/challenge_block.gd`, `src/zone_hold.gd`, `src/breakthrough.gd`, `src/chase.gd`, `src/encounters.gd`,
+`src/arcade_tiers.gd`, `src/cadence_range.gd` und
 `src/arcade_run.gd` (alles ohne Szene und Bus).
 
 **Simulator-Szenarien:** `bridge/profiles/arcade/` – *perfekt in der Zone* (`zone_perfekt.toml`, 90 rpm: geschafft),
@@ -737,14 +783,30 @@ stale und 30 s disconnected – Pause, danach geschafft). Von Hand: `vspin-bridg
 profiles/arcade/zone_perfekt.toml`, im Spiel Arcade auf Stufe 1 mit 60–120 rpm. `tests/test_arcade_ride.gd` spielt
 dieselben Dateien über den Fake-Bus durchs Spiel.
 
+Zu Durchbruch und Jagd (#47) vier weitere Szenarien (Stufe 1, 60–120 rpm; je 12 s 90 rpm bis zum Startpunkt, danach das
+Szenario, am Ende 10 s 90 rpm): *Durchbruch geschafft* (`durchbruch_geschafft.toml`, 8 s mit 114 rpm über der Schwelle
+108: Brücke offen, +140 Punkte), *Durchbruch zu schwach* (`durchbruch_zu_schwach.toml`, 22 s mit 104 rpm: Balken bleibt
+leer, weich verfehlt, die Brücke öffnet sich trotzdem langsam, keine Beute), *Jagd entkommen* (`jagd_entkommen.toml`, 14 s
+mit 100 rpm über 93: abgehängt, +140 Punkte und Beute) und *Jagd eingeholt* (`jagd_eingeholt.toml`, 14 s mit 80 rpm:
+eingeholt, keine Punkte, keine Beute). `tests/test_arcade_ride.gd` spielt sie mit der jeweils erzwungenen Herausforderung
+(`_play_profile(name, challenge)`) durchs Spiel; von Hand würfelt der Lauf die Herausforderung selbst. Tests der reinen
+Logik: `tests/test_arcade_blocks.gd` (Erfolg, Scheitern, Pause, Wächter mit Gegenprobe, Ausrüstung nur über der Schwelle,
+Stufen, Punkte und Beute im Lauf).
+
 Sichtprüfung: `view_probe.gd -- --title --arcade` speichert `title_arcade.png`, `--hud --arcade` Starttor mit nächster
 Herausforderung (`arcade_gate.png`), Zone halten (`zone_hold.png`, Kadenz zu hoch `zone_hold_above.png`), Erfolg
 (`zone_hold_success.png`) und die Zusammenfassung (`arcade_result.png`).
 
+Durchbruch und Jagd (#47): `view_probe.gd -- --hud --arcade --props` speichert statt der Zone-halten-Bilder die Zugbrücke
+zu, halb und offen (`bridge_closed.png`, `bridge_half.png`, `bridge_open.png`, dazu `bridge_close_*.png` aus der Nähe) und
+den Verfolger der Jagd (`pursuer_close.png` von hinten, `pursuer_front.png` und `pursuer_side.png` aus der Nähe,
+`pursuer_gone.png` nach dem Abhängen). Balken und Abstand setzt die Probe direkt.
+
 ### Beute und Ausrüstung (#49)
 
 Jede beendete Herausforderung im Arcade würfelt **Beute**: nach **geschafft** sicher, nach **verfehlt** nur mit der
-Chance 0,5 × erreichter Fortschritt (knapp verfehlt gibt manchmal etwas, ohne Kadenz in der Zone – Fortschritt 0 – nie).
+Chance 0,5 × erreichter Fortschritt (knapp verfehlt gibt manchmal etwas, ohne Kadenz in der Zone bzw. über der Schwelle –
+Fortschritt 0 – nie).
 Ein Fund zeigt sich sofort: 18 m vor dem Fahrer steht eine **Lichtsäule** (16 m hoch, Bodenring, darüber schwebend und
 drehend das Fundstück als Raute) in der **Farbe seiner Seltenheit**, bis sie 20 m hinter dem Fahrer liegt; über der
 Bildmitte steigen **Zahlen-Popups** auf („+100“ für die Punkte in Gold, der Name des Fundes in Seltenheitsfarbe,
@@ -769,7 +831,7 @@ nach Seltenheit weitere, verschiedene Werte.
 | Punkte | 5–10 % | 100 % | mehr Punkte für eine geschaffte Herausforderung – lohnender |
 | Beute-Glück | 5–10 % | 100 % | seltenere Funde: Gewicht der Seltenheit mit Rang r (0 = gewöhnlich) × (1 + Glück)^r |
 
-**Ausrüstung ersetzt nie das Treten:** ohne Kadenz in der Zone passiert nichts – kein Fortschritt, keine Punkte, keine
+**Ausrüstung ersetzt nie das Treten:** ohne Kadenz in der Zone (bei Durchbruch und Jagd: über der Schwelle) passiert nichts – kein Fortschritt, keine Punkte, keine
 Beute, mit Ausrüstung genauso wie ohne. Auch die verbreiterte Zone läuft durch den Wächter des Kadenzbereichs
 (`Encounters.zone_for` → `CadenceRange.limit_zone`), liegt also nie außerhalb. Legendäre Teile haben ein Feld für einen
 Spezialeffekt (`effect`, kommt mit #53; heute leer und ohne Wirkung).
@@ -988,15 +1050,19 @@ src/training.gd         Training: Einheit laden, Ablauf (Phase, Restzeit, Ansage
 src/zone_bar.gd         ZoneBar: Zonenbalken – Zielbereich, Wert als Marke, Zustand in Farbe und Form (#58)
 src/gate_placement.gd   GatePlacement: Lage eines zeitgebundenen Tors aus Restzeit und Tempo, Festsetzen – reine Logik (#58)
 src/course_gate.gd      CourseGate: Start- und Zieltor über der Straße, an einer Fahrtposition gestellt (#58)
-src/challenge_block.gd  ChallengeBlock: Baustein einer Herausforderung – update(Kadenz, Zeit) → Fortschritt, Zustand (#46)
+src/challenge_block.gd  ChallengeBlock: Baustein einer Herausforderung – update(Kadenz, Zeit) → Fortschritt, Zustand; Haken loot_progress, score_caption (#46, #47)
 src/zone_hold.gd        ZoneHold: Baustein „Zone halten“ – reine Logik (#46)
-src/encounters.gd       Encounters: Herausforderungen als Daten, Würfeln, Bau der Bausteine mit Wächter des Kadenzbereichs (#46)
+src/breakthrough.gd     Breakthrough: Baustein „Durchbruch“ – Balken über einer Schwelle füllen, darunter langsam sinkend – reine Logik (#47)
+src/chase.gd            Chase: Baustein „Jagd“ – Verfolger abhängen (Abstand wächst über, schrumpft unter der Schwelle) – reine Logik (#47)
+src/encounters.gd       Encounters: Herausforderungen als Daten (Zone, Schwelle), Würfeln, Bau der Bausteine mit Wächter des Kadenzbereichs (#46, #47)
 src/arcade_tiers.gd     ArcadeTiers: Stufen als Daten (Zonenbreite, Dauer, Punkte), Auswahl im Spielstand (#46)
 src/cadence_range.gd    CadenceRange: persönlicher Kadenzbereich, begrenzt jede Zielzone (limit_zone) (#46)
 src/arcade_run.gd       ArcadeRun: Arcade-Lauf – Herausforderungen je Abschnitt und Runde, Punkte, Beute, Ausrüstung, Zusammenfassung (#46, #49)
 src/loot.gd             Loot: Beute – Plätze, Seltenheiten, Werte als Daten, Würfel, Vergleich, Modifikatoren, Aussehen – reine Logik (#49)
 src/inventory.gd        Inventory: Inventar im Spielstand – ablegen, anlegen, vergleichen, zu Splittern verwerten – reine Logik (#49)
 src/loot_beam.gd        LootBeam: Lichtsäule eines Fundes in Seltenheitsfarbe, an einer Fahrtposition gestellt (#49)
+src/drawbridge.gd       Drawbridge: Zugbrücke des Durchbruchs – Türme und Klappe aus Quadern, senkt sich mit dem Balken, an einer Fahrtposition gestellt (#47)
+src/pursuer.gd          Pursuer: Verfolger der Jagd (Hund aus Grundkörpern) hinter dem Fahrer, Abstand folgt der Jagd (#47)
 trainings/              Trainingseinheiten als Dateien (JSON): Intervalle kurz, Pyramide, Tempo-Blöcke
 src/medals.gd           Medals: Medaillen-Schwellen aus dem Fahrmodell (70/85/95 rpm), Medaille einer Zeit – reine Logik
 src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik
