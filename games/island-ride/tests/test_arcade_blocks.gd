@@ -245,7 +245,7 @@ func test_the_dice_draw_the_new_types_too() -> void:
 		var run := ArcadeRun.new(1, CadenceRange.new(), [], 1000.0, 0.0, seed_value)
 		for entry in run.planned:
 			seen[entry["definition"]["block"]] = true
-	assert_eq(seen.keys().size(), 3, "Zone halten, Durchbruch und Jagd im Pool")
+	assert_eq(seen.keys().size(), EncounterRegistry.TYPES.size(), "alle angemeldeten Typen im Pool (Zone halten, Durchbruch, Jagd, …)")
 
 
 func test_run_breakthrough_success_gives_points_and_failure_none() -> void:

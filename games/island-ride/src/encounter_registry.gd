@@ -23,6 +23,8 @@ const TYPES := {
 	"zone_hold": preload("res://src/challenges/zone_hold_challenges.gd"),
 	"breakthrough": preload("res://src/challenges/breakthrough_challenges.gd"),
 	"chase": preload("res://src/challenges/chase_challenges.gd"),
+	"rhythm_gates": preload("res://src/challenges/rhythm_gates_challenges.gd"),
+	"collect": preload("res://src/challenges/collect_challenges.gd"),
 }
 
 

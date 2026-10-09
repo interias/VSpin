@@ -82,11 +82,16 @@ unter [`profiles/`](profiles/):
 | `arcade/durchbruch_zu_schwach.toml` | Arcade-Szenario „Durchbruch zu schwach“: 12 s 90 rpm, 22 s 104 rpm (unter der Schwelle), 10 s 90 rpm, dann Ende |
 | `arcade/jagd_entkommen.toml` | Arcade-Szenario „Jagd entkommen“: 12 s 90 rpm, 14 s 100 rpm (über der Schwelle 93 rpm), 10 s 90 rpm, dann Ende |
 | `arcade/jagd_eingeholt.toml` | Arcade-Szenario „Jagd eingeholt“: 12 s 90 rpm, 14 s 80 rpm (unter der Schwelle), 10 s 90 rpm, dann Ende |
+| `arcade/takt_getroffen.toml` | Arcade-Szenario (#48) „Takt getroffen“: 12 s 70 rpm, dann fünfmal im Takt von 5 s auf 86 rpm hoch (je 1,5 s oben) und zurück auf 70 rpm, 8 s 70 rpm, dann Ende |
+| `arcade/takt_verfehlt.toml` | Arcade-Szenario „Takt verfehlt“: 45 s 100 rpm (über der Zone 74–94 rpm der Takt-Tore), dann Ende |
+| `arcade/sammeln_viel.toml` | Arcade-Szenario „Sammeln viel“: 45 s 108 rpm (Magnetradius rund 3,9 m), dann Ende |
+| `arcade/sammeln_wenig.toml` | Arcade-Szenario „Sammeln wenig“: 45 s 78 rpm (knapp über der Rampe 75 rpm, Magnetradius rund 1,3 m), dann Ende |
 | `arcade/antritt.toml` | Messprofil Kadenzmuster (#45): drei Antritte aus 80 rpm (+30 in 0,5 s, +30 in 1,5 s, +26 in 2 s), dann Ende |
 | `arcade/innehalten.toml` | Messprofil Kadenzmuster (#45): zweimal 3 s Kadenz 0 (aus 80 und 110 rpm), am Ende 1,5 s (kein Innehalten), dann Ende |
 
 Die Arcade-Szenarien `zone_*` spielt das Spiel auch in seinen Tests nach (`games/island-ride/tests/test_arcade_ride.gd`, gleicher
-Kadenzverlauf über den Fake-Bus) und prüft dort das Ergebnis: geschafft, weich verfehlt, Pause bei Abbruch.
+Kadenzverlauf über den Fake-Bus) und prüft dort das Ergebnis: geschafft, weich verfehlt, Pause bei Abbruch. `takt_*` und `sammeln_*` (#48) spielt
+`games/island-ride/tests/test_arcade_rhythm_collect_ride.gd` nach (Takt getroffen/verfehlt, Sammeln viel/wenig).
 
 Format:
 
