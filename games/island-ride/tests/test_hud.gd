@@ -31,6 +31,44 @@ func test_profile_point_maps_distance_and_height_into_area() -> void:
 	assert_eq(HudProfile.profile_point(12000.0, 500.0, 9000.0, 3.0, 223.0, area), Vector2(410, 20), "begrenzt")
 
 
+## Vor dem ersten Layout ist der Zeichenbereich 1×1 px; die Fläche ist dann entartet und darf nicht gezeichnet werden
+## („Invalid polygon data“ seit #34, beim Richtungswechsel direkt nach setup()). Mit Größe lässt sie sich zeichnen.
+func test_profile_fill_is_skipped_before_layout_and_drawable_after_in_both_directions() -> void:
+	for direction in [Track.DIRECTION_CW, Track.DIRECTION_CCW]:
+		var track := _island_track()
+		track.set_direction(direction)
+		var profile := HudProfile.new()
+		add_child_autofree(profile)
+		profile.setup(track)
+		for size in [Vector2(0, 0), Vector2(722, 112)]:
+			profile.size = size
+			var area := profile.plot_rect()
+			var line := PackedVector2Array()
+			for i in range(profile.heights.size()):
+				line.append(HudProfile.profile_point(profile.length_m * i / (profile.heights.size() - 1),
+						profile.heights[i], profile.length_m, profile.min_height_m, profile.max_height_m, area))
+			var fill := HudProfile.fill_polygon(line, area)
+			if size == Vector2.ZERO:
+				assert_true(fill.is_empty(), "%s: ohne Layout wird keine Fläche gezeichnet" % direction)
+			else:
+				assert_gt(Geometry2D.triangulate_polygon(fill).size(), 0, "%s: Profilfläche lässt sich zeichnen" % direction)
+	# Gegen den Uhrzeigersinn ist die Fläche ohne Layout tatsächlich entartet – das war die Meldung.
+	var track := _island_track()
+	track.set_direction(Track.DIRECTION_CCW)
+	var tiny := HudProfile.new()
+	add_child_autofree(tiny)
+	tiny.setup(track)
+	tiny.size = Vector2.ZERO
+	var area0 := tiny.plot_rect()
+	var naive := PackedVector2Array()
+	for i in range(tiny.heights.size()):
+		naive.append(HudProfile.profile_point(tiny.length_m * i / (tiny.heights.size() - 1), tiny.heights[i],
+				tiny.length_m, tiny.min_height_m, tiny.max_height_m, area0))
+	naive.append(Vector2(area0.end.x, area0.end.y))
+	naive.append(Vector2(area0.position.x, area0.end.y))
+	assert_eq(Geometry2D.triangulate_polygon(naive).size(), 0, "ccw ohne Layout: ungeprüfte Fläche wäre entartet")
+
+
 func test_profile_follows_track_heights_and_marker_moves() -> void:
 	var track := _island_track()
 	var hud := _hud()
