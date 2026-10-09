@@ -3,7 +3,7 @@
 from bridge_harness import HOST, PORT, port_open, receive_json
 
 TELEMETRY_FIELDS = {"v", "type", "t_ms", "cadence", "speed_kmh", "power_w", "power_estimated", "heart_rate"}
-STATUS_FIELDS = {"v", "type", "t_ms", "state", "source", "capabilities"}
+STATUS_FIELDS = {"v", "type", "t_ms", "state", "source", "capabilities", "heart_rate"}
 
 
 def start_sim(bridge_process, cadence: str = "80"):

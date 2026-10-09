@@ -196,10 +196,11 @@ class InProcessBridge:
     z. B. einer, die bei `set_grade` einen Fehler wirft. Terminal-Ausgabe in `log()`; `stop()`
     liefert die Ausnahme, mit der `Bridge.run` endete (`None` = sauber beendet)."""
 
-    def __init__(self, source, sessions_dir: Path, host: str = HOST) -> None:
+    def __init__(self, source, sessions_dir: Path, host: str = HOST, heart_rate=None) -> None:
         self.source = source
         self.sessions_dir = sessions_dir
         self.host = host
+        self.heart_rate = heart_rate  # Fabrik der Pulsquelle (`HeartRateFactory`); None = Standard der Bridge
         self.error: BaseException | None = None
         self._output = io.StringIO()
         self._thread: threading.Thread | None = None
@@ -224,7 +225,8 @@ class InProcessBridge:
 
         async def main() -> None:
             self._loop, self._stop = asyncio.get_running_loop(), asyncio.Event()
-            await Bridge(self.source, Console(self._output), self.sessions_dir, host=self.host).run(self._stop)
+            options = {} if self.heart_rate is None else {"heart_rate": self.heart_rate}
+            await Bridge(self.source, Console(self._output), self.sessions_dir, host=self.host, **options).run(self._stop)
 
         try:
             asyncio.run(main())
@@ -244,6 +246,15 @@ class InProcessBridge:
 
     def log(self) -> str:
         return self._output.getvalue()
+
+    def call(self, fn, *args):
+        """Ruft `fn(*args)` im Event-Loop der Bridge auf und liefert das Ergebnis – für Fakes und Quellen,
+        deren Rückrufe im Loop der Bridge laufen müssen (z. B. `FakeBleAdapter.notify`)."""
+
+        async def run():
+            return fn(*args)
+
+        return asyncio.run_coroutine_threadsafe(run(), self._loop).result(STOP_TIMEOUT_S)
 
 
 def receive_json(client: ClientConnection, timeout_s: float = 3.0) -> dict:

@@ -56,6 +56,21 @@ Der Simulator senkt bergauf die Kadenz (um 2 × Steigung, höchstens auf die Hä
 bei Steigung 0 oder bergab gilt wieder die per Tastatur eingestellte Kadenz.
 Kaputte oder unbekannte Nachrichten werden mit `error` beantwortet (docs/bus-protocol.md).
 
+## Puls
+
+Neben der Radquelle hält die Bridge eine Pulsquelle (`sources/heart_rate.py`, ADR-0008 Nachtrag #64): Brustgurt
+oder Garmin-Uhr („Herzfrequenz übertragen“) über den BLE Heart Rate Service `0x180D`, per bleak hinter der
+Nahtstelle `ble/`. Sie braucht keine Startparameter und bleibt `off`, bis ein Client die gemerkten Geräte schickt
+(`set_heart_rate_devices`, Reihenfolge = Vorrang, Gurt vor Uhr); die Liste gehört dem Spiel, die Bridge speichert
+nichts. Dann verbindet sie sich im Hintergrund mit dem besten gemerkten Gerät, das sendet, und nach einem Abbruch
+neu. Der Zustand steht in `status.heart_rate`, der Wert in `telemetry.heart_rate` und in der CSV-Spalte `hr_bpm`
+(älter als 5 s: `null` bzw. leer; FTMS-Puls des Rads nur ohne verbundenes Pulsgerät), die rohen
+`0x2A37`-Notifications in der Session-Rohdatei. Für einen Gerätedialog sucht `start_heart_rate_search` zeitlich
+begrenzt nach Pulsgeräten; die Ergebnisse bekommt nur der anfragende Client (docs/bus-protocol.md). Ohne
+Bluetooth-Adapter (Docker, CI) läuft die Bridge normal weiter; eine Suche liefert dann nichts. Im Terminal steht
+jede Änderung, z. B. `Puls: connected, HRM-Pro (strap)`. Tests nutzen statt bleak einen skriptbaren Fake
+(`tests/fake_ble.py`, `tests/heart_rate_harness.py`).
+
 ## Profile
 
 ```
