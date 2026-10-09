@@ -31,17 +31,19 @@ func _spawn_game(bus: FakeBusServer) -> Node:
 
 
 ## Zusammenfassung einer Fahrt über `km` am `date`.
-func _ride(km: float, date: String = "2026-10-01T18:00:00Z", laps: int = 0) -> Dictionary:
+func _ride(km: float, date: String = "2026-10-01T18:00:00Z", laps: int = 0, segments: Dictionary = {}) -> Dictionary:
 	var stats := RideStats.new()
 	stats.add(km * 150.0, 85.0, km * 1000.0)
-	return SaveGame.ride_entry(SaveGame.MODE_ROUND_TRIP, RideConfig.TRACK_ISLAND, laps > 0, laps, stats, date)
+	return SaveGame.ride_entry(SaveGame.MODE_ROUND_TRIP, RideConfig.TRACK_ISLAND, laps > 0, laps, stats, date, [],
+			LapTiming.DIRECTION_CW, segments)
 
 
 ## Ein Stand mit allem, was das Fahrtenbuch zeigt; `rides` Fahrten.
 func _full_save(rides: int = 30) -> SaveGame:
 	var save := SaveGame.new()
 	for i in range(rides):
-		save.add_ride(_ride(9.21, "2026-09-%02dT18:00:00Z" % (1 + i % 28), 1))
+		save.add_ride(_ride(9.21, "2026-09-%02dT18:00:00Z" % (1 + i % 28), 1,
+				{"kuestenwelle": 234.6 + i, "bergwertung": 454.5, "dorfsprint": 49.4}))
 	save.record_best_time(RideConfig.TRACK_ISLAND, LapTiming.DIRECTION_CW, 884.7)
 	save.record_best_time(RideConfig.TRACK_GRAYBOX, LapTiming.DIRECTION_CW, 61.2)
 	save.record_segment_time(RideConfig.TRACK_ISLAND, LapTiming.DIRECTION_CW, "kuestenwelle", 192.4)
@@ -51,6 +53,18 @@ func _full_save(rides: int = 30) -> SaveGame:
 	save.unlock_achievement("night", "2026-09-12T21:30:00Z")
 	save.unlock_achievement("rain", "2026-09-14T10:00:00Z")
 	return save
+
+
+func _one_ride_without_segments() -> SaveGame:
+	var save := SaveGame.new()
+	var old := _ride(3.0)
+	old.erase("segment_times_s")  # Eintrag von vor der Nacharbeit
+	save.add_ride(old)
+	return save
+
+
+func _logbook_text_has(logbook: CanvasLayer, page: String, text: String) -> bool:
+	return logbook.page_text(page).contains(text)
 
 
 ## Fahrtenbuch in `viewport_size` (Pixel), geöffnet mit `save`.
@@ -164,6 +178,11 @@ func test_logbook_shows_all_areas() -> void:
 			dates.append(label.text)
 	assert_eq(dates.size(), LOGBOOK.RECENT_RIDES, "nur die letzten Fahrten")
 	assert_eq(dates[0], "02.09.2026", "neueste zuerst (Fahrt 30)")
+	# Segmentzeiten je Fahrt (Nacharbeit #26): in Streckenreihenfolge, neueste Fahrt zuerst.
+	assert_string_contains(rides, "Segmentzeiten je Fahrt")
+	assert_string_contains(rides, "02.09.2026: Küstenwelle 4:23.6 · Bergwertung 7:34.5 · Dorfsprint 0:49.4")
+	assert_false(_logbook_text_has(await _logbook_in(Vector2i(1920, 1080), _one_ride_without_segments()), "rides",
+			"Segmentzeiten je Fahrt"), "ohne Segmente (Training, alte Einträge) kein Block")
 	var empty := await _logbook_in(Vector2i(1920, 1080), SaveGame.new())
 	assert_string_contains(empty.page_text("overview"), "noch keine", "leerer Stand: noch keine Bestzeiten")
 	assert_string_contains(empty.page_text("rides"), "Noch keine Fahrten")

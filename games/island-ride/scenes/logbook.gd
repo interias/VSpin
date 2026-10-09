@@ -135,6 +135,18 @@ static func track_name(track: String) -> String:
 	return TRACK_NAMES.get(track, track)
 
 
+## Segmentzeiten einer Fahrt in Streckenreihenfolge: "Küstenwelle 3:54.6 · Bergwertung 7:34.5".
+static func segment_times_text(times: Dictionary) -> String:
+	var parts := []
+	for segment in IslandCourse.SEGMENTS:
+		if times.has(segment["id"]):
+			parts.append("%s %s" % [segment["name"], lap_time_text(float(times[segment["id"]]))])
+	for id in times:
+		if not IslandCourse.SEGMENTS.any(func(s): return s["id"] == id):
+			parts.append("%s %s" % [id, lap_time_text(float(times[id]))])
+	return " · ".join(parts)
+
+
 static func segment_name(id: String) -> String:
 	for segment in IslandCourse.SEGMENTS:
 		if segment["id"] == id:
@@ -315,6 +327,16 @@ func _fill_rides(content: VBoxContainer, save: SaveGame) -> void:
 				str(int(ride.get("laps", 0))), "%.2f km" % float(ride.get("distance_km", 0.0)),
 				duration_text(seconds) if seconds >= 60.0 else "%d s" % int(seconds),
 				"Ziel" if ride.get("finished") == true else "beendet"])
+	# Segmentzeiten je Fahrt unter der Tabelle (umbrechend, damit die Spalten auch im Halbbild passen).
+	var lines := []
+	for i in range(rides.size() - 1, maxi(rides.size() - RECENT_RIDES, 0) - 1, -1):
+		var ride = rides[i]
+		if ride is Dictionary and ride.get("segment_times_s") is Dictionary and not ride["segment_times_s"].is_empty():
+			lines.append("%s: %s" % [date_text(str(ride.get("date", ""))), segment_times_text(ride["segment_times_s"])])
+	if not lines.is_empty():
+		_heading(content, "Segmentzeiten je Fahrt")
+		for text in lines:
+			_line(content, text)
 
 
 ## Strecken und Richtungen mit Bestzeit, Segmentzeit oder Medaille: [[strecke, richtung], …], sortiert.

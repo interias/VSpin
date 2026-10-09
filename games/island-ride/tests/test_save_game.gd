@@ -65,7 +65,15 @@ func test_ride_entry_is_a_summary_without_raw_telemetry() -> void:
 	var entry := SaveGame.ride_entry(SaveGame.MODE_ROUND_TRIP, RideConfig.TRACK_GRAYBOX, false, 0,
 			_stats(61.27, 90.0, 512.3456))
 	assert_eq(entry.keys(), ["date", "mode", "track", "finished", "laps", "duration_s", "distance_km",
-			"avg_cadence_rpm", "avg_speed_kmh", "lap_times_s"], "nur Zusammenfassung, kein Kadenzverlauf")
+			"avg_cadence_rpm", "avg_speed_kmh", "lap_times_s", "direction", "segment_times_s"],
+			"nur Zusammenfassung, kein Kadenzverlauf")
+	assert_eq(entry["direction"], LapTiming.DIRECTION_CW, "Standard: im Uhrzeigersinn")
+	assert_eq(entry["segment_times_s"], {}, "ohne Segmente leer")
+	var with_segments := SaveGame.ride_entry(SaveGame.MODE_ROUND_TRIP, RideConfig.TRACK_ISLAND, true, 1,
+			_stats(900.0, 85.0, 9210.0), SaveGame.utc_now(), [900.0], "ccw", {"dorfsprint": 41.234})
+	assert_eq(with_segments["direction"], "ccw")
+	assert_eq(with_segments["segment_times_s"].keys(), ["dorfsprint"])
+	assert_almost_eq(float(with_segments["segment_times_s"]["dorfsprint"]), 41.23, 0.0001, "je Segment die Zeit, auf 0,01 s")
 	assert_almost_eq(entry["duration_s"], 61.3, 0.0001)
 	assert_almost_eq(entry["distance_km"], 0.512, 0.0001)
 	assert_false(entry["finished"], "abgebrochen")

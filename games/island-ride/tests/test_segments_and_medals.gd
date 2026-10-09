@@ -83,6 +83,11 @@ func test_segment_gives_time_and_medal_and_its_best_time_survives_restart() -> v
 	var restarted := _spawn_game(start_fake_bus([FakeBusServer.status()] + FakeBusServer.steady_cadence(100.0, 0.0, 30.0)))
 	await run_for(0.1)
 	var saved: float = restarted.save_game.segment_best_s(RideConfig.TRACK_ISLAND, LapTiming.DIRECTION_CW, "dorfsprint")
+	var ride: Dictionary = restarted.save_game.rides()[-1]
+	assert_eq(ride["direction"], LapTiming.DIRECTION_CW, "Fahrteintrag mit Richtung")
+	assert_true(ride["segment_times_s"].has("dorfsprint"), "Segmentzeit dieser Fahrt im Fahrteintrag (Nacharbeit #26)")
+	assert_almost_eq(float(ride["segment_times_s"].get("dorfsprint", -1.0)), result["time_s"], 0.01,
+			"Segmentzeit dieser Fahrt im Fahrteintrag (Nacharbeit #26)")
 	assert_almost_eq(saved, result["time_s"], 0.001, "Segment-Bestzeit nach dem Neustart erhalten")
 	assert_eq(restarted.save_game.best_medal(RideConfig.TRACK_ISLAND, LapTiming.DIRECTION_CW, "dorfsprint"), Medals.GOLD,
 			"beste Medaille des Segments gespeichert")

@@ -254,8 +254,14 @@ func _area(area: String, track: String, direction: String, create: bool = false)
 
 ## Zusammenfassung einer beendeten Fahrt – keine Rohtelemetrie. `finished`: Ziel erreicht (sonst abgebrochen oder
 ## endlos). `laps`: abgeschlossene Runden, `lap_times_s` ihre Zeiten.
+## `direction` und `segment_times_s` (je Segment-ID die beste Zeit dieser Fahrt) kamen in der Nacharbeit zu #26 dazu –
+## additiv: ältere Einträge ohne sie bleiben gültig.
 static func ride_entry(mode: String, track: String, finished: bool, laps: int, stats: RideStats,
-		date: String = utc_now(), lap_times_s: Array = []) -> Dictionary:
+		date: String = utc_now(), lap_times_s: Array = [], direction: String = Track.DIRECTION_CW,
+		segment_times_s: Dictionary = {}) -> Dictionary:
+	var segments := {}
+	for id in segment_times_s:
+		segments[id] = snappedf(float(segment_times_s[id]), 0.01)
 	return {
 		"date": date,
 		"mode": mode,
@@ -267,6 +273,8 @@ static func ride_entry(mode: String, track: String, finished: bool, laps: int, s
 		"avg_cadence_rpm": snappedf(stats.avg_cadence(), 0.1),
 		"avg_speed_kmh": snappedf(stats.avg_speed_kmh(), 0.01),
 		"lap_times_s": lap_times_s.map(func(t): return snappedf(t, 0.01)),
+		"direction": direction,
+		"segment_times_s": segments,
 	}
 
 

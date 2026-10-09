@@ -825,13 +825,25 @@ func _finish_ride() -> void:
 ## einer neuen Bestzeit samt ihrer Runde als Ghost; die letzte volle Runde wird der Ghost „letzte Fahrt“. Eine
 ## abgebrochene Fahrt nur, wenn gefahren wurde. Ein Training trägt Einheit und Gesamtbewertung ein, aber keine
 ## Bestzeit, Medaille, Segmentzeit oder Ghost.
+## Je Segment die beste Zeit dieser Fahrt (für den Fahrteintrag); im Training gibt es keine Segmente.
+func _ride_segment_times() -> Dictionary:
+	var best := {}
+	if lap_timing == null or lap_timing.segments == null:
+		return best
+	for result in lap_timing.segments.results:
+		var id: String = result["id"]
+		if not best.has(id) or float(result["time_s"]) < float(best[id]):
+			best[id] = float(result["time_s"])
+	return best
+
+
 func _save_ride() -> void:
 	if state == STATE_MENU or _ride_saved or (state != STATE_FINISHED and stats.ride_time_s <= 0.0):
 		return
 	_ride_saved = true
 	var entry := SaveGame.ride_entry(ride_mode, config.track,
 			training.finished() if training != null else lap_timing.finished(), lap_timing.lap_times.size(), stats,
-			SaveGame.utc_now(), lap_timing.lap_times)
+			SaveGame.utc_now(), lap_timing.lap_times, track.direction, _ride_segment_times())
 	if training != null:
 		var score := training.total_score()
 		entry["training"] = training.unit["name"]

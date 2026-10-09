@@ -380,7 +380,8 @@ kein `set_grade` an die Bridge. **Zurück ins Menü**, ohne das Spiel zu schlie�
 `version` (Formatversion, derzeit 1) und `active_profile` (Profilschlüssel, 16 Hex-Zeichen, ab dem ersten Speichern);
 darunter je Fahrerprofil die Fahrten. Jede beendete Fahrt wird als Zusammenfassung angehängt – im Ziel sofort, bei
 Abbruch („Fahrt beenden“, Beenden, Fenster schließen), sofern gefahren wurde: Datum (UTC), Modus, Strecke,
-`finished`, Runden (volle), Dauer, Strecke in km, Ø Kadenz, Ø Tempo, Rundenzeiten (`lap_times_s`). Keine Rohtelemetrie
+`finished`, Runden (volle), Dauer, Strecke in km, Ø Kadenz, Ø Tempo, Rundenzeiten (`lap_times_s`), Richtung
+(`direction`) und je Segment die beste Zeit dieser Fahrt (`segment_times_s`, Nacharbeit #26). Keine Rohtelemetrie
 (die steht in der Session-CSV der Bridge). Bestzeiten stehen je Profil unter `best_times` (Strecke → Richtung →
 Sekunden, z. B. `{"island": {"cw": 873.4}}`), Segment-Bestzeiten unter `segment_best_times` und die beste Medaille je Runde
 (`lap`) und Segment unter `medals` (Strecke → Richtung → Segment-ID, #33), die Ghosts unter `ghosts` (Strecke → Richtung →
@@ -623,7 +624,7 @@ scrollt). Sichtprüfung: `view_probe.gd -- --title --wardrobe=trikot_gelb,radfar
 **Fahrtenbuch** (`scenes/logbook.gd`, aus dem Startmenü): drei Seiten – *Übersicht* (Strecke, Zeit, Fahrten, Runden,
 Fahrerlevel mit Rest bis zum nächsten; Bestzeiten je Strecke und Richtung; Segmentzeiten; beste Medaille je Runde und
 Segment), *Erfolge* (alle nach Kategorie, freigeschaltete mit Datum, gesperrte blass) und *Fahrten* (die letzten 20,
-neueste zuerst). Bedienung: Seitenknöpfe mit Pfeil links/rechts oder Maus, Pfeil hoch/runter, Bild auf/ab, Pos1/Ende
+neueste zuerst, darunter die Segmentzeiten je Fahrt). Bedienung: Seitenknöpfe mit Pfeil links/rechts oder Maus, Pfeil hoch/runter, Bild auf/ab, Pos1/Ende
 oder Mausrad scrollen, `Esc` oder „Zurück“ schließt. Passt in 960 × 1040, 1920 × 1080 und 1152 × 648
 (`tests/test_logbook.gd`).
 
