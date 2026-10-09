@@ -288,3 +288,50 @@ func test_training_line_and_announcement_fit() -> void:
 		hud.show_announcement("")
 		await wait_process_frames(1)
 		assert_false(hud.readout().contains("Phase:") or hud.readout().contains("Ansage:"), "%s: ausgeblendet" % size)
+
+
+## Zonenbalken (#58): unter der Trainingszeile im unteren Panel, breit und hoch genug zum Lesen, mit Zustand und
+## Treffer daneben; mit Trainingszeile und Ansage im Halbbild und im Vollbild frei von den anderen Anzeigen (bei 1152×648
+## im Fenster, wie Ansage und Ergebnis). Zustand in Farbe und Wort je nach Kadenz.
+func test_zone_bar_fits_under_the_training_line() -> void:
+	for size in [Vector2i(960, 1040), Vector2i(1920, 1080), Vector2i(1600, 900), Vector2i(1152, 648)]:
+		var hud := await _layout_in(size)
+		hud.get_node("Message").hide()
+		hud.show_segment("", "")
+		hud.show_ghost("", false)
+		hud.show_training("Tempo-Block 3/3", "85–90 rpm", "12:34", "Erholung 2/2 · 75–85 rpm")
+		hud.show_zone(85.0, 90.0, 87.0, "87 %")
+		hud.show_announcement("In 10 s: Widerstand 2 Stufen hoch, 85–90 rpm halten")
+		await wait_process_frames(2)
+		assert_string_contains(hud.readout(), "Zone: im Bereich (85–90 rpm, 87 rpm)")
+		assert_string_contains(hud.readout(), "Treffer: 87 %")
+		var screen: Rect2 = hud.get_node("Layout").get_viewport_rect()
+		var bottom: Rect2 = hud.get_node("%Bottom").get_global_rect()
+		var zone: Rect2 = (hud.get_node("%Zone") as Control).get_global_rect()
+		var bar: Rect2 = (hud.get_node("%ZoneBar") as Control).get_global_rect()
+		var training: Rect2 = (hud.get_node("%Training") as Control).get_global_rect()
+		assert_true(bottom.encloses(zone), "%s: Zone im unteren Panel" % size)
+		assert_gte(zone.position.y, training.end.y, "%s: unter der Trainingszeile" % size)
+		assert_gte(bar.size.x, 400.0, "%s: Balken breit genug zum Lesen (%d px)" % [size, bar.size.x])
+		assert_gte(bar.size.y, 28.0, "%s: Balken hoch genug" % size)
+		for label in ["%ZoneBar", "%ZoneState", "%ZoneScore"]:
+			assert_true(zone.grow(0.5).encloses((hud.get_node(label) as Control).get_global_rect()), "%s: %s in der Zeile" % [size, label])
+		var announcement: Rect2 = (hud.get_node("%Announcement") as Control).get_global_rect()
+		assert_true(screen.encloses(announcement), "%s: Ansage im Fenster" % size)
+		if size.y >= 900:  # 1152×648: nur im Fenster (wie Ansage und Ergebnis, siehe oben)
+			_assert_inside(hud, "%s Zone" % size)
+			for other in ["%Stats", "%Bottom", "%Celebration"]:
+				assert_false(announcement.intersects((hud.get_node(other) as Control).get_global_rect()),
+						"%s: Ansage frei von %s" % [size, other])
+		else:
+			assert_true(screen.encloses(bottom), "%s: Panel mit Zone im Fenster" % size)
+		# Zustand in Farbe und Wort: darunter, im Bereich, darüber.
+		var state: Label = hud.get_node("%ZoneState")
+		for case in [[80.0, "zu niedrig", ZoneBar.BELOW], [90.0, "im Bereich", ZoneBar.INSIDE], [96.0, "zu hoch", ZoneBar.ABOVE]]:
+			hud.show_zone(85.0, 90.0, case[0], "87 %")
+			assert_eq(state.text, case[1], "%s: %s rpm" % [size, case[0]])
+			assert_eq(state.get_theme_color("font_color"), ZoneBar.state_color(case[2]))
+			assert_eq((hud.get_node("%ZoneBar") as ZoneBar).state(), case[2])
+		hud.hide_zone()
+		await wait_process_frames(1)
+		assert_false(hud.readout().contains("Zone:"), "%s: ausgeblendet" % size)
