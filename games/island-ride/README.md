@@ -437,8 +437,8 @@ Schlicht, halbtransparente Panels, Standardschrift der Engine:
   das Höhenprofil des Rundkurses mit Abschnittsgrenzen und -namen (Name nur, wenn er in den Abschnitt passt),
   höchstem Punkt und Marker an der Fahrerposition; der gefahrene Teil ist hinterlegt. Mit Ghost rechts neben der
   Restdistanz der **Abstand** zu ihm („Ghost +1.4 s“, siehe Ghost). Im Training darüber die **Trainingszeile**:
-  Phase, Zielkadenz, Restzeit der Phase und die nächste Phase; die **Ansage** zum Widerstandsknopf steht groß über
-  dem unteren Panel (siehe Training).
+  Phase, Zielkadenz, Restzeit der Phase und die nächste Phase, darunter der **Zonenbalken** (#58); die **Ansage** zum
+  Widerstandsknopf steht groß über dem unteren Panel (siehe Training).
 - Über dem unteren Panel dezent der `set_grade`-Hinweis, mittig zwischen oben und unten Pause-/Verbindungs-/Ziel-Meldungen.
 
 Layout nur über Anker und Container: passt im schmalen Halbbild-Fenster (960 × 1040) wie in 1920 × 1080 und
@@ -645,8 +645,21 @@ die Fahrt im Modus `training` mit Name und Gesamtbewertung der Einheit (`trainin
 Fahrtenbuch zeigt sie als „Training“. Logik in `src/training.gd` (Training, ohne Szene und Bus); spätere Pakete
 (keine Panorama-Momente im Training, #43) fragen `training_active()` der Hauptszene ab.
 
+**Zielkadenzbereich und Intervall-Tore (#58):** Unter der Trainingszeile zeigt der **Zonenbalken** den Zielbereich der
+Phase mit der Kadenz als Marke – in Farbe *und* Form: darunter blau mit Pfeil hoch, im Bereich grün mit Haken, darüber
+orange mit Pfeil runter, daneben in Worten („zu niedrig“, „im Bereich“, „zu hoch“) und der **Treffer** der laufenden
+Phase (die Bewertung oben). Vor jeder Belastung steht ein grünes **Starttor** („Start 95–105 rpm“) auf der Strecke, an
+ihrem Ende ein orange-weiß kariertes **Zieltor** („Ziel“); Aufwärmen, Erholung und Ausrollen allein bekommen keine.
+Das Training läuft nach Zeit: Das nächste Tor steht, wo der Fahrer beim aktuellen Tempo zum Phasenwechsel ankommt, und
+wird nachgeführt, bis es höchstens 40 m und 10 s voraus ist; dann steht es fest. So fallen Durchfahrt und Wechsel auf
+etwa eine Sekunde zusammen, solange sich das Tempo auf den letzten Metern nicht stark ändert. Im Stand oder beim
+Anfahren bleibt ein nahes, noch nicht festes Tor verborgen. Beides ist nur Anzeige (ADR-0010). Bausteine für Epic 4:
+`src/zone_bar.gd` (ZoneBar), `src/gate_placement.gd` (GatePlacement), `src/course_gate.gd` (CourseGate).
+
 Sichtprüfung: `view_probe.gd -- --title --training` speichert `title_training.png`, `--hud --training --shots=1200`
-die Trainingszeile mit Ansage (`training.png`) und das Ergebnis (`training_result.png`).
+die Trainingszeile mit Ansage (`training.png`), Starttor (`gate_start.png`), Zonenbalken unter, im und über dem Bereich
+(`zone_below.png`, `zone_inside.png`, `zone_above.png`), Zieltor (`gate_finish.png`) und das Ergebnis
+(`training_result.png`).
 
 ### Virtuelle Steigung (`set_grade`)
 
@@ -783,6 +796,9 @@ src/lap_timing.gd       LapTiming: Rundenwertung – Rundenzeiten, Ziel nach n R
 src/segment_timing.gd   SegmentTiming: Segmentzeiten (Live-Zeit, gewertete Segmente, Segment-Bestzeit) – reine Logik
 src/ghost.gd            Ghost: Runde als Strecke über Zeit – aufzeichnen, abspielen, Abstand in s – reine Logik
 src/training.gd         Training: Einheit laden, Ablauf (Phase, Restzeit, Ansage), Bewertung der Zielkadenz – reine Logik
+src/zone_bar.gd         ZoneBar: Zonenbalken – Zielbereich, Wert als Marke, Zustand in Farbe und Form (#58)
+src/gate_placement.gd   GatePlacement: Lage eines zeitgebundenen Tors aus Restzeit und Tempo, Festsetzen – reine Logik (#58)
+src/course_gate.gd      CourseGate: Start- und Zieltor über der Straße, an einer Fahrtposition gestellt (#58)
 trainings/              Trainingseinheiten als Dateien (JSON): Intervalle kurz, Pyramide, Tempo-Blöcke
 src/medals.gd           Medals: Medaillen-Schwellen aus dem Fahrmodell (70/85/95 rpm), Medaille einer Zeit – reine Logik
 src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik

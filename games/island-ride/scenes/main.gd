@@ -84,6 +84,12 @@
 ## Teilbewertung der gefahrenen Phasen. Runden im Training zählen nicht für Bestzeit, Medaillen, Segmente und Ghost –
 ## die Vorgabe wechselt, die Runden wären nicht vergleichbar. Ein zu Ende gefahrenes Training meldet `training_finished`
 ## an die Erfolge; Name und Gesamtbewertung der Einheit stehen im Fahrteintrag.
+## Zielkadenzbereich und Intervall-Tore (#58): Das HUD zeigt im Training den Zonenbalken (Zielbereich, Kadenz, Treffer
+## der laufenden Phase). Vor jeder Belastung steht ein Starttor auf der Strecke, an ihrem Ende ein Zieltor
+## (Training.gates, CourseGate unter `Track`). Das Training ist zeitbasiert: Das nächste Tor steht dort, wo der Fahrer
+## beim aktuellen Tempo zum Phasenwechsel ankommt (GatePlacement), und wird nachgeführt, bis es nah ist
+## (GatePlacement.LOCK_AHEAD_M, LOCK_S); das durchfahrene bleibt stehen, bis es hinter der Kamera liegt. Beides ist
+## nur Anzeige – Fahrmodell und Bewertung sehen es nicht (ADR-0010).
 ##
 ## Bridge aus dem Spiel (#25, BridgeLauncher, nur Windows-Desktop): Ist beim Start keine Bridge auf der Bus-Adresse
 ## erreichbar, startet das Spiel sie unsichtbar mit der Quelle aus `config.cfg [bridge]`; eine laufende wird nur
@@ -152,6 +158,8 @@ const CAMERA_PANORAMA_LOOK_M := 12.0
 const CAMERA_PANORAMA_LOOK_HEIGHT_M := 2.0
 ## Ghost: seitlicher Versatz zum Fahrer auf der Straße (m, nach links), damit beide nebeneinander fahren.
 const GHOST_OFFSET_M := -1.3
+## Intervall-Tore (#58): so weit hinter dem Fahrer (m) bleibt ein durchfahrenes Tor noch stehen (hinter der Kamera).
+const GATE_KEEP_BEHIND_M := 20.0
 
 const BRIDGE_START_HINT := "Bridge starten: vspin-bridge --source sim"
 const RESISTANCE_NOT_SUPPORTED := "Widerstand: nicht unterstützt"
@@ -191,6 +199,11 @@ var training: Training = null
 ## Mitfahrer des Ghosts auf der Strecke und sein halbtransparentes Fahrermodell.
 var ghost_rider: PathFollow3D
 var ghost_model: RiderModel
+## Intervall-Tore im Training (#58): das nächste und das zuletzt durchfahrene (Kinder von `Track`) und die Lage des
+## nächsten.
+var gate_next: CourseGate
+var gate_passed: CourseGate
+var gate_placement := GatePlacement.new()
 
 var bus: BusClient
 ## Start der Bridge aus dem Spiel; startet nur, wenn `config.bus_url` die Bridge-Adresse ist (Tests: Fake-Bus-Port).
@@ -228,6 +241,10 @@ var _panorama_m := 0.0
 ## Telemetrie seit dem letzten Verbindungsverlust empfangen? Erst dann wird weitergefahren.
 var _data_since_loss := false
 var _ever_connected := false
+## Tore der laufenden Einheit (Training.gates), für welche Einheit, und Index des nächsten (-1 = noch keins).
+var _gates: Array = []
+var _gates_of: Training = null
+var _gate_index := -1
 ## Laufende Fahrt schon im Spielstand?
 var _ride_saved := false
 ## Streckenposition des Kameraflugs im Titelbild.
@@ -278,6 +295,8 @@ func _ready() -> void:
 	settings_menu.visibility_changed.connect(_on_settings_visibility_changed)
 	_setup_track()
 	_setup_ghost_rider()
+	gate_next = _new_gate("IntervalGate")
+	gate_passed = _new_gate("IntervalGatePassed")
 	_apply_wardrobe()
 	sky = SkyController.new()
 	add_child(sky)
@@ -1139,17 +1158,66 @@ func _update_rider(delta: float) -> void:
 			delta)
 
 
-## Trainingszeile und Ansage im HUD (ausgeblendet ohne Training und im Ergebnis).
+## Trainingszeile, Zonenbalken und Ansage im HUD (ausgeblendet ohne Training und im Ergebnis).
 func _show_training() -> void:
 	if training == null or state == STATE_FINISHED:
 		hud.show_training("", "", "", "")
+		hud.hide_zone()
 		hud.show_announcement("")
 		return
 	var phase := training.phase()
 	var next := training.next_phase()
 	hud.show_training(phase["name"], Training.target_text(phase), format_time(ceilf(training.remaining_s())),
 			"%s · %s" % [next["name"], Training.target_text(next)] if not next.is_empty() else "Ende der Einheit")
+	hud.show_zone(phase["cadence_min"], phase["cadence_max"], bus.cadence,
+			Training.percent_text(training.phase_score(training.phase_index())))
 	hud.show_announcement(training.announcement())
+
+
+func _new_gate(node_name: String) -> CourseGate:
+	var gate := CourseGate.new()
+	gate.name = node_name
+	gate.visible = false
+	track.add_child(gate)
+	return gate
+
+
+## Intervall-Tore (#58): das nächste Tor der Einheit an der Lage beim aktuellen Tempo (GatePlacement, zu sehen nur fest
+## oder weit voraus), das zuletzt durchfahrene bis GATE_KEEP_BEHIND_M hinter dem Fahrer; ohne Training und im Menü
+## keine. Ein Tor, das mehr als eine Runde voraus läge, bleibt unsichtbar. Liest nur Training und Fahrmodell, ändert
+## nichts daran.
+func _update_gates() -> void:
+	if training == null or state == STATE_MENU:
+		gate_next.visible = false
+		gate_passed.visible = false
+		return
+	if training != _gates_of:
+		_gates_of = training
+		_gates = training.gates()
+		_gate_index = -1
+		gate_next.ride_m = NAN
+		gate_passed.ride_m = NAN
+	var i := 0
+	while i < _gates.size() and _gates[i]["time_s"] <= training.elapsed_s + 1e-6:
+		i += 1
+	if i != _gate_index:
+		if not is_nan(gate_next.ride_m):  # durchfahren: bleibt stehen, das andere Tor wird das nächste
+			var passed := gate_next
+			gate_next = gate_passed
+			gate_passed = passed
+		_gate_index = i
+		gate_placement.reset()
+		gate_next.ride_m = NAN
+		if i < _gates.size():
+			gate_next.configure(_gates[i]["kind"], _gates[i]["text"])
+	var d := model.distance_m
+	gate_passed.visible = not is_nan(gate_passed.ride_m) and gate_passed.ride_m > d - GATE_KEEP_BEHIND_M
+	if i >= _gates.size():
+		gate_next.visible = false
+		return
+	var at := gate_placement.update(d, _gates[i]["time_s"] - training.elapsed_s, model.speed_mps)
+	gate_next.place(track, at)
+	gate_next.visible = gate_placement.shown(d) and at - d < track.length_m() - GATE_KEEP_BEHIND_M
 
 
 func _update_view() -> void:
@@ -1166,6 +1234,7 @@ func _update_view() -> void:
 	else:
 		hud.show_ghost("", false)
 	_show_training()
+	_update_gates()
 	var segment := lap_timing.segments.current()
 	hud.show_segment(segment.get("name", ""), format_time(segment["time_s"], true) if not segment.is_empty() else "")
 	if debug_label.visible:

@@ -15,6 +15,9 @@
 ##   Training   (#37) im unteren Panel über der Runde: Phase, Zielkadenz, Restzeit der Phase und die nächste Phase;
 ##                die Ansage zum Widerstandsknopf („In 8 s: Widerstand 2 Stufen hoch, 100 rpm halten“) steht groß über
 ##                der Einblendung
+##   Zone       (#58) im Training unter der Trainingszeile: Zonenbalken (ZoneBar) mit Zielbereich und Kadenz als Marke,
+##                daneben der Zustand in Worten („zu niedrig“, „im Bereich“, „zu hoch“; Farbe wie die Marke) und der
+##                Treffer der laufenden Phase (die Bewertung aus Training, keine eigene Rechnung)
 ##   Landmark     Panorama-Moment (#43): Name der Sehenswürdigkeit oben im freien Feld, blendet weich ein und aus
 ##   Message/Hint/Debug  Zustandsmeldung (mittig zwischen oben und unten), `set_grade`-Hinweis (über dem unteren
 ##                Panel), Debug-Anzeige F3 (unter dem Werte-Panel) – Inhalte setzt die Hauptszene.
@@ -69,6 +72,10 @@ const COLOR_AHEAD := Color(0.5, 0.92, 0.55)
 @onready var _remaining_value: Label = %RemainingValue
 @onready var _next_value: Label = %NextValue
 @onready var _announcement: Label = %Announcement
+@onready var _zone: Control = %Zone
+@onready var _zone_bar: ZoneBar = %ZoneBar
+@onready var _zone_state: Label = %ZoneState
+@onready var _zone_score: Label = %ZoneScore
 @onready var _landmark: Label = %Landmark
 @onready var _lap_bar: ProgressBar = %LapBar
 @onready var _lap_percent: Label = %LapPercent
@@ -168,6 +175,24 @@ func show_training(phase_text: String, target_text: String, remaining_text: Stri
 	_next_value.text = next_text
 
 
+## Zonenbalken (#58): Zielbereich `range_min`..`range_max` (Grenzen eingeschlossen), aktuelle Kadenz `cadence_rpm`
+## und der Treffer der laufenden Phase als fertiger Anzeigetext (z. B. „87 %“).
+func show_zone(range_min: float, range_max: float, cadence_rpm: float, score_text: String) -> void:
+	_zone.visible = true
+	_zone_bar.show_zone(range_min, range_max, cadence_rpm)
+	var zone := _zone_bar.state()
+	_zone_state.text = ZoneBar.state_text(zone)
+	var color := ZoneBar.state_color(zone)
+	if _zone_state.get_theme_color("font_color") != color:
+		_zone_state.add_theme_color_override("font_color", color)
+	_zone_score.text = score_text
+
+
+## Zonenbalken ausblenden (ohne Training, im Ergebnis).
+func hide_zone() -> void:
+	_zone.visible = false
+
+
 ## Ansage zum Widerstandsknopf ("" = keine).
 func show_announcement(text: String) -> void:
 	_announcement.visible = not text.is_empty()
@@ -249,6 +274,11 @@ func celebration() -> String:
 	return _celebration.text if _celebration.visible else ""
 
 
+## Bereich für die Anzeige, z. B. „95–105 rpm“.
+static func zone_range_text(range_min: float, range_max: float) -> String:
+	return "%d–%d rpm" % [roundi(range_min), roundi(range_max)]
+
+
 ## Anteil 0..1 der Runde von `start_m` bis `finish_m` an Position `distance_m`.
 static func lap_progress(distance_m: float, start_m: float, finish_m: float) -> float:
 	if not is_finite(finish_m) or finish_m <= start_m:
@@ -280,7 +310,7 @@ static func grade_direction(grade: float) -> int:
 ## Die sichtbaren Werte als Textzeilen „Name: Wert Einheit“, genau wie angezeigt (Tests, Logs), z. B.
 ## "Kadenz: 90 rpm", "Steigung: +6.0 %", "Leistung: ~142 W", "Rundenzeit: 3:05", "Ghost: +1.4 s", "Bergwertung: 1:12.4",
 ## "Runde 2 / 3: 34 % (noch 6.08 km)"; im Training "Phase: Hart 3/10", "Zielkadenz: 95–105 rpm", "Restzeit: 0:23",
-## "Danach: Locker 3/10 · 80–90 rpm", "Ansage: In 8 s: …".
+## "Danach: Locker 3/10 · 80–90 rpm", "Zone: im Bereich (95–105 rpm, 98 rpm)", "Treffer: 87 %", "Ansage: In 8 s: …".
 func readout() -> String:
 	var lines := []
 	for field in [%Cadence, %Speed, %Distance, %Time, %LapTime, %Grade, _section, _power, _ghost]:
@@ -300,6 +330,10 @@ func readout() -> String:
 		lines.append("Zielkadenz: %s" % _target_value.text)
 		lines.append("Restzeit: %s" % _remaining_value.text)
 		lines.append("Danach: %s" % _next_value.text)
+	if _zone.is_visible_in_tree():
+		lines.append("Zone: %s (%s, %d rpm)" % [_zone_state.text, zone_range_text(_zone_bar.range_min,
+				_zone_bar.range_max), roundi(_zone_bar.value)])
+		lines.append("Treffer: %s" % _zone_score.text)
 	if _announcement.is_visible_in_tree():
 		lines.append("Ansage: %s" % _announcement.text)
 	lines.append("%s: %s (%s)" % [_lap_caption.text, _lap_percent.text, _lap_remaining.text])

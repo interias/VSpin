@@ -1,10 +1,11 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://src/ride_hud.gd" id="1_hud"]
 [ext_resource type="Script" path="res://src/hud_gauge.gd" id="2_gauge"]
 [ext_resource type="Script" path="res://src/hud_grade_icon.gd" id="3_grade_icon"]
 [ext_resource type="Script" path="res://src/hud_minimap.gd" id="4_minimap"]
 [ext_resource type="Script" path="res://src/hud_profile.gd" id="5_profile"]
+[ext_resource type="Script" path="res://src/zone_bar.gd" id="6_zone_bar"]
 
 [sub_resource type="StyleBoxFlat" id="Panel"]
 content_margin_left = 16.0
@@ -474,6 +475,46 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "Ende"
 text_overrun_behavior = 3
+
+[node name="Zone" type="HBoxContainer" parent="Layout/Rows/Bottom/Box"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="ZoneCaption" type="Label" parent="Layout/Rows/Bottom/Box/Zone"]
+layout_mode = 2
+theme_type_variation = &"HudCaption"
+text = "Zone"
+
+[node name="ZoneBar" type="Control" parent="Layout/Rows/Bottom/Box/Zone"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(160, 30)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+mouse_filter = 2
+script = ExtResource("6_zone_bar")
+
+[node name="ZoneState" type="Label" parent="Layout/Rows/Bottom/Box/Zone"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(124, 0)
+layout_mode = 2
+theme_type_variation = &"HudTitle"
+text = "im Bereich"
+
+[node name="ScoreCaption" type="Label" parent="Layout/Rows/Bottom/Box/Zone"]
+layout_mode = 2
+theme_type_variation = &"HudCaption"
+text = "Treffer"
+
+[node name="ZoneScore" type="Label" parent="Layout/Rows/Bottom/Box/Zone"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(64, 0)
+layout_mode = 2
+theme_type_variation = &"HudTitle"
+text = "–"
+horizontal_alignment = 2
 
 [node name="Lap" type="HBoxContainer" parent="Layout/Rows/Bottom/Box"]
 layout_mode = 2

@@ -49,6 +49,10 @@
 ## Training (#37): `--title --training` speichert zusätzlich `title_training.png` (Seite „Training“); `--hud --training`
 ## fährt nach den Streckenbildern die Einheit „Intervalle kurz“ bis kurz vor die erste harte Phase (HUD mit
 ## Trainingszeile und Ansage, `training.png`) und dann zu Ende, mit Treffern je nach Phase (`training_result.png`).
+## Zonenbalken und Tore (#58): dazwischen fährt sie mit dem Tempo des Fahrmodells bis 3 s vor die harte Phase
+## (Starttor fest vor dem Fahrer, `gate_start.png`), zeigt dort den Zonenbalken mit Kadenz unter, im und über dem
+## Bereich (`zone_below.png`, `zone_inside.png`, `zone_above.png`) und fährt weiter bis 3 s vor ihr Ende (Zieltor,
+## `gate_finish.png`).
 ## Gegenrichtung (#34): `--ccw` fährt gegen den Uhrzeigersinn – `--shots`, `--segments`, `--laps` und `--ghost` dann in
 ## Fahrtposition dieser Richtung, mit `--title` ist die Richtung auf der Seite „Rundfahrt“ gewählt.
 ## Garderobe (#36): `--wardrobe=TEIL,…` gibt dem Spielstand (nur im Speicher) Kilometer bis Level 12 und wählt die Teile
@@ -456,6 +460,18 @@ func _training_shots(out_dir: String) -> void:
 	_ride._update_view()
 	await _frames(8)
 	_save_image(out_dir.path_join("training.png"))
+	await _ride_training(training, training.remaining_s() - 3.0)
+	_save_image(out_dir.path_join("gate_start.png"))
+	var warmup: Dictionary = training.phase()
+	for zone in [["below", warmup["cadence_min"] - 8.0], ["inside", (warmup["cadence_min"] + warmup["cadence_max"]) / 2.0],
+			["above", warmup["cadence_max"] + 8.0]]:
+		_ride.bus.cadence = zone[1]
+		_ride._update_view()
+		await _frames(4)
+		_save_image(out_dir.path_join("zone_%s.png" % zone[0]))
+	_ride.bus.cadence = _cadence
+	await _ride_training(training, training.remaining_s() + training.next_phase()["duration_s"] - 3.0)
+	_save_image(out_dir.path_join("gate_finish.png"))
 	for i in range(training.phase_index(), training.phases.size()):
 		var phase: Dictionary = training.phases[i]
 		var cadence: float = (phase["cadence_min"] + phase["cadence_max"]) / 2.0
@@ -468,6 +484,18 @@ func _training_shots(out_dir: String) -> void:
 	_ride._update_view()
 	await _frames(8)
 	_save_image(out_dir.path_join("training_result.png"))
+
+
+## Training `seconds` lang mit `_cadence` und dem Tempo des Fahrmodells fahren (Strecke, Einheit, Anzeige, Kamera wie
+## im Spiel, ohne Bus), danach die Kamera ruhig dahinter.
+func _ride_training(training: Training, seconds: float, dt: float = 1.0 / 30.0) -> void:
+	for i in range(maxi(int(seconds / dt), 1)):
+		_ride.model.step(_cadence, _ride.current_grade(), dt)
+		training.advance(_cadence, dt)
+		_ride._update_view()
+		_ride._update_camera(dt)
+	_ride._update_camera(0.0, true)
+	await _frames(8)
 
 
 func _save_image(path: String) -> void:

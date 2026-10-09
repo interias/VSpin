@@ -29,6 +29,9 @@ const KINDS := [KIND_WARMUP, KIND_WORK, KIND_RECOVERY, KIND_COOLDOWN]
 ## Vorankündigung der nächsten Phase (s vor dem Wechsel) und Anzeigedauer der eigenen Ansage nach dem Wechsel (s).
 const ANNOUNCE_AHEAD_S := 10.0
 const ANNOUNCE_HOLD_S := 5.0
+## Art eines Tors (`gates`, #58), gleich CourseGate.KIND_*.
+const GATE_START := "start"
+const GATE_FINISH := "finish"
 
 ## Die Einheit wie geladen: {name, description, phases: [{name, kind, duration_s, cadence_min, cadence_max,
 ## announcement, group}]}.
@@ -212,6 +215,22 @@ func phase_summary() -> String:
 	for group in groups:
 		parts[groups[group]["at"]] = "%s %s %%" % [group, " · ".join(groups[group]["scores"])]
 	return " · ".join(parts)
+
+
+## Tore der Einheit (#58): [{time_s, kind, text, phase}] nach Zeit – ein Starttor (GATE_START, Text „Start“ und
+## Zielkadenz) zu Beginn jeder Belastung (KIND_WORK), ein Zieltor (GATE_FINISH, „Ziel“) an ihrem Ende, wenn keine
+## Belastung folgt; folgt eine, steht dort nur deren Starttor. `time_s` ist der Phasenwechsel (s ab Beginn der Einheit),
+## `phase` der Index der Phase, die dort beginnt. Aufwärmen, Erholung und Ausrollen allein bekommen keine Tore.
+func gates() -> Array:
+	var result := []
+	for i in range(phases.size() - 1):
+		var next: Dictionary = phases[i + 1]
+		if next["kind"] == KIND_WORK:
+			result.append({"time_s": _ends[i], "kind": GATE_START, "text": "Start  %s" % target_text(next),
+					"phase": i + 1})
+		elif phases[i]["kind"] == KIND_WORK:
+			result.append({"time_s": _ends[i], "kind": GATE_FINISH, "text": "Ziel", "phase": i + 1})
+	return result
 
 
 ## Liegt `cadence_rpm` im Zielbereich der Phase (Grenzen eingeschlossen)?
