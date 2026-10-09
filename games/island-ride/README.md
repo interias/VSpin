@@ -470,7 +470,7 @@ Bridge ändern und schauen, wann „Kadenz roh“ und `t_ms` nachziehen.
 Das Menü wirkt sofort und speichert jede Änderung in `user://settings.cfg` – unter Windows
 `%APPDATA%\Godot\app_userdata\Inselfahrt\settings.cfg` (getrennt von `config.cfg`; Datei löschen = Standardwerte).
 Das Spiel läuft weiter, solange das Menü offen ist. Zwei Spalten (#42): links Grafik, rechts Tageszeit, Wetter,
-Jahreszeit und Fenster – so passt das Menü in 1280 × 720 und ins Halbbild. Unten „Schließen“, in der Fahrt „Fahrt beenden“ (zurück ins
+Jahreszeit, Ton und Fenster – so passt das Menü in 1280 × 720 und ins Halbbild. Unten „Schließen“, in der Fahrt „Fahrt beenden“ (zurück ins
 Startmenü) und „Beenden“ (beendet das Spiel; im Browser ausgeblendet) – `Esc` beendet nicht mehr direkt (#19).
 
 | Option | Auswahl | Standard |
@@ -487,6 +487,8 @@ Startmenü) und „Beenden“ (beendet das Spiel; im Browser ausgeblendet) – `
 | Tageszeit | Echtzeit (Mallorca), feste Uhrzeit 6:00/9:00/12:00/15:00/18:00/20:30/22:00/0:00, Zeitraffer 12/24/48 min je Tag (startet bei der aktuellen Uhrzeit des Spiels) | wie `config.cfg [sky]` (Echtzeit) |
 | Wetter | Wechselnd (meist sonnig), Klar, Leicht bewölkt, Bewölkt, Regen (fest) – sofort, ohne Überblendung | wie `config.cfg [sky]` (Wechselnd) |
 | Jahreszeit | Nach Datum (Mallorca), Mandelblüte, Frühling, Sommer, Herbst, Winter (fest) – sofort (#39) | Nach Datum |
+| Ton | An, Aus – alle Klänge des Spiels (#44) | An |
+| Lautstärke | 10, 20, 30, 50, 70, 100 % – eigener Audio-Bus „Spiel“, Musik nebenher bleibt hörbar | 30 % (leise) |
 | Fenstermodus | Fenster (mit Rahmen, frei skalierbar), Randloses Fenster, Vollbild | Fenster 1600 × 900, mittig |
 | Fenstergröße | 960 × 1040, 1280 × 720, 1600 × 900, 1920 × 1080, 2560 × 1440 (im Vollbild: Bildschirmauflösung) | 1600 × 900 |
 
@@ -670,6 +672,28 @@ die Trainingszeile mit Ansage (`training.png`), Starttor (`gate_start.png`), Zon
 (`zone_below.png`, `zone_inside.png`, `zone_above.png`), Zieltor (`gate_finish.png`) und das Ergebnis
 (`training_result.png`).
 
+### Ton (#44)
+
+Dezent und standardmäßig leise (Lautstärke 30 %, jeder Klang zusätzlich gedämpft), auf einem eigenen Audio-Bus
+„Spiel“ – Lautstärke und Aus-Schalter stehen im Einstellungsmenü und in `settings.cfg [sound]`. Alle Klänge entstehen
+**prozedural** im Spiel (`src/sound_synth.gd`, SoundSynth), es gibt keine Klangdateien; erzeugt wird einmal beim Start,
+ein Klang je Frame. Was wann wie laut klingt, rechnet `RideSound.levels()` (`src/ride_sound.gd`) aus Tempo, Kadenz, Ort,
+Wetter und Tageslicht; Hörer ist die Kamera. Ton ist nur Ausgabe (ADR-0010).
+
+| Klang | Wann und wo | Erzeugung |
+|---|---|---|
+| Fahrtwind | beim Fahren, ab 5 km/h, voll und heller (Abspieltempo 0,8 → 1,35) ab 45 km/h | Rauschen, Tiefpass, plus ein Band um ~600 Hz mit langsam schwankender Stärke (Böen); 3-s-Schleife, 11 kHz |
+| Freilauf | Kadenz 0 und Tempo ≥ 1 km/h; 12 Klicks je Radumdrehung | ein Klick (Rauschstoß 1,2 ms + 3,2 kHz, 2 ms) je 1/20 s; das Abspieltempo setzt die Klicks je Sekunde |
+| Meer | bis 25 m vom Wasser voll, ab 220 m still (Messringe um den Hörer im Höhenfeld) | braunes Rauschen (Brandung) und Zischen der auslaufenden Welle, zwei Wellen je 6-s-Schleife, 11 kHz |
+| Regen | nach der Regenstärke des Wetters, wie die sichtbaren Tropfen | hochpassgefiltertes Rauschen plus vereinzelte Tropfen (abklingende 3,2-kHz-Klicks); 2-s-Schleife |
+| Möwen | an den drei Möwenschwärmen (Hafen, Leuchtturm, Westküste), voll bis 40 m, still ab 260 m, Ruf alle 3–9 s; nicht nachts, nicht im Regen (dieselbe Regel wie die sichtbaren Vögel) | zwei Rufe „kjau“: Grundton gleitet 1150 → 1500 → 900 Hz, Obertöne 2–4, Vibrato 24 Hz |
+| Schafglocken | an jeder Schafherde (`World/Fauna/Glocken/Herde<n>`), voll bis 15 m, still ab 110 m, alle 1,5–5 s | Blechglocke: Teiltöne 1150 Hz × 1 · 2,31 · 3,89 · 5,6, Abklingen 0,35–0,1 s, Anschlag |
+| Dorfglocke | am Kirchturm im Bergdorf, voll bis 60 m, still ab 520 m; nach 6 s in Hörweite ein Geläut aus 5 Schlägen (zwei Glocken im Wechsel), dann alle 60–120 s | Glocke: Unterton 0,5, Prim 1, kleine Terz 1,19, Quinte 1,5, Oktave 2, 2,5, 3 × 220 Hz, Abklingen bis 3,5 s |
+| UI | Klick je Knopfdruck und beim Öffnen/Schließen der Einstellungen; Doppelton je sichtbarer Einblendung (Bestzeit, Segment, Erfolg, Level); weicher Ton, wenn im Training eine Ansage erscheint und beim Phasenwechsel | Klick: Sinus 1000 → 700 Hz, 30 ms; Doppelton E6 + A6; Ansage A5 mit Oktave |
+
+Im Browser startet der Ton erst nach der ersten Nutzergeste (Regel der Browser); ohne Audio-Gerät (oder wenn die
+Audio-Worklets nicht laden) läuft das Spiel gleich, nur still.
+
 ### Virtuelle Steigung (`set_grade`)
 
 Das Spiel meldet die Steigung an der Fahrerposition per `{"v": 0, "type": "set_grade", "grade": 0.06}`
@@ -835,6 +859,8 @@ src/weather.gd          Weather: simuliertes Wetter, Zustände und Übergänge �
 src/sky_controller.gd   SkyController: Sonne, Mond, Himmel, Environment, Regen, Sterne, Web-Lichtprofil (G6); Farbstimmung, Höhennebel (#42)
 src/night_lights.gd     NightLights: Laternen, Leuchtfeuer, Fahrradlicht bei Nacht
 src/speed_effects.gd    SpeedEffects: Geschwindigkeitslinien und Sichtfeld-Kick ab 35 km/h, abschaltbar (#42)
+src/ride_sound.gd       RideSound: Ton – Pegel aus Tempo, Ort, Wetter, Tageslicht (levels() als reine Rechnung), Bus „Spiel“, Auslöser (#44)
+src/sound_synth.gd      SoundSynth: alle Klänge prozedural als AudioStreamWAV (Rauschen, Filter, Teiltöne), keine Dateien (#44)
 src/shaders/            Wind (Vegetation), Meer (Wellen, Flachwasser, Brandung), Lichtkegel, Leuchtpunkte, Geschwindigkeitslinien
 src/graybox_track.gd    GrayboxTrack: Rundkurs ~900 m, flach → +6 % → Kuppe → −6 % → flach (`[world] track="graybox"`)
 tests/                  GUT-Tests, support/ (Fake-Bus, Basisklasse, Hook), fixtures/
