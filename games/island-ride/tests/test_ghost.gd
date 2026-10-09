@@ -4,7 +4,7 @@ extends GutTest
 
 const DT := 1.0 / 60.0
 const LAP_M := 900.0
-const SAVE_PATH := "user://test_ghost_savegame.json"
+var SAVE_PATH := TestIsolation.path("test_ghost_savegame.json")
 const MAIN := preload("res://scenes/main.gd")
 
 

@@ -3,7 +3,9 @@
 ##   godot --headless --path games/island-ride -s res://tools/e2e_probe.gd -- --seconds=6 [--start-m=2400] [--track=graybox]
 ## `--start-m`: Startposition auf der Strecke (Insel: 2400 = Beginn der Serpentinen; Graybox: 140 = kurz vor
 ## dem Anstieg), z. B. für `set_grade`. `--track`: Strecke statt der aus config.cfg (`island` oder `graybox`).
-## Exit-Code 2, wenn keine Bus-Verbindung zustande kam.
+## Exit-Code 2, wenn keine Bus-Verbindung zustande kam. Mit `VSPIN_PORT_BASE=n` (#62) fährt sie gegen die Bridge auf
+## Port 8765 + n statt config.cfg [bus] url. Den Gelände-Cache legt sie ins Testverzeichnis (TestIsolation), nie
+## nach user://.
 extends SceneTree
 
 
@@ -12,6 +14,8 @@ func _initialize() -> void:
 	var start_m := 0.0
 	var config := RideConfig.load_file()
 	config.bridge_autostart = false  # Prüfhilfe startet nie selbst eine Bridge (#25)
+	config.bus_url = TestIsolation.probe_bus_url(config.bus_url)
+	IslandTerrain.cache_path = TestIsolation.path("terrain_cache.bin")
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--seconds="):
 			seconds = float(arg.get_slice("=", 1))

@@ -5,7 +5,7 @@
 ## Gefahren wird mit der Kadenz vom Bus in festen Schritten (DT) durch die Hauptszene, unabhängig von der Bildrate.
 extends "res://tests/support/bus_test.gd"
 
-const SAVE_PATH := "user://test_training_ride_savegame.json"
+var SAVE_PATH := TestIsolation.path("test_training_ride_savegame.json")
 ## Kurze Test-Einheit: je 20 s Aufwärmen (80–100 rpm), Hart (95–105 rpm), Ausrollen (70–95 rpm).
 const SHORT_UNIT := "res://tests/fixtures/training_short.json"
 ## Schnelles Rad wie in test_round_trip.gd: viele Graybox-Runden in einer Minute.

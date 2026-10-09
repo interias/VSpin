@@ -3,7 +3,7 @@
 ## Uhrzeigersinn bleibt unberührt. Fahrer, Ghost, Torbögen und HUD schauen in Fahrtrichtung.
 extends "res://tests/support/bus_test.gd"
 
-const SAVE_PATH := "user://test_counter_direction_savegame.json"
+var SAVE_PATH := TestIsolation.path("test_counter_direction_savegame.json")
 ## Schnelles Rad wie in test_segments_and_medals.gd: 120 rpm · 10 km/h je rpm.
 const FAST_K := 10.0
 const DT := 1.0 / 60.0

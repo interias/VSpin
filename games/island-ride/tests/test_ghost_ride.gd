@@ -3,7 +3,7 @@
 ## Streckenposition, das HUD zeigt den Abstand mit Vorzeichen (+ = dahinter); danach die Auswahl „letzte Fahrt“.
 extends "res://tests/support/bus_test.gd"
 
-const SAVE_PATH := "user://test_ghost_ride_savegame.json"
+var SAVE_PATH := TestIsolation.path("test_ghost_ride_savegame.json")
 ## Schnelles Rad wie in test_round_trip.gd: eine Graybox-Runde in wenigen Sekunden.
 const FAST_K := 10.0
 

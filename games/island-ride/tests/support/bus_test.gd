@@ -8,12 +8,11 @@
 extends GutTest
 
 const MAIN_SCENE := preload("res://scenes/main.tscn")
-## Testports liegen bewusst neben dem Bus-Port 8765 der Bridge.
-const FIRST_TEST_PORT := FakeBusServer.DEFAULT_PORT
 
 var _buses: Array = []
 var _clients: Array = []
-var _next_port := FIRST_TEST_PORT
+## Testports liegen bewusst neben dem Bus-Port 8765 der Bridge, je Lauf eigene (VSPIN_PORT_BASE, TestIsolation).
+var _next_port := TestIsolation.first_test_port()
 
 
 func after_each() -> void:

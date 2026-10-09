@@ -3,7 +3,8 @@
 ## Fake-Prozess – nie eine echte Bridge, nie Port 8765.
 extends "res://tests/support/bus_test.gd"
 
-const STOP_FILE := "user://test_bridge_launcher.stop"
+const STOP_FILE_NAME := "test_bridge_launcher.stop"
+var STOP_FILE := TestIsolation.path(STOP_FILE_NAME)
 const BASE_DIR := "C:/vspin/games/island-ride"
 
 
@@ -18,7 +19,7 @@ class FakeProcesses:
 	var stopped_cleanly: Array = []
 	var exists := true
 	var ignores_stop := false
-	var stop_file := ProjectSettings.globalize_path(STOP_FILE)
+	var stop_file := TestIsolation.path(STOP_FILE_NAME)
 
 	func start(program: String, args: PackedStringArray) -> int:
 		started.append([program, args])

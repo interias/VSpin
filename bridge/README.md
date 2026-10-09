@@ -46,6 +46,8 @@ schon laufende Bridge (z. B. hier von Hand gestartet) nutzt das Spiel nur mit un
 Der Bus lauscht standardmäßig nur auf `127.0.0.1`. `--host ADRESSE` (z. B. `--host 0.0.0.0`) ist für den
 Container gedacht (`docker-compose.yml`, siehe [Anleitung](../docs/anleitung.md) „Mit Docker Desktop starten“), dessen Port nur auf
 `127.0.0.1` des Rechners veröffentlicht wird – nativ nicht verwenden, sonst ist der Bus im Netz erreichbar.
+`--port PORT` (Standard 8765) ist nur für parallele Test- und Prüfläufe gedacht (siehe „Testen“); das Spiel verbindet
+sich mit `config.cfg [bus] url`. Die Bridge selbst liest `VSPIN_PORT_BASE` nicht.
 
 Clients können `set_grade` senden (virtuelle Steigung, ADR-0007). Die Bridge antwortet dem
 Absender mit `ack` (bis zur Widerstandssteuerung `ok: false, reason: "not_supported"`) und
@@ -223,9 +225,19 @@ python -m pytest                           # im Ordner bridge/
 Testmuster: Tests starten die Bridge als echten Prozess (`python -m vspin_bridge`,
 `PYTHONPATH=src`) und prüfen nur das am Bus beobachtbare Verhalten über Test-Clients
 (`tests/bridge_harness.py`, Fixtures `bridge_process`/`bus_client` in `tests/conftest.py`).
-Port 8765 muss frei sein. Kein Rad, kein Windows nötig. Laufen Tests aus mehreren Checkouts
-gleichzeitig, wartet jeder Lauf auf die Sperre `/tmp/vspin-bridge-tests.lock` (flock, nur
-Linux/macOS; unter Windows ohne Sperre) – Bridge-Tests laufen so nie parallel.
+Port 8765 (mit `VSPIN_PORT_BASE` 8765 + n, siehe unten) muss frei sein. Kein Rad, kein Windows nötig.
+
+**Parallele Testläufe (#62):** `VSPIN_PORT_BASE=n` (ganze Zahl 0–466, ohne Variable 0) gibt einem Lauf – etwa je
+Worktree – den eigenen Bus-Port 8765 + n; der Harness startet jede Bridge mit `--port`. Läufe mit gleichem Wert
+warten aufeinander (Sperre `vspin-bridge-tests-<port>.lock` im Temp-Ordner: `fcntl.flock` unter Linux/macOS,
+`msvcrt.locking` unter Windows), Läufe mit anderem Wert laufen gleichzeitig. Dazu je Lauf ein eigenes `--basetemp`:
+
+```
+VSPIN_PORT_BASE=2 python -m pytest -q -p no:cacheprovider --basetemp=<temp>/pytest-2
+```
+
+Das Spiel leitet aus demselben Wert seine Testports ab (`games/island-ride/README.md`, „Tests“). Ein ungültiger Wert
+bricht den Lauf ab, statt still auf 8765 zu fallen.
 Der Harness beendet die Bridge wie im Betrieb: unter Linux/macOS mit SIGTERM, unter Windows über die Stoppdatei
 wie das Spiel; „Strg+C“ ist SIGINT bzw. unter Windows Strg+Untbr an die eigene Prozessgruppe.
 

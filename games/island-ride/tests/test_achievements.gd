@@ -4,7 +4,7 @@
 ## direkt mit deren Ereignissen.
 extends "res://tests/support/bus_test.gd"
 
-const SAVE_PATH := "user://test_achievements_savegame.json"
+var SAVE_PATH := TestIsolation.path("test_achievements_savegame.json")
 const EVENTS := [Achievements.EVENT_DISTANCE, Achievements.EVENT_LAP, Achievements.EVENT_WEATHER,
 		Achievements.EVENT_TIME_OF_DAY, Achievements.EVENT_SEASON, Achievements.EVENT_TRAINING]
 

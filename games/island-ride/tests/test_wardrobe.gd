@@ -5,7 +5,7 @@
 extends "res://tests/support/bus_test.gd"
 
 const WARDROBE := preload("res://scenes/wardrobe.gd")
-const SAVE_PATH := "user://test_wardrobe_savegame.json"
+var SAVE_PATH := TestIsolation.path("test_wardrobe_savegame.json")
 const DT := 1.0 / 60.0
 
 

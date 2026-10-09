@@ -100,7 +100,7 @@ func test_reconnects_after_bus_closes() -> void:
 
 func test_connects_when_bus_comes_up_later() -> void:
 	var bus := FakeBusServer.new([FakeBusServer.status(), FakeBusServer.telemetry(55.0, 0.1)])
-	var port := FakeBusServer.DEFAULT_PORT + 50
+	var port := TestIsolation.first_test_port() + 50
 	bus.port = port
 	var client := connect_client(bus, 0.2)
 	await run_for(0.5)
@@ -131,7 +131,7 @@ func test_script_from_json_file() -> void:
 func test_reconnects_when_connecting_hangs() -> void:
 	# Ein TCP-Server, der nie den WebSocket-Handshake beantwortet: der Client hängt in CONNECTING.
 	var server := TCPServer.new()
-	var port := FakeBusServer.DEFAULT_PORT + 52
+	var port := TestIsolation.first_test_port() + 52
 	assert_eq(server.listen(port, FakeBusServer.HOST), OK)
 	var held: Array = []
 	var client := connect_client_to("ws://%s:%d" % [FakeBusServer.HOST, port], 0.1, 0.4)

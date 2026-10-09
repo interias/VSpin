@@ -3,7 +3,7 @@
 ## mit 85 rpm ergibt Silber für Runde und alle Segmente im Fahrtergebnis.
 extends "res://tests/support/bus_test.gd"
 
-const SAVE_PATH := "user://test_segments_savegame.json"
+var SAVE_PATH := TestIsolation.path("test_segments_savegame.json")
 ## Schnelles Rad für den Durchstich: 120 rpm · 10 km/h je rpm ≈ 330 m/s flach – der Dorfsprint in etwa einer Sekunde.
 const FAST_K := 10.0
 ## Kurz vor dem Dorfsprint (5700–6010 m).

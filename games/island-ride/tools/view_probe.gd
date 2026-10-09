@@ -224,6 +224,8 @@ func _initialize() -> void:
 	DisplayServer.window_set_size(size)
 	var config := RideConfig.load_file()
 	config.bridge_autostart = false  # Prüfhilfe startet nie selbst eine Bridge (#25)
+	config.bus_url = TestIsolation.probe_bus_url(config.bus_url)  # mit VSPIN_PORT_BASE nie die Bridge des Spielers (#62)
+	IslandTerrain.cache_path = TestIsolation.path("terrain_cache.bin")  # nie user:// (#62)
 	config.track = RideConfig.TRACK_ISLAND
 	_ride = load("res://scenes/main.tscn").instantiate()
 	_ride.config = config

@@ -3,7 +3,7 @@
 ## beenden“, und die ehrliche Wertung (ADR-0010): die Rundenzeit hängt nur an Kadenz und Steigung.
 extends "res://tests/support/bus_test.gd"
 
-const SAVE_PATH := "user://test_round_trip_savegame.json"
+var SAVE_PATH := TestIsolation.path("test_round_trip_savegame.json")
 ## Schnelles Rad für den Durchstich: 120 rpm · 10 km/h je rpm ≈ 330 m/s flach – eine Graybox-Runde in wenigen Sekunden.
 const FAST_K := 10.0
 const DT := 1.0 / 60.0

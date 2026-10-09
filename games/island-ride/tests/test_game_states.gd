@@ -100,7 +100,7 @@ func test_bus_drop_pauses_and_reconnect_resumes() -> void:
 
 func test_bridge_not_running_shows_hint_and_connects_later() -> void:
 	var bus := FakeBusServer.new([FakeBusServer.status()] + FakeBusServer.steady_cadence(70.0, 0.1, 3.0))
-	bus.port = FakeBusServer.DEFAULT_PORT + 51
+	bus.port = TestIsolation.first_test_port() + 51
 	var ride := spawn_ride(bus, FLAT_M)
 	await run_for(0.6)
 	assert_eq(ride.state, PAUSED_CONNECTION)

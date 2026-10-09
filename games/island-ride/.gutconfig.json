@@ -7,5 +7,6 @@
   "suffix": ".gd",
   "should_exit": true,
   "log_level": 1,
+  "pre_run_script": "res://tests/support/pre_run_isolation.gd",
   "post_run_script": "res://tests/support/post_run_check.gd"
 }
