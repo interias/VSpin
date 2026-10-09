@@ -3,7 +3,8 @@
 ## Arcade-Stand im Spielstand, getrennte Welten (ADR-0010: km zählen, nie Bestzeit, Segmentzeit, Medaille, Ghost) und
 ## die Simulator-Szenarien der Bridge (`bridge/profiles/arcade/*.toml`) mit genau ihrem Kadenzverlauf:
 ## „perfekt in der Zone“ → geschafft, „knapp daneben“ → weich verfehlt, „Abbruch“ → Pause, nichts läuft weiter,
-## danach geschafft.
+## danach geschafft. Durchbruch und Jagd (#47): Zugbrücke und Verfolger auf der Strecke, Erfolg und weiches Scheitern in
+## HUD, Punkten und Beute, und ihre Szenarien (`durchbruch_*`, `jagd_*`).
 extends "res://tests/support/bus_test.gd"
 
 var SAVE_PATH := TestIsolation.path("test_arcade_ride_savegame.json")
@@ -40,10 +41,11 @@ func _spawn_on(bus: FakeBusServer, fast: bool = false) -> Node:
 
 ## „Fahren → Arcade“, Stufe `tier`, Kadenzbereich `lower`–`upper` (rpm), „Losfahren“ – mit festem Würfel und nur der
 ## Herausforderung „zone_mitte“ (Zone halten in der Mitte des Bereichs), damit das Ergebnis vorhersagbar ist.
-func _start_arcade(game: Node, tier: int = 1, lower: float = 60.0, upper: float = 120.0) -> void:
+func _start_arcade(game: Node, tier: int = 1, lower: float = 60.0, upper: float = 120.0,
+		challenge: String = "zone_mitte") -> void:
 	await run_for(0.2)
 	game.arcade_seed = 1
-	game.arcade_pool = [Encounters.find("zone_mitte")]
+	game.arcade_pool = [Encounters.find(challenge)]
 	var menu: CanvasLayer = game.start_menu
 	menu.buttons["drive"].pressed.emit()
 	menu.buttons["arcade"].pressed.emit()
@@ -242,14 +244,14 @@ func test_arcade_km_count_but_never_records() -> void:
 ## Spielt das Bridge-Profil `name` (unter bridge/profiles/arcade) über den Fake-Bus durch das Spiel – Arcade aus dem
 ## Menü, Stufe 1, Kadenzbereich 60–120 rpm – in festen Schritten, gleichauf mit dem Drehbuch. Liefert je Schritt
 ## {state, distance_m, active, progress, block_s, results} und die Einblendungen (letzter Eintrag `shown`).
-func _play_profile(name: String) -> Dictionary:
+func _play_profile(name: String, challenge: String = "zone_mitte") -> Dictionary:
 	var profile := SimProfile.load_toml(SimProfile.path("arcade/" + name))
 	assert_false(profile.is_empty(), "Profil %s lesbar" % name)
 	var bus := start_fake_bus(SimProfile.to_script(profile))
 	bus.manual_clock_ms = 0
 	var game := _spawn_on(bus)
 	await run_for(0.3)  # verbinden; das Drehbuch steht noch bei 0 s
-	await _start_arcade(game)
+	await _start_arcade(game, 1, 60.0, 120.0, challenge)
 	game.set_process(false)
 	var steps := []
 	var shown := []
@@ -315,3 +317,195 @@ func test_scenario_connection_loss_pauses_the_challenge() -> void:
 	assert_eq(game.arcade.points, 100)
 	var done: int = steps.map(func(s): return s["results"]).find(1)
 	assert_gt(done, paused[-1]["i"], "geschafft erst nach der Pause")
+
+
+# --- Durchbruch und Jagd in der Fahrt (#47) ----------------------------------------------------------------------
+
+
+## Fahrt mit gleichbleibender Kadenz `cadence` bis kurz vor die Herausforderung `id` (Stufe 1, Bereich 60–120 rpm).
+func _start_challenge(id: String, cadence: float) -> Node:
+	var game := _spawn_game([FakeBusServer.status()] + FakeBusServer.steady_cadence(cadence, 0.0, 60.0))
+	await _start_arcade(game, 1, 60.0, 120.0, id)
+	await _until_riding(game)
+	_ride(game, 1.0)
+	return game
+
+
+func test_breakthrough_shows_a_drawbridge_that_opens_with_the_bar() -> void:
+	var game := await _start_challenge("durchbruch_bruecke", 114.0)
+	assert_string_contains(game.hud.readout(), "Ziel: ab 108 rpm", "Schwelle statt Zone")
+	assert_eq(game.arcade_start_gate.text, "Start  ab 108 rpm")
+	assert_false(game.arcade_bridge.visible, "vor dem Start keine Brücke")
+	_ride_to_challenge(game)
+	var block: Breakthrough = game.arcade.active["block"]
+	assert_eq(block.zone(), Vector2(108.0, 120.0))
+	_ride(game, 3.0)
+	var hud: String = game.hud.readout()
+	assert_string_contains(hud, "Herausforderung: Durchbruch")
+	assert_string_contains(hud, "Balken: 50 %", "Balken statt Fortschritt")
+	assert_string_contains(hud, "Zone: im Bereich (108–120 rpm, 114 rpm)")
+	assert_true(game.arcade_bridge.visible, "die Zugbrücke steht am Ende des Zeitfensters")
+	assert_false(game.arcade_finish_gate.visible, "die Brücke ist das Ziel, kein Zieltor")
+	assert_almost_eq(game.arcade_bridge.target, 0.5, 0.01, "sie senkt sich mit dem Balken")
+	var shown := _ride(game, 4.0)
+	assert_has(shown, "Durchbruch geschafft!  +140 Punkte")
+	assert_eq(game.arcade.points, 140)
+	assert_eq(game.arcade_bridge.target, 1.0, "nach dem Erfolg ganz offen")
+	assert_eq(game.arcade_bridge.speed, Drawbridge.SUCCESS_SPEED)
+	await run_for(1.2)
+	assert_eq(game.arcade_bridge.open, 1.0, "die Klappe liegt auf der Straße")
+	assert_eq(game.state, "riding", "die Fahrt geht weiter")
+
+
+func test_breakthrough_missed_opens_the_bridge_anyway_without_reward() -> void:
+	var game := await _start_challenge("durchbruch_bruecke", 100.0)
+	_ride_to_challenge(game)
+	var shown := _ride(game, 19.0)
+	assert_has(shown, "Durchbruch verfehlt – weiter geht's", "weich")
+	assert_eq(game.arcade.points, 0)
+	assert_eq(game.arcade.results[0]["progress"], 0.0, "der Balken blieb leer")
+	assert_eq(game.arcade.results[0]["loot"], {}, "keine Beute")
+	assert_eq(game.arcade_bridge.target, 1.0, "die Brücke öffnet sich trotzdem …")
+	assert_eq(game.arcade_bridge.speed, Drawbridge.FAIL_SPEED, "… nur langsamer")
+	assert_eq(game.state, "riding")
+	var before: float = game.model.distance_m
+	_ride(game, 5.0)
+	assert_gt(game.model.distance_m, before + 20.0, "die Fahrt geht weiter")
+
+
+func test_chase_shows_a_pursuer_who_falls_back_when_escaped() -> void:
+	var game := await _start_challenge("jagd_verfolger", 100.0)
+	assert_string_contains(game.hud.readout(), "Ziel: ab 93 rpm")
+	assert_false(game.arcade_pursuer.visible, "vor der Jagd kein Verfolger")
+	_ride_to_challenge(game)
+	_ride(game, 1.0)
+	assert_true(game.arcade_pursuer.active)
+	assert_string_contains(game.hud.readout(), "Abstand: ", "Abstand statt Fortschritt")
+	var near: float = game.arcade_pursuer.target_behind_m
+	_ride(game, 3.0)
+	assert_gt(game.arcade_pursuer.target_behind_m, near, "wer über der Schwelle tritt, lässt ihn zurück")
+	assert_true(game.arcade_pursuer.visible)
+	var shown := _ride(game, 6.0)
+	assert_has(shown, "Jagd geschafft!  +140 Punkte")
+	assert_true(game.arcade_pursuer.leaving, "abgehängt: er zieht ab")
+	await run_for(5.0)
+	assert_false(game.arcade_pursuer.visible, "und verschwindet")
+	assert_eq(game.state, "riding")
+
+
+func test_chase_caught_pursuer_closes_in_and_leaves_without_reward() -> void:
+	var game := await _start_challenge("jagd_verfolger", 80.0)
+	_ride_to_challenge(game)
+	_ride(game, 1.0)
+	var start: float = game.arcade_pursuer.target_behind_m
+	_ride(game, 2.0)
+	assert_lt(game.arcade_pursuer.target_behind_m, start, "unter der Schwelle holt er auf")
+	var shown := _ride(game, 4.0)
+	assert_has(shown, "Jagd verfehlt – weiter geht's")
+	assert_eq(game.arcade.points, 0)
+	assert_eq(game.arcade.results[0]["loot"], {})
+	assert_eq(game.arcade.results[0]["progress"], 0.0, "eingeholt")
+	assert_true(game.arcade_pursuer.leaving, "weich: er zieht ab")
+	assert_eq(game.state, "riding")
+	await run_for(6.0)
+	assert_false(game.arcade_pursuer.visible)
+
+
+func test_props_vanish_with_the_menu() -> void:
+	var game := await _start_challenge("jagd_verfolger", 100.0)
+	_ride_to_challenge(game)
+	_ride(game, 1.0)
+	assert_true(game.arcade_pursuer.visible)
+	game.settings_menu.ride_end_requested.emit()
+	await press_key(KEY_ENTER)
+	assert_eq(game.state, "menu")
+	game._update_view()
+	assert_false(game.arcade_pursuer.visible)
+	assert_false(game.arcade_bridge.visible)
+
+
+## Beginnt die nächste Herausforderung im selben Schritt, in dem die vorige endet (ihr Startpunkt lag schon hinter dem
+## Fahrer), muss der Verfolger trotzdem abziehen und die Brücke sich öffnen.
+func test_pursuer_is_dismissed_when_the_next_challenge_starts_in_the_same_step() -> void:
+	var next := {"definition": Encounters.find("zone_mitte"), "at_m": 0.0, "end_m": 1.0e9, "section": "x", "lap": 0}
+	var game := await _start_challenge("jagd_verfolger", 100.0)
+	_ride_to_challenge(game)
+	game.arcade.planned.push_front(next)
+	_ride(game, 14.0)
+	assert_eq(game.arcade.results.size(), 1, "die Jagd ist beendet")
+	assert_eq(game.arcade.active["definition"]["id"], "zone_mitte", "die nächste begann sofort")
+	assert_true(game.arcade_pursuer.leaving, "der Verfolger zieht ab, statt stehen zu bleiben")
+
+
+func test_bridge_is_released_when_the_next_challenge_starts_in_the_same_step() -> void:
+	var next := {"definition": Encounters.find("zone_mitte"), "at_m": 0.0, "end_m": 1.0e9, "section": "x", "lap": 0}
+	var game := await _start_challenge("durchbruch_bruecke", 114.0)
+	_ride_to_challenge(game)
+	game.arcade.planned.push_front(next)
+	_ride(game, 8.0)
+	assert_eq(game.arcade.active["definition"]["id"], "zone_mitte", "die nächste begann sofort")
+	assert_eq([game.arcade_bridge.target, game.arcade_bridge.speed], [1.0, Drawbridge.SUCCESS_SPEED],
+			"die Brücke öffnet sich")
+
+
+func test_scenario_breakthrough_made() -> void:
+	var run := await _play_profile("durchbruch_geschafft.toml", "durchbruch_bruecke")
+	var game: Node = run["game"]
+	assert_eq(game.arcade.results.size(), 1)
+	assert_true(game.arcade.results[0]["succeeded"], "8 s mit 114 rpm über 108 rpm: geschafft")
+	assert_eq(game.arcade.points, 140)
+	assert_has(run["shown"], "Durchbruch geschafft!  +140 Punkte")
+	var steps: Array = run["steps"]
+	var done: int = steps.map(func(s): return s["results"]).find(1)
+	assert_eq(steps[done]["state"], "riding", "Erfolg in voller Fahrt")
+	assert_gt(steps[done + 20]["distance_m"], steps[done]["distance_m"], "die Fahrt geht weiter")
+	assert_eq(game.arcade_bridge.target, 1.0, "die Brücke ist offen")
+
+
+func test_scenario_breakthrough_too_weak() -> void:
+	var run := await _play_profile("durchbruch_zu_schwach.toml", "durchbruch_bruecke")
+	var game: Node = run["game"]
+	assert_eq(game.arcade.results.size(), 1)
+	var result: Dictionary = game.arcade.results[0]
+	assert_false(result["succeeded"], "104 rpm unter 108 rpm: verfehlt")
+	assert_eq(result["progress"], 0.0)
+	assert_eq(result["loot"], {})
+	assert_eq(game.arcade.points, 0)
+	assert_has(run["shown"], "Durchbruch verfehlt – weiter geht's")
+	var steps: Array = run["steps"]
+	var done: int = steps.map(func(s): return s["results"]).find(1)
+	assert_eq(steps[done]["state"], "riding")
+	assert_gt(steps[done + 30]["distance_m"], steps[done]["distance_m"] + 10.0, "die Fahrt geht weiter")
+	assert_eq(game.arcade_bridge.target, 1.0, "die Brücke öffnet sich trotzdem")
+
+
+func test_scenario_chase_escaped() -> void:
+	var run := await _play_profile("jagd_entkommen.toml", "jagd_verfolger")
+	var game: Node = run["game"]
+	assert_eq(game.arcade.results.size(), 1)
+	assert_true(game.arcade.results[0]["succeeded"], "14 s mit 100 rpm über 93 rpm: abgehängt")
+	assert_eq(game.arcade.points, 140)
+	assert_false(game.arcade.results[0]["loot"].is_empty(), "geschafft: Beute")
+	assert_has(run["shown"], "Jagd geschafft!  +140 Punkte")
+	assert_true(game.arcade_pursuer.leaving)
+	var steps: Array = run["steps"]
+	var done: int = steps.map(func(s): return s["results"]).find(1)
+	assert_eq(steps[done]["state"], "riding")
+	assert_gt(steps[done + 20]["distance_m"], steps[done]["distance_m"])
+
+
+func test_scenario_chase_caught() -> void:
+	var run := await _play_profile("jagd_eingeholt.toml", "jagd_verfolger")
+	var game: Node = run["game"]
+	assert_eq(game.arcade.results.size(), 1)
+	var result: Dictionary = game.arcade.results[0]
+	assert_false(result["succeeded"], "80 rpm unter 93 rpm: eingeholt")
+	assert_eq(result["progress"], 0.0)
+	assert_eq(result["loot"], {}, "keine Beute")
+	assert_eq(game.arcade.points, 0)
+	assert_has(run["shown"], "Jagd verfehlt – weiter geht's")
+	var steps: Array = run["steps"]
+	var done: int = steps.map(func(s): return s["results"]).find(1)
+	assert_eq(steps[done]["state"], "riding", "weich: kein Abbruch")
+	assert_gt(steps[done + 30]["distance_m"], steps[done]["distance_m"] + 20.0)
+	assert_true(game.arcade_pursuer.leaving, "er zieht ab")

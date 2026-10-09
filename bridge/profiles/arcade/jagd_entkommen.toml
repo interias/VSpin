@@ -1,0 +1,18 @@
+# Arcade-Szenario „Jagd entkommen“ (#47): 90 rpm bis zum Startpunkt, dann 14 s mit 100 rpm – über der Schwelle der
+# Jagd (Stufe 1, Kadenzbereich 60–120 rpm: 93 rpm; 12 s bis der Verfolger abgehängt ist, 30 s Zeitfenster).
+# Erwartet im Spiel: der Abstand wächst, der Verfolger ist abgehängt, Erfolg mit Punkten und Beute, die Fahrt geht
+# weiter. Endet danach (Quelle beendet → disconnected).
+# Im Spiel nachgespielt von games/island-ride/tests/test_arcade_ride.gd.
+name = "Arcade: Jagd entkommen"
+
+[[steps]]
+duration_s = 12
+cadence = 90
+
+[[steps]]
+duration_s = 14
+cadence = 100
+
+[[steps]]
+duration_s = 10
+cadence = 90
