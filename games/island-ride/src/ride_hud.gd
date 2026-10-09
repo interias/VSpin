@@ -20,6 +20,8 @@
 ##                Treffer der laufenden Phase (die Bewertung aus Training, keine eigene Rechnung)
 ##   Arcade     (#46) an derselben Stelle: Herausforderung, Zielzone, Restzeit (vor dem Start: Meter bis dahin) und
 ##                Punkte des Laufs; während Zone halten darunter der Zonenbalken mit dem Fortschritt statt des Treffers
+##   Popups     (#49) Zahlen-Popups im Arcade: „+100“ für Punkte, der Name eines Fundes in der Farbe seiner Seltenheit –
+##                steigen über der Bildmitte auf und blenden aus (`popup`), mehrere zugleich übereinander
 ##   Landmark     Panorama-Moment (#43): Name der Sehenswürdigkeit oben im freien Feld, blendet weich ein und aus
 ##   CameraView   Kameraperspektive (#59): nach dem Wechsel mit `C` kurz ihr Name („Kamera: Nah“) unter dem Landmark
 ##   Message/Hint/Debug  Zustandsmeldung (mittig zwischen oben und unten), `set_grade`-Hinweis (über dem unteren
@@ -69,6 +71,14 @@ const GRID_COLUMNS_COMPACT := 6
 const GAUGE_PX := 150.0
 const GAUGE_COMPACT_PX := 120.0
 const CADENCE_COMPACT_FONT_PX := 44
+## Zahlen-Popup (#49): Dauer (s), Weg nach oben (px), Schriftgröße, Lage (Anteil der Fensterhöhe), Abstand gestapelter
+## Popups (px) und Standardfarbe (Punkte, gold).
+const POPUP_S := 1.8
+const POPUP_RISE_PX := 70.0
+const POPUP_FONT_PX := 40
+const POPUP_AT := 0.34
+const POPUP_STACK_PX := 52.0
+const COLOR_POPUP := Color(1.0, 0.86, 0.35)
 
 @onready var _top: Control = %Top
 @onready var _stats: Control = %Stats
@@ -131,6 +141,8 @@ var _landmark_tween: Tween
 var _camera_view_tween: Tween
 ## Eingereihte Einblendungen, die nach der laufenden folgen (#35).
 var _celebration_queue: Array = []
+## Ebene der Zahlen-Popups (#49).
+var _popups: Control
 
 
 func _ready() -> void:
@@ -139,6 +151,11 @@ func _ready() -> void:
 	_stats.resized.connect(_place_overlays)
 	(_celebration.get_parent() as Control).resized.connect(_place_overlays)
 	_message.minimum_size_changed.connect(_fit_message)  # neuer Text
+	_popups = Control.new()
+	_popups.name = "Popups"
+	_popups.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_popups.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_popups)
 	_place_overlays()
 
 
@@ -340,6 +357,40 @@ func end_celebration() -> void:
 	if _celebration_tween != null:
 		_celebration_tween.kill()
 	_celebration.hide()
+
+
+## Zahlen-Popup (#49): `text` (z. B. „+100“ oder „Seltener Helm“) in `color` steigt über der Bildmitte auf und blendet in
+## POPUP_S aus; laufen schon welche, steht das neue darunter.
+func popup(text: String, color: Color = COLOR_POPUP) -> void:
+	var label := Label.new()
+	label.text = text
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.add_theme_font_size_override("font_size", roundi(POPUP_FONT_PX * text_scale(_viewport_height())))
+	label.add_theme_color_override("font_color", color)
+	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.8))
+	label.add_theme_constant_override("outline_size", 8)
+	label.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	var top := _viewport_height() * POPUP_AT + popups().size() * POPUP_STACK_PX
+	label.offset_top = top
+	label.offset_bottom = top + POPUP_STACK_PX
+	_popups.add_child(label)
+	var tween := label.create_tween().set_parallel()
+	tween.tween_property(label, "offset_top", top - POPUP_RISE_PX, POPUP_S)
+	tween.tween_property(label, "offset_bottom", top - POPUP_RISE_PX + POPUP_STACK_PX, POPUP_S)
+	tween.tween_property(label, "modulate:a", 0.0, POPUP_S * 0.4).set_delay(POPUP_S * 0.6)
+	tween.chain().tween_callback(label.queue_free)
+
+
+## Texte der sichtbaren Zahlen-Popups (älteste zuerst).
+func popups() -> Array:
+	return _popups.get_children().filter(func(l): return not l.is_queued_for_deletion()).map(func(l): return l.text)
+
+
+## Popups sofort entfernen (Ergebnis, Menü).
+func clear_popups() -> void:
+	for label in _popups.get_children():
+		label.queue_free()
 
 
 ## Text der Einblendung, solange sie sichtbar ist ("" sonst).

@@ -9,7 +9,13 @@
 ## Abschnitt nicht verlassen ist (danach verfällt sie ungespielt). Sie läuft über ihren Baustein (`advance` je
 ## Fahrschritt – in Pausen ruft die Hauptszene nichts auf, also läuft dort nichts weiter und nichts scheitert).
 ## Geschafft gibt Punkte (Encounters.points_for), verfehlt keine – Scheitern ist weich, die Fahrt geht weiter.
-## Am Ende fasst `summary_lines` den Lauf zusammen (später auch Bosse und Beute).
+## Am Ende fasst `summary_lines` den Lauf zusammen (später auch Bosse).
+##
+## Beute (#49): Jede beendete Herausforderung würfelt Beute (Loot) – geschafft sicher, verfehlt nur mit einer Chance nach
+## dem erreichten Fortschritt (Loot.drop_chance; ohne Kadenz in der Zone nie). Funde stehen im Ergebnis (`loot`), in
+## `found` und in der Zusammenfassung; ins Inventar legt sie die Hauptszene am Fahrtende. Die angelegte Ausrüstung
+## (`gear`, Loot.modifiers) wirkt nur hier: breitere Zielzone und mehr Fortschritt in der Zone (über Encounters.build),
+## mehr Punkte und Beute-Glück. Ein eigener Würfel für die Beute lässt die Planung der Herausforderungen unberührt.
 ##
 ## Positionen sind Fahrtpositionen wie `RideModel.distance_m` (steigend über die Runden).
 class_name ArcadeRun
@@ -36,11 +42,18 @@ var elapsed_s := 0.0
 var planned: Array = []
 ## Laufende Herausforderung ({} = keine): wie in `planned` plus {block}.
 var active: Dictionary = {}
-## Beendete Herausforderungen: [{id, name, section, lap, succeeded, points, progress}].
+## Beendete Herausforderungen: [{id, name, section, lap, succeeded, points, progress, loot}] (`loot`: Teil, {} = keins).
 var results: Array = []
 var points := 0
+## Modifikatoren der angelegten Ausrüstung (Loot.modifiers; {} = keine) – nur im Arcade-Lauf (ADR-0010).
+var gear: Dictionary = {}
+## Grundqualität der Beute (1 = Grundverteilung; Stufe #54 und Elite-Gruppen #52 heben sie später).
+var loot_quality := 1.0
+## In diesem Lauf gefundene Teile (Loot.roll, noch ohne Inventar-`id`), in Fundreihenfolge.
+var found: Array = []
 
 var _rng := RandomNumberGenerator.new()
+var _loot_rng := RandomNumberGenerator.new()
 ## Runden bis ausschließlich dieser sind gewürfelt.
 var _planned_laps := 0
 
@@ -56,8 +69,10 @@ func _init(tier_number: int, range_: CadenceRange, lap_sections: Array, lap_leng
 	pool = challenges
 	if seed_value >= 0:
 		_rng.seed = seed_value
+		_loot_rng.seed = seed_value + 1
 	else:
 		_rng.randomize()
+		_loot_rng.randomize()
 	_planned_laps = floori(start / lap_length)
 	_plan_until(start)
 
@@ -87,10 +102,16 @@ func advance(ride_m: float, cadence_rpm: float, delta_s: float) -> Array:
 		planned.pop_front()  # Abschnitt verlassen, bevor sie beginnen konnte
 	if active.is_empty() and not planned.is_empty() and planned[0]["at_m"] <= ride_m:
 		active = planned.pop_front()
-		active["block"] = Encounters.build(active["definition"], tier, cadence_range)
+		active["block"] = Encounters.build(active["definition"], tier, cadence_range, gear)
 		if active["block"] == null:
 			active = {}
 	return ended
+
+
+## Zielzone der geplanten oder laufenden Herausforderung `entry` (wie in `planned`) mit der Ausrüstung dieses Laufs –
+## dieselbe, die ihr Baustein bekommt (Anzeige, Starttor).
+func zone_of(entry: Dictionary) -> Vector2:
+	return Encounters.zone_for(entry["definition"], tier, cadence_range, gear)
 
 
 ## Nächste geplante Herausforderung ({} = keine).
@@ -107,7 +128,8 @@ func failed_count() -> int:
 
 
 ## Zusammenfassung des Laufs als Zeilen, z. B. „Punkte: 340“, „Herausforderungen: 3 geschafft · 1 verfehlt“, „Zone halten
-## 3/4“ (je Herausforderung geschafft/gespielt). Spätere Pakete hängen Bosse und Beute an.
+## 3/4“ (je Herausforderung geschafft/gespielt), mit Funden „Beute: Magischer Helm · Seltene Schuhe“ (#49). Spätere
+## Pakete hängen Bosse an.
 func summary_lines() -> Array:
 	var lines := ["Punkte: %d" % points,
 			"Herausforderungen: %d geschafft · %d verfehlt" % [succeeded_count(), failed_count()]]
@@ -123,6 +145,8 @@ func summary_lines() -> Array:
 		parts.append("%s %d/%d" % [name, by_name[name][0], by_name[name][1]])
 	if not parts.is_empty():
 		lines.append(" · ".join(parts))
+	if not found.is_empty():
+		lines.append("Beute: " + " · ".join(found.map(func(item): return Loot.item_name(item))))
 	return lines
 
 
@@ -134,10 +158,18 @@ func to_entry() -> Dictionary:
 func _finish(entry: Dictionary) -> Dictionary:
 	var block: ChallengeBlock = entry["block"]
 	var won := block.state == ChallengeBlock.SUCCEEDED
-	var gained := Encounters.points_for(entry["definition"], tier) if won else 0
+	var gained := 0
+	if won:
+		var bonus := 1.0 + float(gear.get("points_pct", 0)) / 100.0  # Ausrüstung: mehr Punkte
+		gained = roundi(Encounters.points_for(entry["definition"], tier) * bonus)
 	points += gained
+	var loot := {}
+	var chance := Loot.drop_chance(won, block.progress())
+	if chance > 0.0 and _loot_rng.randf() <= chance:
+		loot = Loot.roll(_loot_rng, Loot.quality_for(gear, loot_quality))
+		found.append(loot)
 	var result := {"id": entry["definition"]["id"], "name": entry["definition"]["name"], "section": entry["section"],
-			"lap": entry["lap"], "succeeded": won, "points": gained, "progress": block.progress()}
+			"lap": entry["lap"], "succeeded": won, "points": gained, "progress": block.progress(), "loot": loot}
 	results.append(result)
 	return result
 
