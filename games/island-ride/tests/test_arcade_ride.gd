@@ -6,7 +6,7 @@
 ## danach geschafft.
 extends "res://tests/support/bus_test.gd"
 
-const SAVE_PATH := "user://test_arcade_ride_savegame.json"
+var SAVE_PATH := TestIsolation.path("test_arcade_ride_savegame.json")
 const DT := 0.1
 ## Schnelles Rad wie in test_round_trip.gd: viele Graybox-Runden in einer Minute.
 const FAST_K := 10.0

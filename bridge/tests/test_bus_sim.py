@@ -1,6 +1,7 @@
 """Bridge mit `--source sim` als Prozess; geprüft wird nur das Verhalten am Bus."""
 
 from bridge_harness import HOST, PORT, port_open, receive_json
+from vspin_bridge.cli import build_parser
 
 TELEMETRY_FIELDS = {"v", "type", "t_ms", "cadence", "speed_kmh", "power_w", "power_estimated", "heart_rate"}
 STATUS_FIELDS = {"v", "type", "t_ms", "state", "source", "capabilities"}
@@ -81,7 +82,15 @@ def test_host_option_listens_on_all_interfaces(bridge_process, bus_client):
     bridge = bridge_process("--source", "sim", "--sim-cadence", "80", "--host", "0.0.0.0")
     assert port_open("127.0.0.2", PORT)
     assert receive_json(bus_client())["type"] == "status"
-    assert "Bus auf ws://0.0.0.0:8765" in bridge.log()
+    assert f"Bus auf ws://0.0.0.0:{PORT}" in bridge.log()
+
+
+def test_bus_port_stays_8765_unless_given(monkeypatch):
+    # Für den Nutzer ändert sich nichts (#62): Die Bridge liest VSPIN_PORT_BASE nicht selbst; nur Test- und
+    # Prüfläufe geben ihr mit --port einen eigenen Port (Harness: jede Bridge hier läuft auf `PORT`).
+    monkeypatch.setenv("VSPIN_PORT_BASE", "5")
+    assert build_parser().parse_args(["--source", "sim"]).port == 8765
+    assert build_parser().parse_args(["--source", "sim", "--port", "8770"]).port == 8770
 
 
 def test_bridge_stops_cleanly_and_frees_the_port(bridge_process, bus_client):

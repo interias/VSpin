@@ -4,7 +4,7 @@
 extends GutTest
 
 const SHORT_UNIT := "res://tests/fixtures/training_short.json"
-const BROKEN_PATH := "user://test_training_broken.json"
+var BROKEN_PATH := TestIsolation.path("test_training_broken.json")
 
 
 func after_each() -> void:

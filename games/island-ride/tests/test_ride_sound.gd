@@ -7,7 +7,7 @@
 ## prozedural erzeugt, das Spiel läuft ohne Audio-Gerät.
 extends "res://tests/support/bus_test.gd"
 
-const SETTINGS_PATH := "user://test_ride_sound_settings.cfg"
+var SETTINGS_PATH := TestIsolation.path("test_ride_sound_settings.cfg")
 const DT := 0.1
 
 

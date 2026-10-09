@@ -5,7 +5,7 @@
 extends "res://tests/support/bus_test.gd"
 
 const LOGBOOK := preload("res://scenes/logbook.gd")
-const SAVE_PATH := "user://test_logbook_savegame.json"
+var SAVE_PATH := TestIsolation.path("test_logbook_savegame.json")
 ## Schnelles Rad für den Durchstich (wie tests/test_round_trip.gd): eine Graybox-Runde in wenigen Sekunden.
 const FAST_K := 10.0
 

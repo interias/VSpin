@@ -18,16 +18,17 @@ read_all_adrs: true
 test_commands:
   bridge: >-
     cd <worktree>/bridge &&
-    PYTHONPATH=<worktree>/bridge/src <repo>/bridge/.venv/Scripts/python -m pytest -q -p no:cacheprovider
-    --basetemp=<scratchpad>/pytest-<name>
+    VSPIN_PORT_BASE=<nr> PYTHONPATH=<worktree>/bridge/src <repo>/bridge/.venv/Scripts/python -m pytest -q
+    -p no:cacheprovider --basetemp=<scratchpad>/pytest-<name>
   game: >-
     cd <worktree>/games/island-ride &&
     "$GODOT" --headless --path . --import &&
-    "$GODOT" --headless --path . -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit
+    VSPIN_PORT_BASE=<nr> "$GODOT" --headless --path . -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit
 known_red: keine                   # seit #25 sind alle Bridge-Tests grün
 # lint_commands: keine – der Lint-Vergleich entfällt
 
-window: 1
+test_isolation_env: VSPIN_PORT_BASE   # Wert = Nummer des Pakets (<nr>), 0–466; Begründung unten „Fenster 3“
+window: 3
 max_rounds: 3
 always_collide:
   - games/island-ride/README.md
@@ -42,8 +43,16 @@ plan_artifact: publish
 
 # Projektregeln
 
-**Fenster 1.** Bridge-pytest und GUT teilen sich das venv im Hauptverzeichnis, Port 8765 und
-`user://` des Spiels; es gibt keine Testisolation je Worktree. Deshalb läuft immer nur ein Paket.
+**Fenster 3.** Seit #62 hat jeder Worktree ein eigenes Testbett über `VSPIN_PORT_BASE=<nr>` (Nummer des
+Pakets, bzw. des Epics im Epic-Worktree; ganze Zahl 0–466, ein ungültiger Wert bricht den Lauf ab). Je Wert getrennt:
+der Bus-Port der Bridge-Tests (8765 + n, die Bridge bekommt `--port`), die Sperre der Bridge-Tests
+(`vspin-bridge-tests-<port>.lock` im Temp-Ordner, unter Windows und Linux), `--basetemp` (je `<name>`), die
+Fake-Bus-Ports der GUT-Tests (18765 + 100·n, 100 je Lauf) und deren Dateien (Spielstand, Einstellungen,
+Gelände-Cache unter `games/island-ride/.godot/test_user/<n>/`, ohnehin je Worktree). Kein Test schreibt in das echte
+`user://`; ein Wächter in den GUT-Hooks lässt den Lauf sonst scheitern. Geteilt bleiben nur das venv (nur gelesen)
+und was die Engine selbst schreibt (Protokolle, Sperrdatei, Shader- und Pipeline-Caches in `user://` – der Wächter übergeht sie –, Editor-Dateien beim `--import`).
+**Nicht isoliert** sind der Web-Export-Check (`docker compose`, Ports 8765/8080) und Prüfhilfen gegen die echte
+Bridge ohne Variable: Sie laufen nie in zwei Paketen gleichzeitig.
 
 **Lesart der Spec-Kinder.** Die Kinder einer Spec sind die Pakete. Die Abnahme stützt sich auf
 `## Acceptance criteria` des Kindes und die zugeordneten User Stories, der Verifikationsweg auf

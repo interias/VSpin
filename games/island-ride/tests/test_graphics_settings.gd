@@ -2,7 +2,7 @@
 ## Fensterhälften als reine Rechnung.
 extends GutTest
 
-const TEMP_PATH := "user://test_graphics_settings.cfg"
+var TEMP_PATH := TestIsolation.path("test_graphics_settings.cfg")
 
 
 func after_each() -> void:
@@ -23,7 +23,7 @@ func test_defaults() -> void:
 
 
 func test_missing_file_gives_defaults() -> void:
-	var settings := GraphicsSettings.load_file("user://does_not_exist_settings.cfg")
+	var settings := GraphicsSettings.load_file(TestIsolation.path("does_not_exist_settings.cfg"))
 	assert_eq(settings.aa, GraphicsSettings.new().aa)
 	assert_eq(settings.window_size, GraphicsSettings.new().window_size)
 

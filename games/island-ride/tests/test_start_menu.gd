@@ -5,7 +5,7 @@ extends "res://tests/support/bus_test.gd"
 
 const START_MENU_SCENE := preload("res://scenes/start_menu.tscn")
 const START_MENU := preload("res://scenes/start_menu.gd")
-const SAVE_PATH := "user://test_start_menu_savegame.json"
+var SAVE_PATH := TestIsolation.path("test_start_menu_savegame.json")
 ## Abstand zur Ziellinie (letzter flacher Abschnitt der Graybox-Strecke).
 const BEFORE_FINISH_M := 12.0
 

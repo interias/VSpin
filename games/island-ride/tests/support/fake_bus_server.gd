@@ -1,6 +1,7 @@
 ## Fake-Bus-Server für Spiel-Tests: ein WebSocket-Server, der jedem verbundenen Client
 ## ein Nachrichten-Drehbuch vorspielt und empfangene Client-Nachrichten mitschreibt.
-## Läuft auf einem eigenen Port (Standard 18765), nie auf dem Bus-Port 8765 der Bridge.
+## Läuft auf einem eigenen Port (Standard 18765, je Lauf verschoben über VSPIN_PORT_BASE, siehe TestIsolation), nie auf
+## dem Bus-Port 8765 der Bridge.
 ##
 ## Drehbuch = Array von Schritten, Zeit `at` in Sekunden ab Verbindungsaufbau des Clients:
 ##   {"at": 0.0, "send": {...}}   Nachricht (Dictionary, wird als JSON gesendet)
@@ -10,12 +11,11 @@
 ## Antworten auf Client-Nachrichten: `replies["set_grade"] = FakeBusServer.ack("set_grade", false, "not_supported")`.
 ##
 ##   var bus := FakeBusServer.new([FakeBusServer.status()] + FakeBusServer.steady_cadence(80.0, 0.0, 5.0))
-##   bus.start(18765)
+##   bus.start(TestIsolation.first_test_port())
 ##   # je Frame: bus.poll()  … am Ende: bus.stop()
 class_name FakeBusServer
 extends RefCounted
 
-const DEFAULT_PORT := 18765
 const HOST := "127.0.0.1"
 
 ## Das Drehbuch (Schritte nach `at` sortiert).
@@ -31,7 +31,7 @@ var connections_opened := 0
 ## Uhr des Drehbuchs in ms: < 0 = Echtzeit (`Time.get_ticks_msec()`), sonst dieser Wert – so kann ein Test das
 ## Drehbuch in festen Schritten vorrücken, gleichauf mit einer Hauptszene, die er selbst schrittweise fährt (#46).
 var manual_clock_ms := -1
-var port := DEFAULT_PORT
+var port := TestIsolation.first_test_port()
 
 var _server := TCPServer.new()
 var _connections: Array = []  # je Eintrag: {peer, opened_ms, next}
@@ -46,7 +46,7 @@ func url() -> String:
 	return "ws://%s:%d" % [HOST, port]
 
 
-func start(listen_port: int = DEFAULT_PORT) -> Error:
+func start(listen_port: int = TestIsolation.first_test_port()) -> Error:
 	port = listen_port
 	return _server.listen(port, HOST)
 

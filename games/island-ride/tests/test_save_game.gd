@@ -3,7 +3,7 @@
 ## neuere Stände bleiben erhalten, eine kaputte Datei wird beiseitegelegt statt überschrieben.
 extends GutTest
 
-const TEMP_PATH := "user://test_savegame.json"
+var TEMP_PATH := TestIsolation.path("test_savegame.json")
 
 
 func after_each() -> void:
@@ -25,7 +25,7 @@ func _stats(seconds: float, cadence: float, meters: float) -> RideStats:
 
 
 func test_new_save_has_version_and_profile_key() -> void:
-	var save := SaveGame.load_file("user://does_not_exist_savegame.json")
+	var save := SaveGame.load_file(TestIsolation.path("does_not_exist_savegame.json"))
 	assert_eq(save.version(), SaveGame.VERSION)
 	assert_eq(save.profile_key().length(), 16, "Profilschlüssel ab dem ersten Speichern")
 	assert_true(save.profile_key().is_valid_hex_number(), "16 Hex-Zeichen: %s" % save.profile_key())

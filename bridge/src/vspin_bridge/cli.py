@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .app import DEFAULT_SESSIONS_DIR, Bridge, SessionStartError
-from .bus import HOST, BusStartError
+from .bus import HOST, PORT, BusStartError
 from .console import Console
 from .sources.base import DeviceSource
 from .sources.profile import ProfileError, load_profile
@@ -105,6 +105,14 @@ def build_parser() -> argparse.ArgumentParser:
         "dessen Port nur auf 127.0.0.1 des Hosts veröffentlicht ist (docker-compose.yml)",
     )
     parser.add_argument(
+        "--port",
+        type=int,
+        default=PORT,
+        metavar="PORT",
+        help=f"Port des Busses (Standard: {PORT}); ein anderer nur für parallele Test- und Prüfläufe "
+        "(VSPIN_PORT_BASE) – das Spiel verbindet sich mit config.cfg [bus] url",
+    )
+    parser.add_argument(
         "--stop-file",
         type=Path,
         default=None,
@@ -142,7 +150,16 @@ def main(argv: list[str] | None = None) -> int:
     console = Console()
     try:
         return asyncio.run(
-            _run(source, console, args.sessions_dir, args.wait_client, args.host, args.stop_file, args.parent_pid)
+            _run(
+                source,
+                console,
+                args.sessions_dir,
+                args.wait_client,
+                args.host,
+                args.stop_file,
+                args.parent_pid,
+                args.port,
+            )
         )
     except KeyboardInterrupt:  # Strg+C vor dem Anmelden der Signal-Handler
         console.close()
@@ -161,6 +178,7 @@ async def _run(
     host: str,
     stop_file: Path | None = None,
     parent_pid: int | None = None,
+    port: int = PORT,
 ) -> int:
     stop = asyncio.Event()
     _stop_on_signals(stop)
@@ -172,7 +190,7 @@ async def _run(
     if parent_pid is not None:
         parent_watcher = asyncio.create_task(_watch_parent(parent_pid, stop, console))
     try:
-        await Bridge(source, console, sessions_dir, wait_for_client, host).run(stop)
+        await Bridge(source, console, sessions_dir, wait_for_client, host, port).run(stop)
     except BusStartError as exc:
         console.info(f"vspin-bridge: Bus konnte nicht starten: {exc}")
         return 1
