@@ -757,7 +757,63 @@ Balken, bis sie auf der Straße liegt; nach dem Erfolg öffnet sie sich zügig g
 läuft ein dunkelroter Hund mit Hörnern und glühenden Augen 1,9 m links hinter dem Fahrer, bei Abstand 0 in 4 m, bei
 Abstand 1 in 45 m (außer Sicht); nach der Jagd fällt er zurück und verschwindet. Beides ist reine Anzeige aus Grundkörpern
 (ADR-0010); die Bühne des Arcade-Laufs stellt sie (`src/breakthrough_prop.gd`, `src/chase_prop.gd`, #63). Beide Herausforderungen kommen wie Zone halten in die Würfel
-der Arcade-Läufe (`Encounters.CHALLENGES`, jetzt sieben Einträge).
+der Arcade-Läufe (`Encounters.CHALLENGES`, mit Takt-Tore und Sammeln (#48) jetzt elf Einträge).
+
+**Takt-Tore und Sammeln (#48):** Zwei weitere Bausteine, beide nur über die Kadenz zu lösen (keine zweite Eingabe). Ihre
+Herausforderungen sind wie die übrigen Daten (`src/challenges/rhythm_gates_challenges.gd`, `collect_challenges.gd`) und
+kommen mit vier neuen Einträgen in die Würfel der Arcade-Läufe.
+
+- **Takt-Tore** (`src/rhythm_gates.gd`): Markierungen auf der Straße, die im vorgegebenen Takt durchfahren werden. Die
+  Taktschläge sind Zeitpunkte: der erste `first_s` Sekunden nach Beginn, dann alle `interval_s`. Ein Tor ist **getroffen**,
+  wenn die Kadenz im Zeitfenster von `tolerance_s` vor bis `tolerance_s` nach dem Schlag in der Zielzone liegt (Grenzen
+  eingeschlossen); zwischen den Schlägen ist die Kadenz frei – locker rollen und rechtzeitig in die Zone gehen genügt. Endet
+  das Fenster ohne Kadenz in der Zone, ist das Tor **verpasst**. Nach dem letzten Schlag zählt das Ergebnis: mindestens
+  `need` Treffer → **geschafft** („Takt-Tore geschafft! +120 Punkte“); ist `need` nicht mehr zu erreichen, → **verfehlt** –
+  weich und schon in dem Moment, in dem es feststeht („Takt-Tore verfehlt – weiter geht's“), die Fahrt geht weiter. Die
+  Zielzone entsteht wie bei Zone halten (`zone_at`, Breite aus der Stufe, Ausrüstung, Wächter). Zwei Einträge (Stufe 1,
+  Kadenzbereich 60–120 rpm): *Ruhiger Takt* (`takt_ruhig`: Zone bei 40 % = 74–94 rpm, 5 Tore, 4 Treffer nötig, erster
+  Schlag nach 6 s, dann alle 5 s, Fenster ± 1 s, 120 Punkte) und *Flotter Takt* (`takt_flott`: 65 % = 89–109 rpm, 6 Tore,
+  5 Treffer, alle 4 s, ± 0,8 s, 160 Punkte); beide heißen im Spiel „Takt-Tore“. Mit dem Kadenzmuster „Rhythmus“ (#50) hat der
+  Baustein nichts zu tun.
+- **Sammeln** (`src/collect.gd`): Ein lockerer Abschnitt mit Belohnung – Kristalle liegen auf und neben der Straße, und die
+  **Kadenz bestimmt den Magnetradius** um den Fahrer. Objekt `k` wird `first_s + k × interval_s` Sekunden nach Beginn passiert
+  und ist **eingesammelt**, wenn sein seitlicher Abstand von der Straßenmitte (`offsets`, in m) höchstens so groß ist wie der
+  Radius in diesem Moment. Der Radius ist 0 unter der **Rampe** (ohne Kadenz kein Magnet), `radius_min_m` an ihrem Beginn und
+  wächst linear bis `radius_max_m` am oberen Ende des Kadenzbereichs; darüber wird er nicht größer. Die Rampe liegt relativ im
+  eigenen Bereich (`threshold_at`, wie die Schwelle bei Durchbruch und Jagd); im HUD steht „Ziel ab 75 rpm“. Nach dem letzten
+  Objekt: mindestens `need` eingesammelt → **geschafft** („Sammeln geschafft! +110 Punkte“), sonst **verfehlt** – weich
+  („Sammeln verfehlt – weiter geht's“), und früher, sobald `need` nicht mehr zu erreichen ist. Zwei Einträge (Stufe 1,
+  60–120 rpm): *Wiese* (`sammeln_wiese`: Rampe ab 25 % = 75 rpm, 8 Objekte alle 3 s ab 5 s mit 0,5–4 m Abstand, 5 nötig, Radius
+  1 m bis 5 m – bei 108 rpm 3,9 m –, 110 Punkte) und *Ufer* (`sammeln_ufer`: ab 40 % = 84 rpm, 10 Objekte alle 2,5 s mit bis zu
+  5 m Abstand, 6 nötig, Radius 1 m bis 5,5 m, 150 Punkte).
+
+**Stufe** (Takt-Tore und Sammeln): Zahl der Tore bzw. Objekte und die nötige Zahl wachsen × 1 / 1,25 / 1,5 (*Ruhiger Takt*
+5 / 6 / 8 Tore mit 4 / 5 / 6 Treffern; *Wiese* 8 / 10 / 12 Objekte – reihum wiederholt – mit 5 / 6 / 8 nötigen), die Punkte
+× 1 / 2 / 3. Die Zone der Takt-Tore wird schmaler (20 / 14 / 10 rpm), die Rampe des Sammelns beginnt später (*Wiese* 75 / 78 /
+80 rpm, das Ende bleibt das obere Ende des Bereichs). Taktabstand und Zeitfenster bleiben.
+
+**Wächter:** Zone und Rampe laufen wie jede Zielzone durch `Encounters.build` (`Encounters.zone_for` →
+`CadenceRange.limit_zone`) und liegen nie außerhalb des Kadenzbereichs, auch nicht durch Stufe oder Ausrüstung: die
+Zonenbreite der Ausrüstung verbreitert die Zone der Takt-Tore und senkt den Beginn der Rampe um die halbe Breite (nie unter
+das Minimum des Bereichs).
+
+**Ausrüstung ersetzt nie das Treten:** Fortschritt (`progress_pct`) lässt jeden **Treffer** der Takt-Tore mehrfach zählen
+(Anzeige „Takte“) und vergrößert beim Sammeln den **Radius** – beides nur dort, wo die Kadenz schon etwas ergibt (im Fenster
+in der Zone bzw. in der Rampe). Ohne Kadenz dort bleiben Treffer, Radius, Punkte und Beute bei 0, mit Ausrüstung genauso wie
+ohne; Zeitfenster und Taktzeiten bleiben unberührt. **Beute:** wie bei Zone halten – geschafft sicher, verfehlt mit
+0,5 × Fortschritt (Takt-Tore: Treffer im Verhältnis zu den nötigen, Sammeln: Eingesammeltes im Verhältnis zu den nötigen); ohne
+Treffer bzw. ohne Eingesammeltes nie.
+
+**Darstellung** (reine Anzeige aus Grundkörpern, ADR-0010; `src/rhythm_gates_prop.gd`, `src/collect_prop.gd`, eingetragen
+in `ArcadeStage.PROPS`): Tore und Kristalle stehen dort, wo der Fahrer zum Zeitpunkt des Schlags bzw. Objekts beim aktuellen
+Tempo ankommt (`src/timed_markers.gd`: GatePlacement je Markierung, Tempo aus der Fahrt; im Stand und beim Anfahren unter
+0,5 m/s wird nichts gesetzt). Takt-Tore: je Schlag ein grünes Tor (das Tor aus #58) mit „Takt 2/5“, die nächsten drei stehen
+im Bild; ein getroffenes bleibt grün und trägt „Treffer“, ein verpasstes wird orange und trägt „Verpasst“, durchfahrene
+bleiben so lange hinter dem Fahrer stehen wie das Zieltor; die Tore ersetzen das Zieltor. Sammeln: goldene Kristalle (die
+nächsten fünf), seitlich nach ihrem Abstand versetzt, und ein flacher türkiser **Magnetring** um den Fahrer, dessen Radius der
+Magnetradius ist – er wächst und schrumpft mit der Kadenz und fehlt, wo es keinen Magneten gibt; ein eingesammeltes Objekt
+verschwindet beim Vorbeifahren, ein liegengebliebenes wird grau; das Zieltor bleibt. Im HUD stehen „Ziel 74–94 rpm“ bzw.
+„Ziel ab 75 rpm“, die Restzeit und der Fortschritt („Takte“ bzw. „Gesammelt“). In jeder Pause steht alles still.
 
 **Kadenzbereich** (Standard 60–120 rpm, auf der Seite „Arcade“ einstellbar): keine Zielzone liegt außerhalb. Ragt eine
 Zone hinaus, rückt sie mit gleicher Breite hinein; ist sie breiter als der Bereich, wird sie der ganze Bereich. Das
@@ -773,7 +829,8 @@ Punkte (mit „neue Bestpunktzahl!“), Herausforderungen geschafft/verfehlt und
 
 **Getrennte Welten (ADR-0010):** Arcade-Kilometer und -Runden zählen für Fahrtenbuch („Arcade“), Fahrerlevel und Erfolge;
 Runden im Arcade schreiben nie Bestzeit, Segmentzeit, Medaille oder Ghost (`records_count()` der Hauptszene). Logik in
-`src/challenge_block.gd`, `src/zone_hold.gd`, `src/breakthrough.gd`, `src/chase.gd`, `src/encounters.gd`,
+`src/challenge_block.gd`, `src/zone_hold.gd`, `src/breakthrough.gd`, `src/chase.gd`, `src/rhythm_gates.gd`, `src/collect.gd`,
+`src/encounters.gd`,
 `src/encounter_registry.gd` und `src/challenges/` (Daten und Bauanleitung je Bausteintyp),
 `src/arcade_tiers.gd`, `src/cadence_range.gd` und
 `src/arcade_run.gd` (alles ohne Szene und Bus).
@@ -785,7 +842,7 @@ Arcade) und zeigt in Rundfahrt und Training nichts (ADR-0010). `scenes/main.gd` 
 Bestpunktzahl, Beute ins Inventar), `result_text` (Zusammenfassung), `enter_menu` und `dress` (Ausrüstung am Fahrer); die
 Menüs (Stufe, Kadenzbereich, Ausrüstung) bleiben in der Hauptszene, und `arcade`, `arcade_seed`, `arcade_pool`, die Tore,
 `arcade_bridge`, `arcade_pursuer` und `loot_beam` leiten für Tests und Prüfhilfen an die Bühne weiter. Neue Arcade-Bausteine
-(Takt-Tore, Sammeln, Bosse, Kadenzmuster, …) hängen sich mit **eigenen Dateien und höchstens einer Zeile je Liste** ein, ohne
+(Bosse, Kadenzmuster, …) hängen sich – wie Takt-Tore und Sammeln (#48) – mit **eigenen Dateien und höchstens einer Zeile je Liste** ein, ohne
 `main.gd` anzufassen:
 
 - **Typ** (Baustein, Herausforderungen als Daten): `src/challenges/<name>_challenges.gd` mit `ID`, `CHALLENGES` und
@@ -819,6 +876,18 @@ Logik: `tests/test_arcade_blocks.gd` (Erfolg, Scheitern, Pause, Wächter mit Geg
 Stufen, Punkte und Beute im Lauf). `tests/test_arcade_stage.gd` (#63): Reihenfolge des Würfel-Pools (gleiche Würfe bei
 gleichem Seed), jeder Typ der Registry baut seinen Baustein, Ereignisse der Bühne, Hooks und Erweiterungen.
 
+Zu Takt-Tore und Sammeln (#48) vier weitere Szenarien (Stufe 1, 60–120 rpm; der Test erzwingt je Szenario die
+Herausforderung *Ruhiger Takt* bzw. *Wiese*, von Hand würfelt der Lauf selbst): *Takt getroffen* (`takt_getroffen.toml`: 12 s 70 rpm bis zum Start, dann
+fünfmal im Takt von 5 s auf 86 rpm hoch – je 1,5 s oben, in der Zone 74–94 – und zurück auf 70: alle fünf Tore getroffen,
++120 Punkte und Beute), *Takt verfehlt* (`takt_verfehlt.toml`, 45 s 100 rpm über der Zone: kein Tor getroffen, weich
+verfehlt, keine Beute), *Sammeln viel* (`sammeln_viel.toml`, 45 s 108 rpm: Radius rund 3,9 m, 7 von 8 Objekten, +110 Punkte
+und Beute) und *Sammeln wenig* (`sammeln_wenig.toml`, 45 s 78 rpm: Radius rund 1,3 m, 2 von 8 Objekten, weich verfehlt,
+keine Beute). `tests/test_arcade_rhythm_collect_ride.gd` spielt sie über den Fake-Bus durchs Spiel und prüft dazu die
+Darstellung auf der Strecke (Tore voraus in Taktfolge, „Treffer“ und „Verpasst“, Kristalle und Magnetring folgen der
+Kadenz); Tests der reinen Logik: `tests/test_arcade_rhythm_collect.gd` (Treffer, Fenster- und Zonengrenzen, Erfolg und
+Scheitern, Pause, Wächter mit Gegenprobe, Ausrüstung nur mit Kadenz, Stufen, Punkte und Beute im Lauf, Lage der
+Markierungen).
+
 Sichtprüfung: `view_probe.gd -- --title --arcade` speichert `title_arcade.png`, `--hud --arcade` Starttor mit nächster
 Herausforderung (`arcade_gate.png`), Zone halten (`zone_hold.png`, Kadenz zu hoch `zone_hold_above.png`), Erfolg
 (`zone_hold_success.png`) und die Zusammenfassung (`arcade_result.png`).
@@ -827,6 +896,11 @@ Durchbruch und Jagd (#47): `view_probe.gd -- --hud --arcade --props` speichert s
 zu, halb und offen (`bridge_closed.png`, `bridge_half.png`, `bridge_open.png`, dazu `bridge_close_*.png` aus der Nähe) und
 den Verfolger der Jagd (`pursuer_close.png` von hinten, `pursuer_front.png` und `pursuer_side.png` aus der Nähe,
 `pursuer_gone.png` nach dem Abhängen). Balken und Abstand setzt die Probe direkt.
+
+Takt-Tore und Sammeln (#48): `view_probe.gd -- --hud --arcade --rhythm` speichert die Takt-Tore voraus (`rhythm_ahead.png`),
+nach einem Treffer (`rhythm_hit.png`) und nach einem verpassten Tor bei zu hoher Kadenz (`rhythm_missed.png`), dann das
+Sammeln: Objekte voraus mit großem Magnetring bei hoher Kadenz (`collect_high.png`), mit kleinem bei niedriger
+(`collect_low.png`) und die Objekte aus der Nähe (`collect_close.png`).
 
 ### Beute und Ausrüstung (#49)
 
@@ -857,7 +931,7 @@ nach Seltenheit weitere, verschiedene Werte.
 | Punkte | 5–10 % | 100 % | mehr Punkte für eine geschaffte Herausforderung – lohnender |
 | Beute-Glück | 5–10 % | 100 % | seltenere Funde: Gewicht der Seltenheit mit Rang r (0 = gewöhnlich) × (1 + Glück)^r |
 
-**Ausrüstung ersetzt nie das Treten:** ohne Kadenz in der Zone (bei Durchbruch und Jagd: über der Schwelle) passiert nichts – kein Fortschritt, keine Punkte, keine
+**Ausrüstung ersetzt nie das Treten:** ohne Kadenz in der Zone (bei Durchbruch und Jagd: über der Schwelle, bei Sammeln: in der Rampe, bei Takt-Tore: im Fenster eines Schlags) passiert nichts – kein Fortschritt, keine Punkte, keine
 Beute, mit Ausrüstung genauso wie ohne. Auch die verbreiterte Zone läuft durch den Wächter des Kadenzbereichs
 (`Encounters.zone_for` → `CadenceRange.limit_zone`), liegt also nie außerhalb. Legendäre Teile haben ein Feld für einen
 Spezialeffekt (`effect`, kommt mit #53; heute leer und ohne Wirkung).
@@ -1080,9 +1154,11 @@ src/challenge_block.gd  ChallengeBlock: Baustein einer Herausforderung – updat
 src/zone_hold.gd        ZoneHold: Baustein „Zone halten“ – reine Logik (#46)
 src/breakthrough.gd     Breakthrough: Baustein „Durchbruch“ – Balken über einer Schwelle füllen, darunter langsam sinkend – reine Logik (#47)
 src/chase.gd            Chase: Baustein „Jagd“ – Verfolger abhängen (Abstand wächst über, schrumpft unter der Schwelle) – reine Logik (#47)
+src/rhythm_gates.gd     RhythmGates: Baustein „Takt-Tore“ – Taktschläge treffen, wenn die Kadenz im Zeitfenster in der Zone liegt – reine Logik (#48)
+src/collect.gd          Collect: Baustein „Sammeln“ – die Kadenz bestimmt den Magnetradius, Objekte im Radius werden eingesammelt – reine Logik (#48)
 src/encounters.gd       Encounters: Herausforderungen (Zone, Schwelle), Würfeln, Bau der Bausteine mit Wächter des Kadenzbereichs; die Daten je Typ liegen in src/challenges/ (#46, #47, #63)
 src/encounter_registry.gd EncounterRegistry: Bausteintypen des Arcade – eine Zeile je Typ, Reihenfolge = Würfel-Pool (#63)
-src/challenges/         Herausforderungen als Daten und Bauanleitung je Bausteintyp: zone_hold_, breakthrough_, chase_challenges.gd (#63, verschoben aus encounters.gd)
+src/challenges/         Herausforderungen als Daten und Bauanleitung je Bausteintyp: zone_hold_, breakthrough_, chase_, rhythm_gates_, collect_challenges.gd (#63, verschoben aus encounters.gd; #48)
 src/arcade_tiers.gd     ArcadeTiers: Stufen als Daten (Zonenbreite, Dauer, Punkte), Auswahl im Spielstand (#46)
 src/cadence_range.gd    CadenceRange: persönlicher Kadenzbereich, begrenzt jede Zielzone (limit_zone) (#46)
 src/arcade_run.gd       ArcadeRun: Arcade-Lauf – Herausforderungen je Abschnitt und Runde, Punkte, Beute, Ausrüstung, Zusammenfassung (#46, #49)
@@ -1090,6 +1166,9 @@ src/arcade_stage.gd     ArcadeStage: Bühne des Arcade-Laufs – Lauf, HUD-Anbin
 src/arcade_prop.gd      ArcadeProp: Basis der Darstellungen je Bausteintyp (nur Anzeige, ADR-0010), eingetragen in ArcadeStage.PROPS (#63)
 src/breakthrough_prop.gd BreakthroughProp: Darstellung des Durchbruchs – Zugbrücke statt Zieltor (#47, #63)
 src/chase_prop.gd       ChaseProp: Darstellung der Jagd – Verfolger hinter dem Fahrer (#47, #63)
+src/rhythm_gates_prop.gd RhythmGatesProp: Darstellung der Takt-Tore – ein Tor je Schlag auf der Straße, grün oder orange nach Treffer oder Verpasst, statt des Zieltors (#48)
+src/collect_prop.gd     CollectProp: Darstellung des Sammelns – Kristalle auf und neben der Straße, Magnetring um den Fahrer (#48)
+src/timed_markers.gd    TimedMarkers: Lage zeitgebundener Markierungen (Takt-Tore, Sammelobjekte) aus Fahrtposition, Restzeit und gefahrenem Tempo über GatePlacement (#48)
 src/loot.gd             Loot: Beute – Plätze, Seltenheiten, Werte als Daten, Würfel, Vergleich, Modifikatoren, Aussehen – reine Logik (#49)
 src/inventory.gd        Inventory: Inventar im Spielstand – ablegen, anlegen, vergleichen, zu Splittern verwerten – reine Logik (#49)
 src/loot_beam.gd        LootBeam: Lichtsäule eines Fundes in Seltenheitsfarbe, an einer Fahrtposition gestellt (#49)
