@@ -134,7 +134,8 @@ verfügbar, daher nur Godot-Bordmittel:
 Weltaufbau beim Start ca. 0,6 s (mit der Vegetation aus #38 ca. 1,1 s), beim allerersten Start (oder nach Änderung
 an Gelände/Rundkurs) ca. 1,8 s
 (headless gemessen, #19). Das Gelände (Höhen, Straßenabstand) liegt als Cache in `user://terrain_cache.bin`
-(~1 MB; unter Windows `%APPDATA%\Godot\app_userdata\Inselfahrt\`); Schlüssel ist ein SHA-256 über den Quelltext von
+(~1 MB; unter Windows `%APPDATA%\Godot\app_userdata\Inselfahrt\`; Tests und Prüfhilfen: eigener Cache
+unter `.godot/test_user/<n>/`); Schlüssel ist ein SHA-256 über den Quelltext von
 `src/island_terrain.gd` und `src/island_course.gd` und die Engine-Version – jede Änderung daran erzeugt neu. Datei
 löschen ist gefahrlos. Im Export ohne lesbaren Quelltext (z. B. Web) wird wie bisher bei jedem Start erzeugt. Das
 Mesh (~0,4 s) wird weiter jedes Mal gebaut (als Cache 6–9 MB für ~0,3 s Gewinn – lohnt nicht).
@@ -809,10 +810,26 @@ godot --headless --path games/island-ride -s addons/gut/gut_cmdln.gd -gdir=res:/
 ```
 
 Ausgabe endet mit `Scripts / Tests / Passing / Failing`; Exit-Code ≠ 0 bei Fehlschlag. `.gutconfig.json`
-setzt dieselben Optionen und einen Post-Run-Hook (`tests/support/post_run_check.gd`), der den Lauf
+setzt dieselben Optionen, einen Pre-Run-Hook (`tests/support/pre_run_isolation.gd`, Testisolation, siehe unten) und
+einen Post-Run-Hook (`tests/support/post_run_check.gd`), der den Lauf
 fehlschlagen lässt, wenn ein `test_*.gd` nicht ladbar ist (GUT allein überspringt es nur mit Warnung).
 Einzelnes Skript: zusätzlich `-gselect=test_bus_client`. Die Tests brauchen keine Bridge und
 benutzen Ports ab 18765 – nie den Bus-Port 8765.
+
+**Testisolation (#62, `tests/support/test_isolation.gd`):** Kein Test schreibt in das echte `user://` (Spielstand,
+Einstellungen, Gelände-Cache). Testdateien legen Tests über `TestIsolation.path("test_….json")` an, nicht unter
+`user://`; sie liegen unter `.godot/test_user/<n>/` (git-ignoriert, je Worktree). Ein Wächter in den GUT-Hooks
+(`.gutconfig.json`: `tests/support/pre_run_isolation.gd` hält das echte `user://` vor dem Lauf fest,
+`post_run_check.gd` vergleicht danach) lässt den Lauf scheitern, sobald sich dort etwas ändert – außer dem, was die
+Engine selbst schreibt (`logs/`, `.recovery_mode_lock`, `shader_cache/`, `vulkan/`, `objectdb_snapshots/` – etwa wenn
+gleichzeitig das Spiel oder `view_probe` rendert). Wer während eines Testlaufs spielt und dabei speichert, lässt den
+Lauf ebenfalls scheitern. **Mehrere Läufe gleichzeitig** (z. B. je Worktree): jedem Lauf eine eigene Zahl
+`VSPIN_PORT_BASE=n` (0–466) geben – Fake-Bus ab Port 18765 + 100·n, eigenes Testverzeichnis; ohne Variable gilt
+n = 0. Ein ungültiger Wert bricht den Lauf ab. Die Bridge-Tests nutzen denselben Wert (`bridge/README.md`, „Testen“).
+
+```
+VSPIN_PORT_BASE=2 godot --headless --path games/island-ride -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit
+```
 
 ### Testmuster: Fake-Bus und Drehbuch
 
@@ -831,6 +848,9 @@ Ein guter Test prüft von außen: Drehbuch rein → beobachtbares Spielverhalten
   `connect_client(bus)` (nackter `BusClient`), `run_for(s)`, `run_until(cond, timeout_s)`,
   `press_key(KEY_P)` (Taste wie ein Spieler drücken); räumt nach jedem Test auf. `spawn_ride` setzt
   `quit_on_request = false` – „Beenden“ im Menü meldet dann nur `quit_requested`, statt den Testlauf zu beenden.
+- `tests/support/test_isolation.gd` (`TestIsolation`): `path(name)` für jede Datei, die ein Test schreibt (statt
+  `user://`), `first_test_port()` für feste Testports (`TestIsolation.first_test_port() + 50`), `probe_bus_url()` für
+  Prüfhilfen gegen die echte Bridge.
 
 Drehbuch = Array von Schritten, `at` = Sekunden ab Verbindungsaufbau des Clients; jede Verbindung
 spielt von vorn (so lässt sich auch Reconnect prüfen):
@@ -865,12 +885,17 @@ func test_more_cadence_is_faster() -> void:
 
 ### End-to-End mit echter Bridge (manuell)
 
-`tools/e2e.sh` startet je Kadenz die echte Bridge mit Simulator (`--sim-cadence N`, Port 8765 muss frei
-sein), fährt das Spiel headless (`tools/e2e_probe.gd`) und vergleicht die Geschwindigkeiten:
+`tools/e2e.sh` startet je Kadenz die echte Bridge mit Simulator (`--sim-cadence N`, Port 8765 bzw. 8765 + n
+muss frei sein), fährt das Spiel headless (`tools/e2e_probe.gd`) und vergleicht die Geschwindigkeiten:
 
 ```
 GODOT=godot PYTHON=python games/island-ride/tools/e2e.sh 60 90
 ```
+
+Mit gesetztem `VSPIN_PORT_BASE=n` fahren `e2e.sh`, `e2e_probe.gd` und `view_probe.gd` gegen Port 8765 + n (statt
+`config.cfg [bus] url`) – parallel zu anderen Läufen und ohne die Bridge des Spielers; `e2e.sh` startet die Bridge
+selbst mit `--port`, beim `set_grade`-Handtest die Bridge entsprechend mit `vspin-bridge … --port <8765+n>` starten.
+Den Gelände-Cache legen die Prüfhilfen nach `.godot/test_user/<n>/`.
 
 `set_grade` von Hand prüfen: Bridge starten (`vspin-bridge --source sim --sim-cadence 80`), dann
 `godot --headless --path games/island-ride -s res://tools/e2e_probe.gd -- --seconds=9 --start-m=2400`
@@ -934,7 +959,7 @@ src/ride_sound.gd       RideSound: Ton – Pegel aus Tempo, Ort, Wetter, Tagesli
 src/sound_synth.gd      SoundSynth: alle Klänge prozedural als AudioStreamWAV (Rauschen, Filter, Teiltöne), keine Dateien (#44)
 src/shaders/            Wind (Vegetation), Meer (Wellen, Flachwasser, Brandung), Lichtkegel, Leuchtpunkte, Geschwindigkeitslinien
 src/graybox_track.gd    GrayboxTrack: Rundkurs ~900 m, flach → +6 % → Kuppe → −6 % → flach (`[world] track="graybox"`)
-tests/                  GUT-Tests, support/ (Fake-Bus, Bridge-Profile als Drehbuch, Basisklasse, Hook), fixtures/
+tests/                  GUT-Tests, support/ (Fake-Bus, Bridge-Profile als Drehbuch, Basisklasse, Testisolation und Wächter, Hooks), fixtures/
 tools/                  E2E-Prüfhilfe gegen die echte Bridge, Sichtprüfung/fps (view_probe.gd), Fenstermodi (window_probe.gd)
 addons/gut/             GUT 9.4.0 (MIT, Lizenz in addons/gut/LICENSE.md)
 assets/kenney/          Low-Poly-Modelle (CC0) für alle Stationen
