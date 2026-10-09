@@ -820,7 +820,7 @@ verschwindet beim Vorbeifahren, ein liegengebliebenes wird grau; das Zieltor ble
 **Kadenzbereich** (Standard 60–120 rpm, auf der Seite „Arcade“ einstellbar): keine Zielzone liegt außerhalb. Ragt eine
 Zone hinaus, rückt sie mit gleicher Breite hinein; ist sie breiter als der Bereich, wird sie der ganze Bereich. Das
 geschieht an einer Stelle (`Encounters.build` → `CadenceRange.limit_zone`), durch die jede Zielzone muss – auch die von
-Stufen und späteren Elite-Eigenschaften.
+Stufen und Elite-Eigenschaften (#52; auch die wandernde Zone von *Wankelmütig* in jedem Augenblick).
 
 Im HUD steht die Arcade-Zeile (vor dem Start „Nächste: Zone halten · Ziel 80–100 rpm · noch 45 m“, während der
 Herausforderung Restzeit und Zonenbalken mit Fortschritt); auf der Strecke steht am Startpunkt ein grünes **Starttor**
@@ -832,7 +832,7 @@ Punkte (mit „neue Bestpunktzahl!“), Herausforderungen geschafft/verfehlt und
 **Getrennte Welten (ADR-0010):** Arcade-Kilometer und -Runden zählen für Fahrtenbuch („Arcade“), Fahrerlevel und Erfolge;
 Runden im Arcade schreiben nie Bestzeit, Segmentzeit, Medaille oder Ghost (`records_count()` der Hauptszene). Logik in
 `src/challenge_block.gd`, `src/zone_hold.gd`, `src/breakthrough.gd`, `src/chase.gd`, `src/rhythm_gates.gd`, `src/collect.gd`,
-`src/boss_fight.gd`,
+`src/boss_fight.gd`, `src/elite_group.gd`, `src/elite_groups.gd`,
 `src/encounters.gd`,
 `src/encounter_registry.gd` und `src/challenges/` (Daten und Bauanleitung je Bausteintyp),
 `src/arcade_tiers.gd`, `src/cadence_range.gd` und
@@ -859,6 +859,11 @@ Menüs (Stufe, Kadenzbereich, Ausrüstung) bleiben in der Hauptszene, und `arcad
   `Encounters.build` Phase für Phase (Wächter, Stufe, Ausrüstung) und gibt sie `build_phases` des Typs; Ziel und Zieltext
   vor dem Start sind die der ersten Phase. Eine Definition mit `loot_quality` hebt die Grundqualität ihrer Beute, `boss`
   führt sie in Ergebnis und Zusammenfassung als Boss.
+- **Zufällige Begegnungen** (Elite-Gruppen, #52): keine Zeile im Pool, sondern ein eigener Würfel in `ArcadeRun`
+  (`EliteGroups.roll`), der eine gewürfelte Herausforderung zur Elite-Gruppe macht – eine Definition mit `phases` wie ein Boss
+  (Typ `elite`, `src/challenges/elite_challenges.gd`, `CHALLENGES` leer). Eigenschaften ändern nur die Daten der Phasen vor
+  `Encounters.zone_for`; eine wandernde Zone (`wander`) liefert `Encounters.zone_for(…, at_s)` je Augenblick, ebenfalls durch
+  den Wächter.
 - **Darstellung** (Requisiten, nur Anzeige): `src/<name>_prop.gd` (`extends ArcadeProp`) und eine Zeile in
   `ArcadeStage.PROPS`. Bausteine ohne Darstellung zeigen das Zieltor wie Zone halten.
 - **Hooks, Signale, Zusammenfassung:** eine Erweiterung (Skript mit `attach(stage)`) und eine Zeile in
@@ -979,6 +984,72 @@ Sichtprüfung: `view_probe.gd -- --hud --arcade --bosses` stellt den Fahrer an d
 `boss_<id>.png` (Beginn, voller Lebensbalken), `boss_<id>_close.png` (aus der Nähe), `boss_<id>_hurt.png` (angeschlagen;
 Tramuntana in der Böe), `boss_tramuntana_defeated.png`, `boss_drac_defeated.png` (beim Zusammensinken) und
 `boss_dimonis_escape.png` (ohne Treten entkommen).
+
+### Elite-Gruppen (#52)
+
+Jede gewürfelte Herausforderung kann als **Elite-Gruppe** kommen (Chance 15 %): eine stärkere Fassung derselben
+Herausforderung mit 1–3 **Eigenschaften**, erkennbar an ihrer Farbe – **blau = Champions**, **gelb = Seltene mit Gefolge**
+(gut ein Drittel der Elite-Gruppen sind Seltene). Bosse werden nie zu Elite-Gruppen; in ihrem Abschnitt steht weiter der
+Boss. Gewürfelt wird mit einem eigenen Würfel: bei gleichem Seed bleiben Zahl, Auswahl und Lage der Herausforderungen
+gleich, nur einzelne kommen als Elite-Gruppe. Elite-Gruppen gibt es im Standard-Pool; ein vorgegebener Pool (Tests,
+Prüfhilfe) bekommt keine, außer er nennt die Chance selbst.
+
+| Elite-Stufe | Farbe | Eigenschaften | Gefolge | Punkte | Beute-Qualität |
+|---|---|---|---|---|---|
+| Champions | blau (wie „magisch“) | 1–2 | – | × 1,5 | × 1,5 |
+| Seltene | gelb (wie „selten“) | 2–3 | 1 | × 2 | × 2 |
+
+Die **Eigenschaften** sind Daten (`src/elite_groups.gd`, `AFFIXES`): Jede verschiebt Parameter der Herausforderung je
+Bausteintyp oder fügt eine Phase an; gewürfelt werden nur Eigenschaften, die den Typ der Herausforderung verändern. Werte
+relativ zum Kadenzbereich:
+
+| Eigenschaft | Wirkung |
+|---|---|
+| *Windschnell* | weniger Zeit: Zeitfenster von Zone halten und Durchbruch × 0,8; Jagd: Abhängen dauert × 1,25, der Verfolger holt × 0,8 schneller auf; Takt-Tore: Fenster je Schlag × 0,7 |
+| *Wankelmütig* | die Zielzone wandert (Zone halten, Takt-Tore): sie beginnt an ihrem Platz und schwingt um ± 20 % des Bereichs auf und ab, eine Schwingung 16 s |
+| *Gegenwind* | Zone bzw. Schwelle höher: Zone + 10 % des Bereichs (höchstens 85 %), Durchbruch + 6 % (höchstens 93 %), Jagd + 8 % (höchstens 85 %), Beginn der Sammel-Rampe + 10 % (höchstens 60 %) |
+| *Zäh* | länger halten (× 1,3), Balken des Durchbruchs × 1,3, Vorsprung der Jagd × 0,75, ein Treffer der Takt-Tore bzw. ein Objekt beim Sammeln mehr |
+| *Taktwechsel* | Takt-Tore: die zweite Hälfte der Tore als eigene Phase im Abstand × 0,7 – der Takt wird schneller |
+| *Rudelführer* | ein Gefolge mehr (Champions bringen eins mit, Seltene ein zweites) |
+
+Eine Elite-Gruppe ist eine Folge von **Phasen** wie ein Boss (#51): erst der **Anführer** (die veränderte Herausforderung,
+bei *Taktwechsel* in zwei Phasen), dann das **Gefolge** – eine kleine Herausforderung im Zielformat des Anführers (Zone
+halten bei 45 %, 6 s in 12 s; Durchbruch ab 70 %, 3 s in 9 s; oder Jagd ab 50 %, 6 s / 8 s in 14 s, Vorsprung 0,4; je
+40 Punkte). Jede Phase läuft mit eigenem Zeitfenster ab ihrem Beginn; Stufe, Ausrüstung und Fähigkeiten wirken auf sie wie
+auf jede Herausforderung, aber nur mit Kadenz in der Zone bzw. über der Schwelle. **Geschafft** – alle Phasen: Punkte (die
+des Anführers × Faktor der Elite-Stufe plus die des Gefolges, dann × Stufe; Champions der Jagd *Verfolger*: 140 × 1,5 =
+210) und sichere Beute mit der Beute-Qualität der Elite-Stufe als Faktor auf die Grundqualität (öfter seltene Teile).
+**Verfehlt** – scheitert eine Phase, ist die Gruppe verfehlt: weich, keine Punkte, „… verfehlt – weiter geht's“, die Fahrt
+geht weiter; Beute wie bei jeder verfehlten Herausforderung. In jeder Pause steht alles still.
+
+**Kadenzbereich:** Eigenschaften ändern nur die Daten (Lage, Dauern, Zahlen); die Zielzone entsteht danach wie jede in
+`Encounters.zone_for` → `CadenceRange.limit_zone`. Auch die wandernde Zone geht in jedem Augenblick durch den Wächter: am
+Rand des Bereichs bleibt sie mit gleicher Breite stehen, in einem Bereich so schmal wie die Zone wandert sie nicht. Jede
+Eigenschaft und jede Kombination bleibt auf jeder Stufe mit Kadenz allein lösbar.
+
+**Darstellung** (reine Anzeige aus Grundkörpern, ADR-0010; `src/elite_prop.gd` in `ArcadeStage.PROPS`, `src/elite_banner.gd`,
+`src/elite_badge.gd`): Jede Phase zeigt die Darstellung ihres Bausteins (Zugbrücke, Verfolger, Takt-Tore, Kristalle). Dazu
+die **Standarte** – ein Fahnenmast am rechten Straßenrand mit einer leuchtenden Fahne in der Farbe der Elite-Stufe
+(Schwalbenschwanz, goldene Raute) und darüber Stufe, Herausforderung und Eigenschaften („Champions: Jagd“, „Windschnell ·
+Gegenwind“): ab 300 m vor dem Start steht sie am Startpunkt, im Kampf zieht sie 24 m voraus mit. Oben in der Bildmitte
+steht das **Schild**: Name in der Farbe der Stufe, die Eigenschaften und vor dem Start „voraus · noch 28 m“ (bei Seltenen
+„· mit Gefolge (1)“), im Kampf die Phase mit Ziel („Anführer · ab 98 rpm“, „Gefolge 1/1 · ab 102 rpm“), danach 4 s das
+Ergebnis („geschafft – Elite-Beute“ bzw. grau „verfehlt – weiter geht's“); steht der Lebensbalken eines Bosses noch im
+Bild, rückt es darunter. Die Arcade-Zeile unten nennt die Gruppe („Nächste: Champions: Jagd · Ziel ab 98 rpm“).
+
+**Simulator-Szenarien** (`bridge/profiles/arcade/`, Stufe 1, 60–120 rpm; der Test erzwingt die Gruppe): *Champions* (`elite_champion.toml`,
+Jagd *Verfolger* mit Windschnell und Gegenwind, Schwelle 98 rpm: 6 s 90 rpm, 16 s 104 rpm, 10 s 90 rpm – abgehängt, +210 Punkte,
+Elite-Beute) und *Seltene* (`elite_selten.toml`, Durchbruch *Zugbrücke* mit Gegenwind und Zäh, Schwelle 112 rpm, Gefolge ab
+102 rpm: 12 s 90 rpm, 10 s 116 rpm, 12 s 95 rpm, 8 s 90 rpm – der Anführer fällt, das Gefolge entkommt: weich verfehlt).
+`tests/test_elite_groups_ride.gd` spielt sie über den Fake-Bus durchs Spiel und prüft Standarte, Schild, Farbe und
+Eigenschaften sowie eine zufällig gewürfelte Elite-Gruppe im Standard-Pool; Tests der reinen Logik: `tests/test_elite_groups.gd`
+(Eigenschaften und Stufen als Daten, jede Eigenschaft lösbar mit Kadenz allein und ohne Treten verfehlt, Wächter für jede Zone
+und die wandernde in jedem Augenblick mit Gegenprobe, Würfeln mit Seed bei unveränderten übrigen Würfen, Bosse nie Elite,
+weiches Scheitern, Ausrüstung nur mit Kadenz, Elite-Beute besser als normale).
+
+Sichtprüfung: `view_probe.gd -- --hud --arcade --elite`: `elite_champion_announce.png` und `elite_champion.png` (Ankündigung,
+Kampf mit dem Verfolger), `elite_selten_announce.png`, `elite_selten.png` (Zugbrücke) und `elite_selten_gefolge.png`,
+`elite_wankelmuetig.png` (wandernde Zone) und `elite_banner_close.png` (Standarte aus der Nähe).
 
 ### Kadenzmuster und Fähigkeiten (#50)
 
@@ -1383,12 +1454,14 @@ src/chase.gd            Chase: Baustein „Jagd“ – Verfolger abhängen (Abst
 src/rhythm_gates.gd     RhythmGates: Baustein „Takt-Tore“ – Taktschläge treffen, wenn die Kadenz im Zeitfenster in der Zone liegt – reine Logik (#48)
 src/collect.gd          Collect: Baustein „Sammeln“ – die Kadenz bestimmt den Magnetradius, Objekte im Radius werden eingesammelt – reine Logik (#48)
 src/boss_fight.gd       BossFight: Bosskampf – Phasen aus vorhandenen Bausteinen nacheinander, Lebensbalken, besiegt oder entkommen – reine Logik (#51)
+src/elite_groups.gd     EliteGroups: Elite-Gruppen als Daten – Elite-Stufen (Champions, Seltene), Eigenschaften je Bausteintyp, Gefolge, Würfel – reine Logik (#52)
+src/elite_group.gd      EliteGroup: Elite-Gruppe – Anführer und Gefolge als Phasen (wie BossFight), wandernde Zone durch den Wächter – reine Logik (#52)
 src/encounters.gd       Encounters: Herausforderungen (Zone, Schwelle), Würfeln, Bau der Bausteine mit Wächter des Kadenzbereichs; die Daten je Typ liegen in src/challenges/ (#46, #47, #63)
 src/encounter_registry.gd EncounterRegistry: Bausteintypen des Arcade – eine Zeile je Typ, Reihenfolge = Würfel-Pool (#63)
-src/challenges/         Herausforderungen als Daten und Bauanleitung je Bausteintyp: zone_hold_, breakthrough_, chase_, rhythm_gates_, collect_challenges.gd (#63, verschoben aus encounters.gd; #48); boss_challenges.gd: Bosse als Phasen an festen Orten (#51)
+src/challenges/         Herausforderungen als Daten und Bauanleitung je Bausteintyp: zone_hold_, breakthrough_, chase_, rhythm_gates_, collect_challenges.gd (#63, verschoben aus encounters.gd; #48); boss_challenges.gd: Bosse als Phasen an festen Orten (#51); elite_challenges.gd: Typ der Elite-Gruppen (#52)
 src/arcade_tiers.gd     ArcadeTiers: Stufen als Daten (Zonenbreite, Dauer, Punkte), Auswahl im Spielstand (#46)
 src/cadence_range.gd    CadenceRange: persönlicher Kadenzbereich, begrenzt jede Zielzone (limit_zone) (#46)
-src/arcade_run.gd       ArcadeRun: Arcade-Lauf – Herausforderungen je Abschnitt und Runde, Bosse an festen Orten, Punkte, Beute, Ausrüstung, Zusammenfassung (#46, #49, #51)
+src/arcade_run.gd       ArcadeRun: Arcade-Lauf – Herausforderungen je Abschnitt und Runde, Elite-Gruppen mit eigenem Würfel, Bosse an festen Orten, Punkte, Beute, Ausrüstung, Zusammenfassung (#46, #49, #51, #52)
 src/arcade_stage.gd     ArcadeStage: Bühne des Arcade-Laufs – Lauf, HUD-Anbindung, Tore, Requisiten, Beute-Anzeige, Zusammenfassung, Signale, Hooks, Erweiterungen (#63)
 src/arcade_prop.gd      ArcadeProp: Basis der Darstellungen je Bausteintyp (nur Anzeige, ADR-0010), eingetragen in ArcadeStage.PROPS (#63)
 src/breakthrough_prop.gd BreakthroughProp: Darstellung des Durchbruchs – Zugbrücke statt Zieltor (#47, #63)
@@ -1398,6 +1471,9 @@ src/collect_prop.gd     CollectProp: Darstellung des Sammelns – Kristalle auf 
 src/boss_prop.gd        BossProp: Darstellung der Bosse – Gestalt voraus statt des Zieltors, Lebensbalken im HUD (#51)
 src/boss_figure.gd      BossFigure: Gestalten der Bosse aus Grundkörpern – Tramuntana (Sturmgeist), Drac de na Coca (Drache), Dimonis (drei Teufel); kleiner mit sinkendem Lebensbalken, besiegt oder entkommen (#51)
 src/boss_bar.gd         BossBar: Lebensbalken eines Bosses oben im HUD – Name, Balken, laufende Phase mit Ziel und Restzeit, Ergebnis des Kampfes (#51)
+src/elite_prop.gd       EliteProp: Darstellung der Elite-Gruppen – reicht die Phasen an die Darstellung ihres Bausteins weiter, Standarte und Schild (#52)
+src/elite_banner.gd     EliteBanner: Elite-Standarte aus Grundkörpern in der Farbe der Elite-Stufe mit Stufe, Herausforderung und Eigenschaften (#52)
+src/elite_badge.gd      EliteBadge: Elite-Schild oben im HUD – Ankündigung, Phase mit Ziel, Ergebnis (#52)
 src/timed_markers.gd    TimedMarkers: Lage zeitgebundener Markierungen (Takt-Tore, Sammelobjekte) aus Fahrtposition, Restzeit und gefahrenem Tempo über GatePlacement (#48)
 src/loot.gd             Loot: Beute – Plätze, Seltenheiten, Werte als Daten, Würfel, Vergleich, Modifikatoren, Aussehen – Spezialeffekte legendärer Teile – reine Logik (#49, #53)
 src/inventory.gd        Inventory: Inventar im Spielstand – ablegen, anlegen, vergleichen, zu Splittern verwerten – reine Logik (#49)
