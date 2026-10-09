@@ -159,6 +159,7 @@ def test_example_profile_starts(bridge_process, bus_client, name):
         "state": "connected",
         "source": "sim",
         "capabilities": ["CADENCE"],
+        "heart_rate": {"state": "off", "device": None},  # Pulsquelle bis zum ersten Befehl aus (#64)
     }
     telemetry = receive_json(client)
     assert telemetry["type"] == "telemetry" and 0 <= telemetry["cadence"] <= 200
