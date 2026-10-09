@@ -102,7 +102,10 @@
 ## (HUD, Tore, Requisiten, Beute, Zusammenfassung, Ausrüstung am Fahrer) liegt in `ArcadeStage` (`src/arcade_stage.gd`,
 ## Kind `ArcadeStage`); die Hauptszene reicht nur durch: Start, Fahrschritt, Anzeige, Speichern, Ergebnis. Arcade-km zählen
 ## für Fahrtenbuch, Fahrerlevel und Erfolge, aber Runden im Arcade schreiben nie Bestzeit, Segmentzeit, Medaille oder Ghost
-## (`records_count`, ADR-0010). Die Ausrüstung wird im Menü verwaltet („Fahren → Arcade → Ausrüstung“, `gear_menu`).
+## (`records_count`, ADR-0010). Die Ausrüstung wird im Menü verwaltet („Fahren → Arcade → Ausrüstung“, `gear_menu`), die
+## Talente (#53) ebenfalls („Fahren → Arcade → Talente“, `talent_menu`); ihre Wirkung im Lauf liegt in der Erweiterung
+## `TalentArcade` (`src/talent_arcade.gd`, hier nach dem Aufbau der Bühne angehängt, damit ihr `run_hook` nach dem der
+## Fähigkeiten läuft).
 ##
 ## Bridge aus dem Spiel (#25, BridgeLauncher, nur Windows-Desktop): Ist beim Start keine Bridge auf der Bus-Adresse
 ## erreichbar, startet das Spiel sie unsichtbar mit der Quelle aus `config.cfg [bridge]`; eine laufende wird nur
@@ -139,6 +142,8 @@ const LOGBOOK := preload("res://scenes/logbook.gd")
 const WARDROBE := preload("res://scenes/wardrobe.gd")
 ## Ausrüstung des Arcade-Modus (Inventar der Beute; #49).
 const GEAR_MENU := preload("res://scenes/gear_menu.gd")
+## Talentbaum des Arcade-Modus (Talente aus dem Arcade-Level; #53).
+const TALENT_MENU := preload("res://scenes/talent_menu.gd")
 ## Kamera: Abstand hinter dem Fahrer, Höhe und Blickpunkt voraus je Perspektive (CameraViews, „Weit“ und Blickpunkt
 ## aus `config.cfg [camera]`); Glättung (Zeitkonstante).
 const CAMERA_SMOOTHING_S := 0.45
@@ -197,6 +202,9 @@ var start_menu: CanvasLayer
 var logbook: CanvasLayer
 var wardrobe: CanvasLayer
 var gear_menu: CanvasLayer
+var talent_menu: CanvasLayer
+## Talente und Arcade-Level im Arcade-Lauf (#53); keine Erweiterung in `ArcadeStage.EXTENSIONS`, siehe `_ready`.
+var talent_arcade: TalentArcade
 ## Spielstand; "" = nicht laden/speichern, Fahrten nur im Speicher (Tests, Probe).
 var save_path := SaveGame.DEFAULT_PATH
 var save_game: SaveGame
@@ -349,6 +357,12 @@ func _ready() -> void:
 	gear_menu.gear_changed.connect(_on_gear_changed)
 	add_child(gear_menu)
 	start_menu.gear_requested.connect(open_gear_menu)
+	talent_menu = TALENT_MENU.new()
+	talent_menu.name = "TalentMenu"
+	talent_menu.closed.connect(_on_talent_menu_closed)
+	talent_menu.talents_changed.connect(_on_talents_changed)
+	add_child(talent_menu)
+	start_menu.talents_requested.connect(open_talent_menu)
 	settings_menu.visibility_changed.connect(_on_settings_visibility_changed)
 	_setup_track()
 	_setup_ghost_rider()
@@ -357,6 +371,8 @@ func _ready() -> void:
 	arcade_stage = ArcadeStage.new()
 	add_child(arcade_stage)
 	arcade_stage.setup(track, hud, format_time, GATE_KEEP_BEHIND_M)
+	talent_arcade = TalentArcade.new()  # nach den Fähigkeiten (#50, in EXTENSIONS): ihr `run_hook` verändert deren Daten
+	talent_arcade.attach(arcade_stage)
 	_apply_wardrobe()
 	sky = SkyController.new()
 	add_child(sky)
@@ -799,6 +815,7 @@ func _update_arcade_menu() -> void:
 	var tier := ArcadeTiers.selection(save_game)
 	start_menu.set_arcade_choices(tier, CadenceRange.selection(save_game))
 	start_menu.show_arcade_best(save_game.best_arcade_points(tier))
+	start_menu.show_arcade_level(ArcadeLevel.level(save_game), Talents.available(save_game))
 
 
 ## Fahrtenbuch aus dem Startmenü öffnen (das Menü tritt so lange zurück).
@@ -844,6 +861,25 @@ func open_gear_menu() -> void:
 	gear_menu.open(save_game)
 
 
+## Talentbaum (#53) aus der Seite „Arcade“ öffnen (das Menü tritt so lange zurück).
+func open_talent_menu() -> void:
+	start_menu.close()
+	talent_menu.open(save_game)
+
+
+func _on_talent_menu_closed() -> void:
+	start_menu.open()
+	start_menu.show_arcade()
+	_update_arcade_menu()
+	start_menu.buttons["arcade_talents"].grab_focus()
+
+
+## Talent erlernt oder zurückgesetzt: gleich speichern.
+func _on_talents_changed() -> void:
+	if not save_path.is_empty():
+		save_game.save_file(save_path)
+
+
 func _on_gear_menu_closed() -> void:
 	start_menu.open()
 	start_menu.show_arcade()
@@ -863,6 +899,7 @@ func _on_settings_visibility_changed() -> void:
 		logbook.focus_default.call_deferred()  # Einstellungen über dem Fahrtenbuch geschlossen
 		wardrobe.focus_default.call_deferred()  # … oder über der Garderobe
 		gear_menu.focus_default.call_deferred()  # … oder über der Ausrüstung
+		talent_menu.focus_default.call_deferred()  # … oder über den Talenten
 
 
 ## Seite „Rundfahrt“ im Startmenü: Tageszeiten wie im Einstellungsmenü, die gespeicherten Ghosts und die Bestzeit der
@@ -900,6 +937,7 @@ func _enter_menu() -> void:
 	logbook.close()
 	wardrobe.close()
 	gear_menu.close()
+	talent_menu.close()
 	state = STATE_MENU
 	_manual_pause = false
 	hud.visible = false

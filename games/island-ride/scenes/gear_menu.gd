@@ -28,6 +28,7 @@ var _info: Label
 var _list: VBoxContainer
 var _detail_name: Label
 var _detail_stats: Label
+var _detail_effect: Label
 var _compare: VBoxContainer
 var _equipped: VBoxContainer
 var _group: ButtonGroup
@@ -109,6 +110,11 @@ func equipped_lines() -> Array:
 	return _equipped.get_children().filter(func(c): return c is Label).map(func(label): return label.text)
 
 
+## Effekt des gewählten legendären Teils wie angezeigt (für Tests), z. B. „Effekt: Rückstoß\nWindböe wirft …“; sonst "".
+func effect_text() -> String:
+	return _detail_effect.text
+
+
 ## Kopfzeile wie angezeigt (Splitter, Teile).
 func info_text() -> String:
 	return _info.text
@@ -151,8 +157,8 @@ func _refresh() -> void:
 		var id := int(item["id"])
 		var button := Button.new()
 		button.name = "item_%d" % id
-		button.text = "%s%s\n%s" % [Loot.item_name(item), " · angelegt" if Inventory.is_equipped(_save, id) else "",
-				Loot.stats_text(item)]
+		button.text = "%s%s\n%s%s" % [Loot.item_name(item), " · angelegt" if Inventory.is_equipped(_save, id) else "",
+				Loot.stats_text(item), " · " + Loot.effect_name(item) if Loot.effect_of(item) != "" else ""]
 		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART  # schmale Fenster: Werte brechen um
 		button.toggle_mode = true
@@ -193,6 +199,7 @@ func _show_detail() -> void:
 		_detail_name.text = "Kein Teil gewählt"
 		_detail_name.add_theme_color_override("font_color", COLOR_SAME)
 		_detail_stats.text = ""
+		_detail_effect.text = ""
 		_set_enabled(equip, false)
 		_set_enabled(salvage, false)
 		salvage.text = "Verwerten"
@@ -201,6 +208,8 @@ func _show_detail() -> void:
 	_detail_name.text = Loot.item_name(item)
 	_detail_name.add_theme_color_override("font_color", Loot.color_of(item["rarity"]))
 	_detail_stats.text = Loot.stats_text(item).replace(" · ", "\n")
+	_detail_effect.text = "Effekt: %s\n%s" % [Loot.effect_name(item), Loot.effect_text(item)] \
+			if Loot.effect_of(item) != "" else ""
 	var current: Dictionary = Inventory.equipped(_save).get(item["slot"], {})
 	var heading := Label.new()
 	heading.text = "Angelegt: %s" % ("dieses Teil" if worn else (Loot.item_name(current) if not current.is_empty()
@@ -311,6 +320,12 @@ func _build() -> void:
 	_detail_stats.name = "Stats"
 	_detail_stats.add_theme_font_size_override("font_size", 17)
 	detail.add_child(_detail_stats)
+	_detail_effect = Label.new()
+	_detail_effect.name = "Effect"
+	_detail_effect.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_detail_effect.add_theme_font_size_override("font_size", 17)
+	_detail_effect.add_theme_color_override("font_color", Loot.color_of(Loot.LEGENDARY))
+	detail.add_child(_detail_effect)
 	_compare = VBoxContainer.new()
 	_compare.name = "Compare"
 	_compare.add_theme_constant_override("separation", 2)

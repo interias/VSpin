@@ -97,7 +97,8 @@ func test_values_per_rarity_and_slot() -> void:
 		var level: Dictionary = Loot.RARITIES[item["rarity"]]
 		assert_eq(item["stats"].size(), level["stats"], "%s: Zahl der Werte nach Seltenheit" % item["rarity"])
 		assert_true(item["stats"].has(Loot.SLOTS[item["slot"]]["stat"]), "Hauptwert des Platzes %s" % item["slot"])
-		assert_eq(item["effect"], "", "Platz für den legendären Effekt (#53), hier leer")
+		assert_eq(item["effect"] != "", item["rarity"] == Loot.LEGENDARY, "den Effekt (#53) bekommen nur legendäre Teile")
+		assert_true(item["effect"] == "" or Loot.EFFECTS.has(item["effect"]), "ein Effekt aus den Daten")
 		assert_true(Loot.valid(item))
 		for stat in item["stats"]:
 			var info: Dictionary = Loot.STATS[stat]

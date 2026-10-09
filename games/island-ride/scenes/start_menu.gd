@@ -32,6 +32,8 @@ signal logbook_requested
 signal wardrobe_requested
 ## „Fahren → Arcade → Ausrüstung“ gewählt (#49).
 signal gear_requested
+## „Fahren → Arcade → Talente“ gewählt (#53).
+signal talents_requested
 ## „Einstellungen“ gewählt.
 signal settings_requested
 ## „Beenden“ gewählt.
@@ -57,7 +59,7 @@ var web := OS.has_feature("web")
 
 ## Knöpfe je Menüpunkt (Schlüssel: drive, round_trip, training, arcade, back, logbook, wardrobe, settings, quit;
 ## auf der Seite „Rundfahrt“: start, trip_back; auf der Seite „Training“: training_start, training_back; auf der Seite
-## „Arcade“: arcade_start, arcade_gear, arcade_back).
+## „Arcade“: arcade_start, arcade_gear, arcade_talents, arcade_back).
 var buttons := {}
 ## Auswahlfelder der Seite „Rundfahrt“ (Schlüssel: laps, direction, time, ghost), der Seite „Training“ (unit) und der
 ## Seite „Arcade“ (tier, cadence_min, cadence_max).
@@ -73,6 +75,7 @@ var _training_page: VBoxContainer
 var _arcade_page: VBoxContainer
 var _arcade_info: Label
 var _arcade_best: Label
+var _arcade_level: Label
 var _best_label: Label
 var _training_info: Label
 var _center: CenterContainer
@@ -248,6 +251,12 @@ func arcade_tier() -> int:
 func cadence_range() -> CadenceRange:
 	return CadenceRange.new(CadenceRange.MIN_CHOICES[maxi((options["cadence_min"] as OptionButton).selected, 0)],
 			CadenceRange.MAX_CHOICES[maxi((options["cadence_max"] as OptionButton).selected, 0)])
+
+
+## Arcade-Level (#53); der Knopf „Talente“ zeigt die freien Talentpunkte.
+func show_arcade_level(level: int, free_points: int) -> void:
+	_arcade_level.text = "Arcade-Level %d" % level
+	buttons["arcade_talents"].text = "Talente (%d)" % free_points if free_points > 0 else "Talente"
 
 
 ## Beste Punktzahl der gewählten Stufe (0 = noch keine).
@@ -462,17 +471,27 @@ func _build() -> void:
 	_arcade_best = Label.new()
 	_arcade_best.name = "ArcadeBest"
 	_arcade_best.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_arcade_page.add_child(_arcade_best)
+	_arcade_level = Label.new()
+	_arcade_level.name = "ArcadeLevel"
+	_arcade_level.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var arcade_status := HBoxContainer.new()  # Bestpunktzahl und Arcade-Level in einer Zeile (spart Höhe im kleinen Fenster)
+	arcade_status.alignment = BoxContainer.ALIGNMENT_CENTER
+	arcade_status.add_theme_constant_override("separation", 28)
+	_arcade_page.add_child(arcade_status)
+	arcade_status.add_child(_arcade_best)
+	arcade_status.add_child(_arcade_level)
 	var arcade_actions := HBoxContainer.new()
 	arcade_actions.add_theme_constant_override("separation", 10)
 	_arcade_page.add_child(arcade_actions)
 	_add_button(arcade_actions, "arcade_start", "Losfahren", ride_requested.emit.bind(SaveGame.MODE_ARCADE))
 	_add_button(arcade_actions, "arcade_gear", "Ausrüstung", gear_requested.emit)
+	_add_button(arcade_actions, "arcade_talents", "Talente", talents_requested.emit)
 	_add_button(arcade_actions, "arcade_back", "Zurück", show_page.bind(true))
-	for key in ["arcade_start", "arcade_gear", "arcade_back"]:  # drei nebeneinander passen sonst nicht in 960 px
-		buttons[key].custom_minimum_size.x = 200
+	for key in ["arcade_start", "arcade_gear", "arcade_talents", "arcade_back"]:  # vier nebeneinander: schmaler als 200 px
+		buttons[key].custom_minimum_size.x = 150
 	set_arcade_choices(ArcadeTiers.DEFAULT, CadenceRange.new())
 	show_arcade_best(0)
+	show_arcade_level(1, 0)
 	var status := PanelContainer.new()
 	status.name = "Status"
 	status.add_theme_stylebox_override("panel", _panel_style(0.6, 12))

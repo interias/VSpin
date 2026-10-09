@@ -3,7 +3,8 @@
 ## Grafik). Verwaltet wird sie im Inventar (Inventory, im Spielstand), gefunden im Arcade-Lauf (ArcadeRun).
 ##
 ## Ein Teil: {id, slot, rarity, stats: {<wert>: Zahl}, effect}. `id` vergibt das Inventar (0 = noch nicht abgelegt);
-## `effect` ist der Platz für den Spezialeffekt legendärer Teile (#53) und bleibt hier leer – ohne Wirkung.
+## `effect` ist der Spezialeffekt **legendärer** Teile (#53, `EFFECTS`): der Würfel vergibt ihn nur bei „legendär“, alle
+## anderen Teile und ältere legendäre Teile ohne Eintrag behalten `""` und bleiben gültig – ohne Wirkung.
 ##
 ## **Ausrüstung ersetzt nie das Treten** (Implementation Decisions #27): Die Werte machen nachsichtiger (breitere
 ## Zielzone), wirkungsvoller (Fortschritt in der Zone) und lohnender (Punkte, Beute-Glück). Sie wirken als
@@ -47,6 +48,22 @@ const STATS := {
 	"points_pct": {"name": "Punkte", "unit": "%", "min": 5, "max": 10, "cap": 100},
 	"luck_pct": {"name": "Beute-Glück", "unit": "%", "min": 5, "max": 10, "cap": 100},
 }
+## Spezialeffekte legendärer Teile (#53) als **Daten**: Name, Beschreibung und `changes` – Änderungen an Fähigkeiten,
+## Mustern und Ausrüstungswerten des Arcade-Laufs (Vokabular und Anwendung: BuildEffects). Wirken nur im Arcade-Lauf
+## (ADR-0010), nur auf angelegten legendären Teilen, und ersetzen nie das Treten: sie verändern Wirkung, Dauer und
+## Abklingzeit der Fähigkeiten (Abilities.DEFS), die selbst nur mit Kadenz in der Zone Fortschritt bringen.
+const EFFECTS := {
+	"rueckstoss": {"name": "Rückstoß", "text": "Windböe wirft Gegner zurück: Jagd +15 % Abstand, Durchbruch +10 % Balken",
+		"changes": [{"knockback": {"chase_gap": 0.15, "breakthrough_fill": 0.10}}]},
+	"tiefer_atem": {"name": "Tiefer Atem", "text": "Schild hält 4 s länger",
+		"changes": [{"ability": "schild", "key": "duration_s", "add": 4.0}]},
+	"kombo_ernte": {"name": "Kombo-Ernte", "text": "Kombo gibt doppelt so viele Punkte",
+		"changes": [{"ability": "kombo", "key": "power", "mul": 2.0}]},
+	"im_fluss": {"name": "Im Fluss", "text": "Fokus doppelt so stark und 4 s länger",
+		"changes": [{"ability": "fokus", "key": "power", "mul": 2.0}, {"ability": "fokus", "key": "duration_s", "add": 4.0}]},
+	"auf_dem_sprung": {"name": "Auf dem Sprung", "text": "Windböe lädt 8 s schneller",
+		"changes": [{"ability": "windboe", "key": "cooldown_s", "add": -8.0}]},
+}
 ## Chance auf Beute: nach einer geschafften Herausforderung sicher; nach einer verfehlten FAILED_CHANCE × erreichter
 ## Fortschritt – knapp verfehlt gibt manchmal etwas, ohne Kadenz in der Zone (Fortschritt 0) nie.
 const SUCCEEDED_CHANCE := 1.0
@@ -66,7 +83,10 @@ static func roll(rng: RandomNumberGenerator, quality: float = 1.0) -> Dictionary
 	for stat in names:
 		var value := rng.randf_range(STATS[stat]["min"], STATS[stat]["max"]) * float(level["factor"])
 		stats[stat] = maxi(roundi(value), 1)
-	return {"id": 0, "slot": slot, "rarity": rarity, "stats": stats, "effect": ""}
+	var effect := ""
+	if rarity == LEGENDARY:  # zuletzt gewürfelt: die Würfe aller anderen Teile bleiben, wie sie waren
+		effect = EFFECTS.keys()[rng.randi_range(0, EFFECTS.size() - 1)]
+	return {"id": 0, "slot": slot, "rarity": rarity, "stats": stats, "effect": effect}
 
 
 ## Seltenheit nach Gewicht; `quality` multipliziert das Gewicht der Seltenheit mit Rang r (0 = gewöhnlich) mit
@@ -127,6 +147,25 @@ static func stats_text(item: Dictionary) -> String:
 		if item.get("stats", {}).has(stat):
 			parts.append(stat_text(stat, item["stats"][stat]))
 	return " · ".join(parts)
+
+
+## Spezialeffekt von `item` (Schlüssel aus `EFFECTS`; "" = keiner): nur legendäre Teile, nur bekannte Effekte – ältere
+## legendäre Teile ohne Effekt und Teile mit unbekanntem Eintrag haben keinen.
+static func effect_of(item: Dictionary) -> String:
+	var effect = item.get("effect", "")
+	return effect if item.get("rarity") == LEGENDARY and effect is String and EFFECTS.has(effect) else ""
+
+
+## Name des Effekts („Rückstoß“), "" ohne Effekt.
+static func effect_name(item: Dictionary) -> String:
+	var effect := effect_of(item)
+	return EFFECTS[effect]["name"] if effect != "" else ""
+
+
+## Beschreibung des Effekts, "" ohne Effekt.
+static func effect_text(item: Dictionary) -> String:
+	var effect := effect_of(item)
+	return EFFECTS[effect]["text"] if effect != "" else ""
 
 
 ## Ist `item` ein gültiges Teil (bekannter Platz und Seltenheit, nur bekannte Werte als Zahlen)? Für Stände von der
