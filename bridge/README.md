@@ -22,6 +22,7 @@ python -m venv .venv
 vspin-bridge --source sim                  # oder: python -m vspin_bridge --source sim
 vspin-bridge --source sim --sim-cadence 80 # Start-Kadenz in rpm (Standard 0)
 vspin-bridge --source replay DATEI.raw.jsonl --speed 10   # Aufnahme abspielen (siehe Replay)
+vspin-bridge --source sim --hr-replay DATEI.raw.jsonl      # Pulsquelle spielt die Pulszeilen ab (siehe Puls)
 ```
 
 Im Terminal: Pfeil hoch/`+` = Kadenz +5, Pfeil runter/`-` = Kadenz −5 (0–200 rpm), `q` oder
@@ -71,6 +72,35 @@ Bluetooth-Adapter (Docker, CI) läuft die Bridge normal weiter; eine Suche liefe
 jede Änderung, z. B. `Puls: connected, HRM-Pro (strap)`. Tests nutzen statt bleak einen skriptbaren Fake
 (`tests/fake_ble.py`, `tests/heart_rate_harness.py`).
 
+**Simulator-Puls:** Der Simulator liefert in jedem Sample einen Puls, wie ein FTMS-Rad ihn mitliefert; er gilt
+daher nur, solange kein Pulsgerät verbunden ist (die Regel oben). Ein Ruhepuls von 60 bpm läuft einem Ziel nach,
+das mit Kadenz und virtueller Steigung wächst:
+
+```
+Ziel   = 60 + 0,9 · Kadenz + 3 · max(0, Steigung in %)     (begrenzt auf 50–190 bpm)
+Puls  += (Ziel − Puls) · (1 − e^(−0,25 s / 30 s))             je Sample, gemeldet auf ganze bpm gerundet
+```
+
+Bei 80 rpm eben ist das Ziel 132 bpm, bei 130 rpm 177 bpm, 7 % Steigung bringen 21 bpm obendrauf (die Kadenz
+sinkt dabei, siehe oben). Nach 30 s sind 63 % des Weges geschafft: Im Intervall steigt der Puls langsam, in der
+Pause (Kadenz 0) fällt er langsam zurück zum Ruhepuls. Gerechnet wird je Sample, nie mit der Wanduhr: Ohne
+`--noise` hängt der Puls nur von der Folge der Samples ab, mit `--noise` und gleichem `--seed` ist er
+reproduzierbar. Ein Profil kann ihn je Schritt vorgeben oder ganz abschalten (siehe Profile); der Simulator meldet
+dafür keine eigene Capability (`capabilities` bleibt `["CADENCE"]`), denn auch ein FTMS-Rad hat keine – der Puls
+ist ein Feld im Sample, das fehlen darf.
+
+**`--hr-replay DATEI`** (Entwicklung und Tests): Die Pulsquelle spielt die `0x2A37`-Zeilen einer Rohdatei ab, mit
+jeder Radquelle kombinierbar (`vspin-bridge --source sim --hr-replay sessions/….raw.jsonl`). Die Datei darf
+Radzeilen enthalten, sie werden übersprungen, genau wie `--source replay` die Pulszeilen überspringt (Pulszeilen
+tragen die Bridge-Zeit, Radzeilen der Replay-Session die Aufnahmezeit; die Reihenfolge von `t_ms` zählt nur
+unter gleichartigen Zeilen). Statt bleak steckt der Replay-Adapter (`sources/heart_rate_replay.py`) hinter der
+BLE-Nahtstelle: Die Quelle bleibt `off`, bis ein Client `set_heart_rate_devices` schickt. Der Adapter kündigt dann
+ein Gerät mit fester Adresse `56:53:50:49:4E:01` und Namen `VSpin Replay` an (Adresse oder Name genügen zum
+Merken), verbindet auf Anfrage und spielt die Notifications im Takt der Aufnahme ab. Am Ende der Aufnahme reißt
+die Verbindung ab wie bei einem abgenommenen Gurt (`disconnected`); das Gerät erscheint danach nicht wieder. Eine
+kaputte Datei oder eine ohne `0x2A37`-Zeilen bricht den Start mit einer Meldung ab. Der Launcher des Spiels
+braucht die Option nicht.
+
 ## Profile
 
 ```
@@ -88,12 +118,14 @@ unter [`profiles/`](profiles/):
 | `sprint.toml` | Intervalle 80 → 130 → 70 rpm, endlos |
 | `stillstand.toml` | Fahren, 8 s Kadenz 0 (Daten laufen weiter → bleibt `connected`), endlos |
 | `abbruch.toml` | Fahren → 4 s keine Daten (`stale`) → Abbruch (`disconnected`) → Neuverbindung (`connected`), endlos |
+| `intervall-puls.toml` | Einrollen, Belastung, Erholung mit vorgegebenem Zielpuls (100 → 125, 170, 110 bpm), endlos |
 
 Format:
 
 ```toml
 name = "Mein Profil"   # optional, fürs Terminal (Standard: Dateiname)
 repeat = true          # optional: am Ende von vorn (Standard: false → Quelle endet, Status disconnected)
+heart_rate = false     # optional: schaltet den Simulator-Puls ab (telemetry.heart_rate bleibt null)
 
 [[steps]]              # Fahren, konstant
 duration_s = 10
@@ -104,6 +136,11 @@ duration_s = 5
 cadence = 80
 cadence_to = 120
 
+[[steps]]              # Fahren mit Zielpuls (50–190 bpm) statt der Formel; auch linear mit heart_rate_to
+duration_s = 30
+cadence = 110
+heart_rate = 165
+
 [[steps]]              # keine Daten, Verbindung bleibt (ab 3 s ohne Daten: stale)
 duration_s = 4
 action = "pause"
@@ -112,6 +149,12 @@ action = "pause"
 duration_s = 2         # die Bridge versucht alle 3 s neu zu verbinden (ADR-0004)
 action = "disconnect"
 ```
+
+Den Puls steuert ein Profil je Schritt (`heart_rate` als **Zielpuls** des Schritts, `heart_rate_to` für einen
+linearen Verlauf), weil sich Belastung und Erholung von Schritt zu Schritt ändern; der gemeldete Puls läuft dem Ziel
+mit der Zeitkonstante des Simulators nach und springt nicht. Ohne `heart_rate` gilt die Formel aus Kadenz und
+Steigung. `heart_rate = false` im Kopf schaltet den Puls für das ganze Profil ab (Rad ohne Puls; zusammen mit einem
+Schritt-Puls ein Fehler). Zielpulse außerhalb 50–190 bpm lehnt der Start ab.
 
 Die Wiedergabe ist deterministisch: ein Fahr-Schritt liefert genau `duration_s / 0,25 s`
 Samples (gerundet), Kadenzen auf 0,1 rpm gerundet, unabhängig von der Rechnerlast.
@@ -211,7 +254,8 @@ Arbeitsverzeichnis, anderer Ort mit `--sessions-dir DIR`. Die Pfade stehen beim 
   leer, wenn das Sample keinen neuen Wert hatte (CSC: wiederholtes Event; FTMS: kein
   Kadenzfeld), und auch verworfene
   Ausreißer stehen hier. Fehlende Werte bleiben leer (`grade` bis zum ersten `set_grade`,
-  `hr_bpm`, solange die Quelle keinen Puls liefert – bisher nur FTMS mit Heart-Rate-Feld).
+  `hr_bpm`, solange weder Pulsgerät noch Quelle einen Puls liefern – FTMS mit Heart-Rate-Feld und der
+  Simulator liefern einen, siehe Puls).
 - `YYYY-MM-DD_HH-MM-SS.raw.jsonl`: alle rohen Notifications im Replay-Format (oben), auch nicht
   ausgewertete. Beim Replay mit unverändertem `t_ms` der Aufnahme – für eine Eingabe im Format
   von `ble_discovery.py` (Standard-`json.dumps`, `hex` klein) ist die Datei Byte für Byte gleich

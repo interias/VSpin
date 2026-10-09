@@ -24,7 +24,7 @@ Datenaufbereitung (ADR-0004, für alle Quellen gleich):
 | `speed_kmh` | km/h, ungeglättet; `null`, wenn die Quelle keine liefert (Simulator, CSC – Radumfang unbekannt). |
 | `power_w` | Watt, ungeglättet; `null` ohne Wert. |
 | `power_estimated` | `true` = geschätzt, `false` = gemessen, `null` ohne `power_w`. Watt vom JC312 (FTMS) sind immer geschätzt. |
-| `heart_rate` | bpm. Ist ein Pulsgerät verbunden (`status.heart_rate.state` `connected` oder `stale`) oder hat die Pulsquelle einen Wert jünger als 5 s, ist es der Wert der Pulsquelle (`null`, wenn er älter als 5 s ist). Sonst der Puls, den das Rad selbst liefert (FTMS Indoor Bike Data), falls es einen liefert, sonst `null`. Den Takt der `telemetry` bestimmt weiter die Radquelle. |
+| `heart_rate` | bpm. Ist ein Pulsgerät verbunden (`status.heart_rate.state` `connected` oder `stale`) oder hat die Pulsquelle einen Wert jünger als 5 s, ist es der Wert der Pulsquelle (`null`, wenn er älter als 5 s ist). Sonst der Puls, den das Rad selbst liefert (FTMS Indoor Bike Data; der Simulator liefert einen, außer ein Profil schaltet ihn ab), falls es einen liefert, sonst `null`. Den Takt der `telemetry` bestimmt weiter die Radquelle. |
 
 Kommen gar keine Daten, gibt es keine erfundene Kadenz 0 – dann greift `stale` (unten).
 

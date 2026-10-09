@@ -20,7 +20,9 @@ from heart_rate_harness import (  # noqa: F401 – pulse_bridge ist eine Fixture
     pulse_bridge,
     set_devices,
 )
+from vspin_bridge.sources.profile import Profile, Ride
 from vspin_bridge.sources.replay import ReplaySource, load_replay
+from vspin_bridge.sources.sim import SimulatorSource
 
 SEARCH_ACK = ack("start_heart_rate_search")
 STOP_ACK = ack("stop_heart_rate_search")
@@ -33,6 +35,11 @@ def start_search(duration_s: float | None = None) -> dict:
 
 
 STOP_SEARCH = {"v": 0, "type": "stop_heart_rate_search"}
+
+
+def wheel_without_pulse() -> SimulatorSource:
+    """Rad ohne Puls: 80 rpm, `heart_rate` bleibt null (der Simulator liefert sonst selbst einen Puls)."""
+    return SimulatorSource(profile=Profile("ohne Puls", (Ride(3600, 80),), heart_rate=False))
 
 
 def with_pulse(bpm):
@@ -55,9 +62,14 @@ def connect_strap(bridge, rig, reader: BusReader, bpm: int | None = None) -> Non
 # --- status -------------------------------------------------------------------------------
 
 
-def test_first_status_has_heart_rate_off_behind_the_unchanged_wheel_part(bridge_process, bus_client, isolated_bus):
+def test_first_status_has_heart_rate_off_behind_the_unchanged_wheel_part(
+    bridge_process, bus_client, isolated_bus, tmp_path
+):
     # Echter Prozess mit der Standard-Pulsquelle (bleak): bis zum ersten Befehl fasst sie BLE nicht an.
-    bridge_process("--source", "sim", "--sim-cadence", "80")
+    # Profil ohne Puls = Rad ohne Puls (der Simulator liefert sonst selbst einen).
+    profile = tmp_path / "ohne-puls.toml"
+    profile.write_text("heart_rate = false\n[[steps]]\nduration_s = 3600\ncadence = 80\n", encoding="utf-8")
+    bridge_process("--source", "sim", "--profile", str(profile))
     client = bus_client()
     status = receive_json(client)
     assert list(status) == ["v", "type", "t_ms", "state", "source", "capabilities", "heart_rate"]
@@ -116,7 +128,7 @@ def test_no_pulse_for_longer_than_stale_gives_null_and_stale(pulse_bridge, bus_c
 
 def test_pulse_dropout_does_not_disturb_the_ride_and_reconnects(pulse_bridge, bus_client, isolated_bus):
     # Story 12 auf Bridge-Seite: Pulsausfall stört die Fahrt nicht.
-    bridge, rig = pulse_bridge(stale_s=0.6)
+    bridge, rig = pulse_bridge(wheel_without_pulse(), stale_s=0.6)
     client = BusReader(bus_client())
     connect_strap(bridge, rig, client, bpm=88)
 
