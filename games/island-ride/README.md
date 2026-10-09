@@ -756,7 +756,7 @@ Balken, bis sie auf der Straße liegt; nach dem Erfolg öffnet sie sich zügig g
 (ohne Punkte und Beute). Wie ein durchfahrenes Tor bleibt sie kurz stehen. **Verfolger** (`src/pursuer.gd`): Beim Jagen
 läuft ein dunkelroter Hund mit Hörnern und glühenden Augen 1,9 m links hinter dem Fahrer, bei Abstand 0 in 4 m, bei
 Abstand 1 in 45 m (außer Sicht); nach der Jagd fällt er zurück und verschwindet. Beides ist reine Anzeige aus Grundkörpern
-(ADR-0010); die Hauptszene stellt sie in `_update_arcade_props`. Beide Herausforderungen kommen wie Zone halten in die Würfel
+(ADR-0010); die Bühne des Arcade-Laufs stellt sie (`src/breakthrough_prop.gd`, `src/chase_prop.gd`, #63). Beide Herausforderungen kommen wie Zone halten in die Würfel
 der Arcade-Läufe (`Encounters.CHALLENGES`, jetzt sieben Einträge).
 
 **Kadenzbereich** (Standard 60–120 rpm, auf der Seite „Arcade“ einstellbar): keine Zielzone liegt außerhalb. Ragt eine
@@ -774,8 +774,33 @@ Punkte (mit „neue Bestpunktzahl!“), Herausforderungen geschafft/verfehlt und
 **Getrennte Welten (ADR-0010):** Arcade-Kilometer und -Runden zählen für Fahrtenbuch („Arcade“), Fahrerlevel und Erfolge;
 Runden im Arcade schreiben nie Bestzeit, Segmentzeit, Medaille oder Ghost (`records_count()` der Hauptszene). Logik in
 `src/challenge_block.gd`, `src/zone_hold.gd`, `src/breakthrough.gd`, `src/chase.gd`, `src/encounters.gd`,
+`src/encounter_registry.gd` und `src/challenges/` (Daten und Bauanleitung je Bausteintyp),
 `src/arcade_tiers.gd`, `src/cadence_range.gd` und
 `src/arcade_run.gd` (alles ohne Szene und Bus).
+
+**Aufbau und Einhängepunkte (#63):** Alles Szenische des Arcade liegt in der **Bühne** (`ArcadeStage`,
+`src/arcade_stage.gd`), einem dauerhaften Kind der Hauptszene (`arcade_stage`). Sie hält den reinen Lauf (`run`, null = kein
+Arcade) und zeigt in Rundfahrt und Training nichts (ADR-0010). `scenes/main.gd` behält nur den Einhängepunkt: `begin` (Fahrtbeginn),
+`advance` (Fahrschritt, nicht in Pausen), `update_view` (HUD-Zeile, Tore, Requisiten, Lichtsäule), `save` (Fahrteintrag,
+Bestpunktzahl, Beute ins Inventar), `result_text` (Zusammenfassung), `enter_menu` und `dress` (Ausrüstung am Fahrer); die
+Menüs (Stufe, Kadenzbereich, Ausrüstung) bleiben in der Hauptszene, und `arcade`, `arcade_seed`, `arcade_pool`, die Tore,
+`arcade_bridge`, `arcade_pursuer` und `loot_beam` leiten für Tests und Prüfhilfen an die Bühne weiter. Neue Arcade-Bausteine
+(Takt-Tore, Sammeln, Bosse, Kadenzmuster, …) hängen sich mit **eigenen Dateien und höchstens einer Zeile je Liste** ein, ohne
+`main.gd` anzufassen:
+
+- **Typ** (Baustein, Herausforderungen als Daten): `src/challenges/<name>_challenges.gd` mit `ID`, `CHALLENGES` und
+  `build(definition, level, zone)`, dazu eine Zeile in `EncounterRegistry.TYPES` (`src/encounter_registry.gd`). Die
+  Reihenfolge der Zeilen ist die Reihenfolge des Würfel-Pools (`Encounters.CHALLENGES`): neue Typen ans Ende, sonst
+  ändern sich die Würfe bestehender Seeds (`tests/test_arcade_stage.gd` prüft den Anfang des Pools). Zielzonen laufen weiter
+  durch `Encounters.zone_for` und den Wächter des Kadenzbereichs.
+- **Darstellung** (Requisiten, nur Anzeige): `src/<name>_prop.gd` (`extends ArcadeProp`) und eine Zeile in
+  `ArcadeStage.PROPS`. Bausteine ohne Darstellung zeigen das Zieltor wie Zone halten.
+- **Hooks, Signale, Zusammenfassung:** eine Erweiterung (Skript mit `attach(stage)`) und eine Zeile in
+  `ArcadeStage.EXTENSIONS`. Sie hört auf die Signale der Bühne – `challenge_started`, `challenge_ended`, `loot_found`,
+  `stepped` (je Fahrschritt mit geglätteter und ungeglätteter Kadenz, für Kadenzmuster) und `run_finished` –, stellt den
+  Lauf über `run_hooks` ein (`gear`, `loot_quality`) und hängt über `summary_providers` Zeilen an die Zusammenfassung.
+
+Die Schnittstelle steht ausführlich im Kopf von `arcade_stage.gd`, `arcade_prop.gd` und `encounter_registry.gd`.
 
 **Simulator-Szenarien:** `bridge/profiles/arcade/` – *perfekt in der Zone* (`zone_perfekt.toml`, 90 rpm: geschafft),
 *knapp daneben* (`zone_knapp_daneben.toml`, 102 rpm: weich verfehlt), *Abbruch* (`zone_abbruch.toml`: mitten im Halten
@@ -791,7 +816,8 @@ mit 100 rpm über 93: abgehängt, +140 Punkte und Beute) und *Jagd eingeholt* (`
 eingeholt, keine Punkte, keine Beute). `tests/test_arcade_ride.gd` spielt sie mit der jeweils erzwungenen Herausforderung
 (`_play_profile(name, challenge)`) durchs Spiel; von Hand würfelt der Lauf die Herausforderung selbst. Tests der reinen
 Logik: `tests/test_arcade_blocks.gd` (Erfolg, Scheitern, Pause, Wächter mit Gegenprobe, Ausrüstung nur über der Schwelle,
-Stufen, Punkte und Beute im Lauf).
+Stufen, Punkte und Beute im Lauf). `tests/test_arcade_stage.gd` (#63): Reihenfolge des Würfel-Pools (gleiche Würfe bei
+gleichem Seed), jeder Typ der Registry baut seinen Baustein, Ereignisse der Bühne, Hooks und Erweiterungen.
 
 Sichtprüfung: `view_probe.gd -- --title --arcade` speichert `title_arcade.png`, `--hud --arcade` Starttor mit nächster
 Herausforderung (`arcade_gate.png`), Zone halten (`zone_hold.png`, Kadenz zu hoch `zone_hold_above.png`), Erfolg
@@ -1054,10 +1080,16 @@ src/challenge_block.gd  ChallengeBlock: Baustein einer Herausforderung – updat
 src/zone_hold.gd        ZoneHold: Baustein „Zone halten“ – reine Logik (#46)
 src/breakthrough.gd     Breakthrough: Baustein „Durchbruch“ – Balken über einer Schwelle füllen, darunter langsam sinkend – reine Logik (#47)
 src/chase.gd            Chase: Baustein „Jagd“ – Verfolger abhängen (Abstand wächst über, schrumpft unter der Schwelle) – reine Logik (#47)
-src/encounters.gd       Encounters: Herausforderungen als Daten (Zone, Schwelle), Würfeln, Bau der Bausteine mit Wächter des Kadenzbereichs (#46, #47)
+src/encounters.gd       Encounters: Herausforderungen (Zone, Schwelle), Würfeln, Bau der Bausteine mit Wächter des Kadenzbereichs; die Daten je Typ liegen in src/challenges/ (#46, #47, #63)
+src/encounter_registry.gd EncounterRegistry: Bausteintypen des Arcade – eine Zeile je Typ, Reihenfolge = Würfel-Pool (#63)
+src/challenges/         Herausforderungen als Daten und Bauanleitung je Bausteintyp: zone_hold_, breakthrough_, chase_challenges.gd (#63, verschoben aus encounters.gd)
 src/arcade_tiers.gd     ArcadeTiers: Stufen als Daten (Zonenbreite, Dauer, Punkte), Auswahl im Spielstand (#46)
 src/cadence_range.gd    CadenceRange: persönlicher Kadenzbereich, begrenzt jede Zielzone (limit_zone) (#46)
 src/arcade_run.gd       ArcadeRun: Arcade-Lauf – Herausforderungen je Abschnitt und Runde, Punkte, Beute, Ausrüstung, Zusammenfassung (#46, #49)
+src/arcade_stage.gd     ArcadeStage: Bühne des Arcade-Laufs – Lauf, HUD-Anbindung, Tore, Requisiten, Beute-Anzeige, Zusammenfassung, Signale, Hooks, Erweiterungen (#63)
+src/arcade_prop.gd      ArcadeProp: Basis der Darstellungen je Bausteintyp (nur Anzeige, ADR-0010), eingetragen in ArcadeStage.PROPS (#63)
+src/breakthrough_prop.gd BreakthroughProp: Darstellung des Durchbruchs – Zugbrücke statt Zieltor (#47, #63)
+src/chase_prop.gd       ChaseProp: Darstellung der Jagd – Verfolger hinter dem Fahrer (#47, #63)
 src/loot.gd             Loot: Beute – Plätze, Seltenheiten, Werte als Daten, Würfel, Vergleich, Modifikatoren, Aussehen – reine Logik (#49)
 src/inventory.gd        Inventory: Inventar im Spielstand – ablegen, anlegen, vergleichen, zu Splittern verwerten – reine Logik (#49)
 src/loot_beam.gd        LootBeam: Lichtsäule eines Fundes in Seltenheitsfarbe, an einer Fahrtposition gestellt (#49)
