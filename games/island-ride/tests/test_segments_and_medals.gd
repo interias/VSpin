@@ -166,7 +166,7 @@ func _result_of_20_laps_in(bus: FakeBusServer, size: Vector2i) -> Node:
 
 func test_result_of_20_laps_fits_between_the_panels() -> void:
 	var bus := start_fake_bus([FakeBusServer.status()])
-	for size in [Vector2i(960, 1040), Vector2i(1920, 1080), Vector2i(1152, 648)]:
+	for size in [Vector2i(960, 1040), Vector2i(1920, 1080), Vector2i(1280, 720), Vector2i(1152, 648)]:
 		var ride := await _result_of_20_laps_in(bus, size)
 		assert_eq(ride.state, "finished")
 		var label: Label = ride.get_node("Hud/Message")
@@ -180,9 +180,10 @@ func test_result_of_20_laps_fits_between_the_panels() -> void:
 		var message := label.get_global_rect()
 		var hud: RideHud = ride.hud
 		assert_true(hud.get_node("Layout").get_viewport_rect().encloses(message), "%s: im Fenster (%s)" % [size, message])
-		if size.y >= 1000:  # 1152×648: zwischen den Panels sind nur ~150 px frei – dort liegt das Ergebnis darüber
-			for other in ["%Stats", "%Bottom"]:
-				var rect: Rect2 = (hud.get_node(other) as Control).get_global_rect()
-				assert_false(message.intersects(rect), "%s: Ergebnis %s frei von %s %s" % [size, message, other, rect])
-			assert_false(message.intersects(hud.get_node("%Minimap").get_parent().get_global_rect()),
-					"%s: Ergebnis frei von der Karte" % size)
+		# auch in niedrigen Fenstern zwischen den Panels (Nacharbeit #26: Leisten, kleinere Schrift)
+		var panels := [hud.get_node("%Stats"), hud.get_node("%Bottom"), hud.get_node("%Minimap").get_parent()]
+		for panel: Control in panels:
+			if panel.is_visible_in_tree():
+				assert_false(message.intersects(panel.get_global_rect()),
+						"%s: Ergebnis %s frei von %s %s" % [size, message, panel.name, panel.get_global_rect()])
+		assert_gte(label.get_theme_font_size("font_size"), RideHud.MIN_MESSAGE_FONT_PX, "%s: lesbar" % size)

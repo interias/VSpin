@@ -24,6 +24,10 @@
 ##                Panel), Debug-Anzeige F3 (unter dem Werte-Panel) – Inhalte setzt die Hauptszene.
 ## Layout nur über Anker und Container (kein fester Bildschirmort): passt in 960×1040 wie in 1920×1080, mit und
 ## ohne `stretch/mode="canvas_items"`.
+## Niedrige Fenster (Nacharbeit #26): Ansage und Ergebnis skalieren mit der Fensterhöhe (Höhe/1080, mindestens
+## MIN_TEXT_SCALE) und liegen im freien Streifen zwischen den Panels; das Ergebnis wird so weit verkleinert, dass es
+## hineinpasst. Unter COMPACT_BELOW_PX klappen die Panels zu Leisten zusammen: oben die Werte in einer Zeile ohne
+## Minikarte, unten Runde (und Training) ohne Höhenprofil (`compact`).
 ##
 ## Die Hauptszene übergibt pro Frame die Werte (`show_ride`, `show_lap`); Labels und Zeichnungen ändern sich nur,
 ## wenn sich der angezeigte Wert ändert. `readout()` liefert genau die sichtbaren Werte als Textzeilen.
@@ -51,6 +55,18 @@ const CAMERA_VIEW_S := 1.5
 ## Farbe des Ghost-Abstands: hinter dem Ghost bzw. vor ihm (#32).
 const COLOR_BEHIND := Color(1.0, 0.55, 0.45)
 const COLOR_AHEAD := Color(0.5, 0.92, 0.55)
+## Unter dieser Fensterhöhe (px) klappen die Panels zu Leisten zusammen.
+const COMPACT_BELOW_PX := 760.0
+## Kleinster Faktor für Ansage und Ergebnis (Fensterhöhe/1080); das Ergebnis schrumpft bis MIN_MESSAGE_FONT_PX weiter.
+const MIN_TEXT_SCALE := 0.6
+const MIN_MESSAGE_FONT_PX := 11
+## Werte-Raster: Spalten normal und als Leiste.
+const GRID_COLUMNS := 2
+const GRID_COLUMNS_COMPACT := 6
+## Kadenz-Bogen (px) normal und als Leiste, dort mit kleinerer Zahl.
+const GAUGE_PX := 150.0
+const GAUGE_COMPACT_PX := 120.0
+const CADENCE_COMPACT_FONT_PX := 44
 
 @onready var _top: Control = %Top
 @onready var _stats: Control = %Stats
@@ -92,7 +108,14 @@ const COLOR_AHEAD := Color(0.5, 0.92, 0.55)
 @onready var _hint: Label = $Hint
 @onready var _debug: Label = $Debug
 @onready var _message: Label = $Message
+@onready var _grid: GridContainer = $Layout/Rows/Top/Stats/Box/Main/Grid
+@onready var _message_font_px: int = _message.get_theme_font_size("font_size")
+@onready var _announcement_font_px: int = _announcement.get_theme_font_size("font_size")
 
+## Panels als Leisten (Fensterhöhe unter COMPACT_BELOW_PX).
+var compact := false
+## Wofür die Meldung zuletzt eingepasst wurde ([Text, Streifenhöhe, Fensterhöhe]).
+var _message_fitted_for := []
 var _grade_color := COLOR_FLAT
 ## Laufendes Segment für `readout()` („Bergwertung: 3:12.4“, "" = keins).
 var _segment_line := ""
@@ -108,6 +131,7 @@ func _ready() -> void:
 	_bottom.item_rect_changed.connect(_place_overlays)  # mit der Lage: wächst das Panel (#37), kam `resized` zu früh
 	_stats.resized.connect(_place_overlays)
 	(_celebration.get_parent() as Control).resized.connect(_place_overlays)
+	_message.minimum_size_changed.connect(_fit_message)  # neuer Text
 	_place_overlays()
 
 
@@ -370,18 +394,65 @@ func readout() -> String:
 
 
 ## Hinweis über dem unteren Panel, Debug-Anzeige unter dem Werte-Panel, Zustandsmeldung mittig im freien Feld
-## zwischen oben und unten (dort hat auch ein langes Fahrtergebnis Platz) – alle folgen dem Layout.
+## zwischen oben und unten (dort hat auch ein langes Fahrtergebnis Platz) – alle folgen dem Layout. Die Fensterhöhe
+## entscheidet über Leisten (`compact`) und die Schriftgröße von Ansage und Meldung.
 func _place_overlays() -> void:
 	if _hint == null:
 		return
+	_set_compact(_viewport_height() < COMPACT_BELOW_PX)
+	var announcement_px := roundi(_announcement_font_px * text_scale(_viewport_height()))
+	if _announcement.get_theme_font_size("font_size") != announcement_px:
+		_announcement.add_theme_font_size_override("font_size", announcement_px)
 	var bottom_top := _bottom.get_global_rect().position.y
 	_hint.offset_top = bottom_top - OVERLAY_GAP_PX - 28.0
 	_hint.offset_bottom = bottom_top - OVERLAY_GAP_PX
 	var stats := _stats.get_global_rect()
 	_debug.offset_top = stats.end.y + OVERLAY_GAP_PX
 	_debug.offset_bottom = stats.end.y + OVERLAY_GAP_PX + 150.0
+	_fit_message()
+
+
+## Faktor für Ansage und Meldung bei `height` px Fensterhöhe: Höhe/1080, zwischen MIN_TEXT_SCALE und 1.
+static func text_scale(height: float) -> float:
+	return clampf(height / 1080.0, MIN_TEXT_SCALE, 1.0)
+
+
+func _viewport_height() -> float:
+	return _top.get_viewport_rect().size.y
+
+
+## Leisten an/aus: oben ohne Minikarte und Abschnitt-Überschrift, kleinerer Kadenz-Bogen, die Werte in einer Zeile;
+## unten ohne Höhenprofil.
+func _set_compact(on: bool) -> void:
+	if on == compact:
+		return
+	compact = on
+	_minimap.get_parent().visible = not on
+	_profile.visible = not on
+	_grid.columns = GRID_COLUMNS_COMPACT if on else GRID_COLUMNS
+	_section.get_node("Caption").visible = not on
+	_gauge.custom_minimum_size = Vector2.ONE * (GAUGE_COMPACT_PX if on else GAUGE_PX)
+	if on:
+		_cadence_value.add_theme_font_size_override("font_size", CADENCE_COMPACT_FONT_PX)
+	else:
+		_cadence_value.remove_theme_font_size_override("font_size")
+
+
+## Zustandsmeldung mittig im freien Streifen zwischen den Panels; die Schrift folgt der Fensterhöhe und wird so weit
+## verkleinert, dass die Meldung in den Streifen passt (nur bei neuem Text oder neuem Streifen).
+func _fit_message() -> void:
+	var strip := (_celebration.get_parent() as Control).get_global_rect()
+	var fitted_for := [_message.text, strip.size.y, _viewport_height()]
+	if fitted_for == _message_fitted_for:
+		return
+	_message_fitted_for = fitted_for
+	var px := roundi(_message_font_px * text_scale(_viewport_height()))
+	_message.add_theme_font_size_override("font_size", px)
+	while px > MIN_MESSAGE_FONT_PX and _message.get_minimum_size().y > strip.size.y:
+		px -= 1
+		_message.add_theme_font_size_override("font_size", px)
 	# Anker in der Fenstermitte, die Meldung wächst nach oben und unten
-	var center := (_celebration.get_parent() as Control).get_global_rect().get_center().y \
-			- _message.get_parent_area_size().y / 2.0
-	_message.offset_top = center - 100.0
-	_message.offset_bottom = center + 100.0
+	var center := strip.get_center().y - _message.get_parent_area_size().y / 2.0
+	var half := minf(100.0, strip.size.y / 2.0)
+	_message.offset_top = center - half
+	_message.offset_bottom = center + half

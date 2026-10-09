@@ -453,7 +453,10 @@ Schlicht, halbtransparente Panels, Standardschrift der Engine:
 - Über dem unteren Panel dezent der `set_grade`-Hinweis, mittig zwischen oben und unten Pause-/Verbindungs-/Ziel-Meldungen.
 
 Layout nur über Anker und Container: passt im schmalen Halbbild-Fenster (960 × 1040) wie in 1920 × 1080 und
-1600 × 900, mit und ohne `display/window/stretch/mode="canvas_items"` (geprüft in `tests/test_hud.gd`). Profil und
+1600 × 900, mit und ohne `display/window/stretch/mode="canvas_items"` (geprüft in `tests/test_hud.gd`). In niedrigen
+Fenstern skalieren Ansage und Meldung mit der Fensterhöhe (Höhe/1080, mindestens 60 %), ein langes Ergebnis wird so
+weit verkleinert, dass es zwischen die Panels passt; unter 760 px Höhe (z. B. 1280 × 720, 1152 × 648) werden die Panels
+zu Leisten – oben die Werte in einer Zeile ohne Minikarte, unten ohne Höhenprofil. Nichts überdeckt dann ein Panel. Profil und
 Karte werden nur beim Start und bei Größenänderung gezeichnet (Inselbild einmal berechnet); pro Frame bewegen sich
 nur die Marker. `RideHud.readout()` liefert die sichtbaren Werte als Textzeilen („Kadenz: 90 rpm“, …) für Tests.
 Sichtprüfung mit HUD: `view_probe.gd -- --hud` (Beispielwerte: Kadenz 85, Tempo/Steigung/Abschnitt der Strecke,
