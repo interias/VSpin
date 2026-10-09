@@ -371,7 +371,7 @@ Enter/Leertaste):
 | **Fahren** | Modus-Auswahl: **Rundfahrt**, **Training**, **Arcade**, „Zurück“ |
 | **Fahren → Rundfahrt** | **Runden** 1–20 oder *Endlos* (Standard 1), **Richtung** (*Im Uhrzeigersinn*, *Gegen den Uhrzeigersinn*, #34), **Tageszeit** (dieselbe Auswahl wie im Einstellungsmenü, Standard *Echtzeit*; wirkt und bleibt wie dort gewählt), **Ghost** (*Aus*, *Bestzeit*, *Letzte Fahrt*; ohne Aufzeichnung ausgegraut, Standard *Bestzeit*, sobald es sie gibt, #32), die **Bestzeit** der Strecke in der gewählten Richtung; **Losfahren** startet die Fahrt (#31) |
 | **Fahren → Training** | **Einheit** (*Intervalle kurz*, *Pyramide*, *Tempo-Blöcke*) mit Beschreibung und Dauer; **Losfahren** startet das Training (#37, siehe unten) |
-| **Fahren → Arcade** | **Stufe** (*Stufe 1–3*) mit Beschreibung, persönlicher **Kadenzbereich** (von 40–80 bis 100–150 rpm, Standard 60–120 rpm), die **Bestpunktzahl** der Stufe; **Losfahren** startet den Arcade-Lauf (#46, siehe unten), **Ausrüstung** öffnet das Inventar der Beute (#49, siehe „Beute und Ausrüstung“). Stufe und Kadenzbereich werden bei jeder Änderung gespeichert |
+| **Fahren → Arcade** | **Stufe** (*Stufe 1–3*) mit Beschreibung, persönlicher **Kadenzbereich** (von 40–80 bis 100–150 rpm, Standard 60–120 rpm), die **Bestpunktzahl** der Stufe und das **Arcade-Level** (#53); **Losfahren** startet den Arcade-Lauf (#46, siehe unten), **Ausrüstung** öffnet das Inventar der Beute (#49, siehe „Beute und Ausrüstung“), **Talente** den Talentbaum (#53, siehe „Talente“; der Knopf zeigt die freien Talentpunkte, z. B. „Talente (2)“). Stufe und Kadenzbereich werden bei jeder Änderung gespeichert |
 | **Fahrtenbuch** | Statistik, Bestzeiten, Segmentzeiten, Medaillen, Erfolge und die letzten Fahrten (#35, siehe unten) |
 | **Garderobe** | Trikot, Radfarbe und Helm mit Vorschau, freigeschaltet über das Fahrerlevel (#36, siehe unten) |
 | **Einstellungen** | öffnet das Menü „Grafik und Fenster“ (wie `Esc`/`F2`) |
@@ -395,7 +395,9 @@ Sekunden, z. B. `{"island": {"cw": 873.4}}`), Segment-Bestzeiten unter `segment_
 `best`/`last`, je nur `lap_length_m`, `sample_s`, `time_s` und `distance_m`, #32), die freigeschalteten Erfolge unter
 `achievements` (Erfolg-ID → Datum, #35), Arcade unter `arcade` (Kadenzbereich `cadence_range`, gewählte Stufe `tier`,
 beste Punktzahl je Stufe `best_points`, #46; Beute #49: Inventar `inventory` – je Teil `id`, `slot`, `rarity`, `stats`,
-`effect` –, angelegte Teile `equipped` (Platz → `id`), Splitter `shards` und die nächste freie `next_item_id`; eine
+`effect` (bei legendären Teilen der Spezialeffekt, #53, sonst leer) –, angelegte Teile `equipped` (Platz → `id`), Splitter
+`shards` und die nächste freie `next_item_id`; Talente #53: `points_total` (Summe der Punkte aller gespeicherten
+Arcade-Fahrten, daraus das Arcade-Level) und `talents` (erlernte Knoten in der Reihenfolge des Erlernens); eine
 Arcade-Fahrt trägt zusätzlich `arcade` mit Stufe, Punkten, geschafften und verfehlten Herausforderungen). Spätere Bereiche
 kommen additiv dazu – so auch `arcade`, die Formatversion bleibt 1; ältere
 Stände werden beim Laden hochgestuft, ein Stand einer neueren Version bleibt unverändert erhalten, eine unlesbare
@@ -830,6 +832,7 @@ Punkte (mit „neue Bestpunktzahl!“), Herausforderungen geschafft/verfehlt und
 **Getrennte Welten (ADR-0010):** Arcade-Kilometer und -Runden zählen für Fahrtenbuch („Arcade“), Fahrerlevel und Erfolge;
 Runden im Arcade schreiben nie Bestzeit, Segmentzeit, Medaille oder Ghost (`records_count()` der Hauptszene). Logik in
 `src/challenge_block.gd`, `src/zone_hold.gd`, `src/breakthrough.gd`, `src/chase.gd`, `src/rhythm_gates.gd`, `src/collect.gd`,
+`src/boss_fight.gd`,
 `src/encounters.gd`,
 `src/encounter_registry.gd` und `src/challenges/` (Daten und Bauanleitung je Bausteintyp),
 `src/arcade_tiers.gd`, `src/cadence_range.gd` und
@@ -850,6 +853,12 @@ Menüs (Stufe, Kadenzbereich, Ausrüstung) bleiben in der Hauptszene, und `arcad
   Reihenfolge der Zeilen ist die Reihenfolge des Würfel-Pools (`Encounters.CHALLENGES`): neue Typen ans Ende, sonst
   ändern sich die Würfe bestehender Seeds (`tests/test_arcade_stage.gd` prüft den Anfang des Pools). Zielzonen laufen weiter
   durch `Encounters.zone_for` und den Wächter des Kadenzbereichs.
+- **Feste Begegnungen** (Bosse, #51): ein Typ mit leerem `CHALLENGES` und einer Konstante `FIXED`, deren Einträge einen
+  Abschnitt (`section`) nennen. `ArcadeRun` plant sie jede Runde in diesem Abschnitt statt der Würfe ein (gewürfelt wird
+  trotzdem, die übrigen Abschnitte bleiben bei gleichem Seed gleich); nicht im Würfel-Pool. Einträge mit `phases` baut
+  `Encounters.build` Phase für Phase (Wächter, Stufe, Ausrüstung) und gibt sie `build_phases` des Typs; Ziel und Zieltext
+  vor dem Start sind die der ersten Phase. Eine Definition mit `loot_quality` hebt die Grundqualität ihrer Beute, `boss`
+  führt sie in Ergebnis und Zusammenfassung als Boss.
 - **Darstellung** (Requisiten, nur Anzeige): `src/<name>_prop.gd` (`extends ArcadeProp`) und eine Zeile in
   `ArcadeStage.PROPS`. Bausteine ohne Darstellung zeigen das Zieltor wie Zone halten.
 - **Hooks, Signale, Zusammenfassung:** eine Erweiterung (Skript mit `attach(stage)`) und eine Zeile in
@@ -902,6 +911,75 @@ nach einem Treffer (`rhythm_hit.png`) und nach einem verpassten Tor bei zu hoher
 Sammeln: Objekte voraus mit großem Magnetring bei hoher Kadenz (`collect_high.png`), mit kleinem bei niedriger
 (`collect_low.png`) und die Objekte aus der Nähe (`collect_close.png`).
 
+### Bosse (#51)
+
+Drei **Bosse** – Sagengestalten der Insel – warten jede Runde an ihrem festen Ort des Rundkurses: **Tramuntana** auf der
+Küstenstraße, **Drac de na Coca** in den Serpentinen, die **Dimonis** im Bergdorf. In ihrem Abschnitt steht statt der
+gewürfelten Herausforderungen der Boss (Beginn 50 m hinter dem Anfang des Abschnitts); Bosse werden nicht gewürfelt und
+stehen nicht im Würfel-Pool (`Encounters.CHALLENGES`). Gewürfelt wird dort trotzdem, damit alle übrigen Abschnitte bei
+gleichem Seed dieselben Herausforderungen bekommen. Die Graybox hat keine Stationen und damit keine Bosse.
+
+Ein Boss ist eine Folge von **Phasen**, jede ein vorhandener Baustein mit eigenen Parametern – Daten, keine Sonderlogik
+(`src/challenges/boss_challenges.gd`, Konstante `FIXED`). Die Phasen laufen nacheinander, jede mit eigenem Zeitfenster ab
+ihrem Beginn; Stufe (Zonenbreite, Dauer, Punkte), Kadenzbereich-Wächter und Ausrüstung wirken auf jede Phase wie auf jede
+Herausforderung (`Encounters.build`). Werte für Stufe 1 und 60–120 rpm:
+
+| Boss | Ort | Phasen | Punkte | Beute-Qualität |
+|---|---|---|---|---|
+| Tramuntana (Böen von vorn, die Zone halten) | Küstenstraße | *Gegenwind*: Zone halten 80–100 rpm, 10 s in 20 s · *Böe*: Durchbruch ab 105 rpm, 5 s in 15 s · *Sturmfront*: Zone halten 86–106 rpm, 12 s in 24 s | 400 | × 2 |
+| Drac de na Coca (der große Kampf) | Serpentinen | *Feueratem*: Zone halten 77–97 rpm, 12 s in 24 s · *Flügelschlag*: Durchbruch ab 108 rpm, 6 s in 18 s · *Schuppenpanzer*: Zone halten 86–106 rpm, 12 s in 24 s · *Letzter Ansturm*: Durchbruch ab 111 rpm, 5 s in 16 s | 600 | × 2,5 |
+| Dimonis (Jagd durchs Dorf) | Bergdorf | *Durch die Gassen*: Jagd ab 93 rpm (in 10 s eingeholt, unter der Schwelle in 12 s entwischt, Fenster 25 s, Vorsprung 0,4) · *Über den Dorfplatz*: Durchbruch ab 105 rpm, 5 s in 15 s · *Hinaus aus dem Dorf*: Jagd ab 99 rpm (8 s / 10 s, Fenster 22 s, Vorsprung 0,35) | 450 | × 2 |
+
+Bei den Dimonis jagt der Fahrer: der Abstand der Jagd ist sein Aufholen (1 = eingeholt, die Phase ist geschafft; 0 =
+entwischt, die Phase ist verfehlt).
+
+**Lebensbalken:** Oben in der Bildmitte stehen der Name des Bosses, ein roter Lebensbalken und die laufende Phase mit Ziel
+und Restzeit („Phase 2/3 · Böe · ab 105 rpm · noch 12 s“). Der Balken sinkt nur mit dem, was die Kadenz in der Zielzone
+bzw. über der Schwelle erarbeitet: jede geschaffte Phase nimmt ein n-tel, die laufende ihren Fortschritt (bei der Jagd nur
+das Aufgeholte, nicht der geschenkte Vorsprung). Fällt der Balken einer Durchbruch-Phase zurück, erholt sich der Boss
+entsprechend. Unten im HUD stehen der Boss, das Ziel, die Restzeit des ganzen Kampfes (laufende Phase plus die Zeitfenster
+der folgenden) und der Stand („Kampf“); auf der Strecke ersetzt der Boss das Zieltor.
+
+**Besiegt** – alle Phasen geschafft: Punkte („Tramuntana geschafft!  +400 Punkte“), der Balken meldet „Tramuntana besiegt!“
+und „Boss-Beute gefunden“; Beute gibt es sicher, mit der Beute-Qualität des Bosses als Faktor auf die Grundqualität (mehr
+seltene Teile). **Entkommen** – scheitert eine Phase (Zeitfenster vorbei, bei den Dimonis: entwischt), entkommt der Boss
+sofort. Das ist weich: keine Punkte, eine Einblendung („Dimonis verfehlt – weiter geht's“), der Balken meldet „Dimonis
+entkommen“, die Fahrt geht weiter; Beute wie bei jeder verfehlten Herausforderung nur mit der Chance 0,5 × Schaden (ohne
+Treten in der Zone nie). In jeder Pause (manuell oder Verbindung, ADR-0004) stehen Kampf, Phase, Zeit und Lebensbalken
+still; nach der Rückkehr geht der Kampf weiter. Die **Zusammenfassung** zählt Bosse bei „Herausforderungen: … geschafft ·
+… verfehlt“ mit und nennt sie in einer eigenen Zeile („Bosse: Tramuntana besiegt · Dimonis entkommen“); der Fahrteintrag
+bleibt `{tier, points, won, failed}`.
+
+**Ausrüstung und Fähigkeiten** (#49, #50) wirken über den Fortschrittsfaktor auf die laufende Phase – nur mit Kadenz in der
+Zone bzw. über der Schwelle; Zielzone und Zeitfenster bleiben. Das Schild nimmt das Erholen des Bosses (sinkender
+Durchbruch-Balken) zurück.
+
+**Darstellung** (reine Anzeige aus Grundkörpern, ADR-0010; `src/boss_prop.gd` in `ArcadeStage.PROPS`, `src/boss_figure.gd`,
+`src/boss_bar.gd`): **Tramuntana** ist ein Sturmgeist – eine Wolke mit Gesicht und zwei kreisenden Windringen, die rund 30 m
+voraus über der Straße schwebt und Windstreifen auf den Fahrer bläst (in einer Durchbruch-Phase schneller). **Drac de na
+Coca** ist ein grüner Drache mit roten Flügeln, Hörnern, Stachelkamm und Feueratem, der rund 24 m voraus auf der Straße
+steht und den Fahrer ansieht; in einer Durchbruch-Phase schlagen die Flügel schneller. Die **Dimonis** sind drei
+Teufelsgestalten der Dorffeste (rote Masken mit Hörnern, schwarze Kostüme mit Flammen, zwei mit Gabel), die voraus
+davonspringen – in einer Jagd-Phase 42 m voraus, solange sie entwischen, bis 7 m, wenn sie eingeholt sind. Jeder Boss wird
+mit sinkendem Lebensbalken kleiner (bis 70 %); besiegt sinkt er an seiner Stelle zusammen, entkommen zieht er voraus davon
+(Sturmgeist und Drache auch in die Höhe). Nach dem Kampf steht das Ergebnis 4 s im Balken.
+
+**Simulator-Szenarien** (`bridge/profiles/arcade/`, Stufe 1, 60–120 rpm; der Test erzwingt je Szenario den Boss, von Hand
+gibt es ihn auf dem Rundkurs an seinem Ort): *Abbruch mitten im Bosskampf* (`boss_abbruch.toml`, Tramuntana: 12 s 90 rpm,
+dann im Gegenwind 4 s keine Daten und 30 s `disconnected` – länger als das Zeitfenster der Phase –, danach 90 / 112 / 96 rpm:
+Pause mit stehendem Lebensbalken, danach Weiterfahrt und Sieg), *Tramuntana besiegt* (`boss_tramuntana.toml`), *Drac de na
+Coca besiegt* (`boss_drac.toml`, alle vier Phasen), *Dimonis besiegt* (`boss_dimonis_besiegt.toml`, 100 / 112 / 104 rpm)
+und *Dimonis entkommen* (`boss_dimonis_entkommen.toml`, 25 s mit 85 rpm unter der Schwelle 93: entwischt, keine Punkte,
+keine Beute). `tests/test_bosses_ride.gd` spielt sie über den Fake-Bus durchs Spiel und prüft dazu Lebensbalken, Gestalt
+und die festen Orte auf dem Rundkurs; Tests der reinen Logik: `tests/test_bosses.gd` (Phasen als Daten, Lebensbalken nur
+mit Kadenz in der Zone, Sieg, Entkommen, Pause, Wächter für jede Phase mit Gegenprobe, Ausrüstung und Fähigkeiten nur mit
+Kadenz, Schild, Planung an festen Orten mit unveränderten übrigen Würfen, Punkte, Boss-Beute und Zusammenfassung).
+
+Sichtprüfung: `view_probe.gd -- --hud --arcade --bosses` stellt den Fahrer an den Ort jedes Bosses und spielt den Kampf:
+`boss_<id>.png` (Beginn, voller Lebensbalken), `boss_<id>_close.png` (aus der Nähe), `boss_<id>_hurt.png` (angeschlagen;
+Tramuntana in der Böe), `boss_tramuntana_defeated.png`, `boss_drac_defeated.png` (beim Zusammensinken) und
+`boss_dimonis_escape.png` (ohne Treten entkommen).
+
 ### Kadenzmuster und Fähigkeiten (#50)
 
 Das Spiel erkennt aus der Kadenz vier **Kadenzmuster** – **Antritt**, **Gleichmaß**, **Innehalten** und **Rhythmus** – und
@@ -938,8 +1016,8 @@ kein Fortschritt, und die Zielzone und der Kadenzbereich bleiben unberührt (kei
 Tempo, das das Innehalten selbst kostet (zwei Sekunden ohne Treten, das Fahrmodell läuft aus); der Schritt, in dem ein Baustein
 schon endet, lässt sich nicht mehr zurücknehmen, und das Zeitfenster läuft unter dem Schild weiter ab. Eine Windböe, die
 beim Wechsel der Herausforderung noch wirkt, gilt für die nächste weiter. Die Werte sind Daten (`Abilities.DEFS`); je Lauf liegt
-eine Kopie in `abilities.defs` (Wirkung `power`, Abklingzeit `cooldown_s`, Dauer `duration_s`), die Talente und legendäre
-Beute (#53) später aus einem `run_hook` heraus verändern.
+eine Kopie in `abilities.defs` (Wirkung `power`, Abklingzeit `cooldown_s`, Dauer `duration_s`), die die Talente und die legendäre
+Beute (#53, siehe „Talente“) beim Start des Laufs aus einem `run_hook` heraus verändern.
 
 **Anzeige:** Eine Leiste mit vier Plaketten rechts über dem unteren Panel des HUDs (`src/ability_hud.gd`, als Kind unter dem
 HUD; `ride_hud.gd` weiß davon nichts): Name und Zustand – grün „Antritt · bereit“ (mit dem auslösenden Muster), gold „aktiv · 3 s“
@@ -1003,8 +1081,9 @@ nach Seltenheit weitere, verschiedene Werte.
 
 **Ausrüstung ersetzt nie das Treten:** ohne Kadenz in der Zone (bei Durchbruch und Jagd: über der Schwelle, bei Sammeln: in der Rampe, bei Takt-Tore: im Fenster eines Schlags) passiert nichts – kein Fortschritt, keine Punkte, keine
 Beute, mit Ausrüstung genauso wie ohne. Auch die verbreiterte Zone läuft durch den Wächter des Kadenzbereichs
-(`Encounters.zone_for` → `CadenceRange.limit_zone`), liegt also nie außerhalb. Legendäre Teile haben ein Feld für einen
-Spezialeffekt (`effect`, kommt mit #53; heute leer und ohne Wirkung).
+(`Encounters.zone_for` → `CadenceRange.limit_zone`), liegt also nie außerhalb. Legendäre Teile haben zusätzlich einen
+**Spezialeffekt** (`effect`, #53, siehe „Talente“): er verändert eine Fähigkeit, solange das Teil angelegt ist; die Werte der
+Teile wirken wie bei allen anderen. Das Ausrüstungsmenü nennt den Effekt eines legendären Teils in der Liste („· Rückstoß“) und im Detail („Effekt: Rückstoß“ mit Beschreibung).
 
 **Ausrüstung** (Startmenü **Fahren → Arcade → Ausrüstung**, `scenes/gear_menu.gd`) ist die einzige Stelle, an der Beute
 verwaltet wird. Oben Splitter und Zahl der Teile; links die Teile nach Platz, darin die neuesten zuerst (Name in
@@ -1030,6 +1109,83 @@ Sichtprüfung: `view_probe.gd -- --hud --arcade` speichert zusätzlich die Licht
 legt weitere ins Inventar – mit `--title --gear` die Ausrüstung aus dem Startmenü (`gear.png`, ein Helm im Vergleich),
 mit `--hud --arcade --gear` trägt der Fahrer sie im Arcade-Lauf, dazu die Nahaufnahmen `close_5_side.png` und
 `close_5_rear.png`.
+
+### Talente (#53)
+
+Der Arcade hat ein eigenes **Arcade-Level**, getrennt vom **Fahrerlevel** (ADR-0010: das Fahrerlevel wächst mit gefahrenen
+Kilometern und schaltet nur Kosmetik frei; vom Arcade-Level hängt keine Garderobe, Bestzeit, Medaille oder Ghost ab). Das
+Arcade-Level wächst mit den **Punkten der Arcade-Fahrten**: Jede gespeicherte Fahrt zählt ihre Punkte zu `arcade.points_total`
+im Spielstand (`ArcadeLevel`, `src/arcade_level.gd`; Punkte gibt es nur für geschaffte Herausforderungen mit Kadenz in der Zone –
+ohne Kadenz kein Punkt, kein Level; Fahrten von vor #53 zählen nicht rückwirkend, und eine Fahrt wird nur einmal gezählt, auch bei
+Rückkehr ins Menü oder erneutem Speichern). Level 1 gilt ab 0 Punkten, Level 2 ab 400; der Schritt von Level n zu n + 1 kostet
+400 + 200 · (n − 1) Punkte (Level 3 ab 1000, Level 4 ab 1800 …, Höchstlevel 12 ab 15 400). Ab Level 2 gibt jedes Level
+**einen Talentpunkt** (höchstens 11 bei 15 Knoten: der Baum füllt sich nie ganz – es sind Build-Entscheidungen). Das Ergebnis
+einer Arcade-Fahrt nennt unter den Zeilen der Fähigkeiten das Arcade-Level, bei einem Aufstieg „neues Level!“ und die freien
+Talentpunkte („Arcade-Level 2 – neues Level! · 1 Talentpunkt frei“), sonst die Punkte bis zum nächsten Level.
+
+**Talentbaum** (Startmenü **Fahren → Arcade → Talente**, `scenes/talent_menu.gd`; die einzige Stelle, an der Punkte verteilt
+werden – in der Fahrt nichts): oben Arcade-Level, freie und ausgegebene Talentpunkte und die Punkte bis zum nächsten Level; darunter
+drei Äste nebeneinander mit je fünf Knoten, von der Wurzel abwärts. Ein Knoten kostet einen Talentpunkt und braucht seinen
+Vorgänger im selben Ast; erlernte stehen grün, erlernbare weiß, gesperrte grau mit dem Grund („braucht …“, „kein Talentpunkt
+frei“). **Zurücksetzen** gibt alle Punkte **kostenlos** zurück (kein Handwerk, keine Währung – der Baum lädt zum Ausprobieren
+ein); jede Änderung wird sofort gespeichert. Bedienung mit Maus oder Tastatur (Pfeiltasten/Tab, Enter/Leertaste); **Esc** oder
+**Zurück** führt auf die Seite „Arcade“. In kleinen Fenstern (1152×648) scrollen die Äste. Was der Stand von der Platte
+nicht hergibt (unbekannte oder doppelte Knoten, Knoten ohne erlernten Vorgänger, mehr Knoten als Punkte), zählt nicht.
+
+| Ast | Knoten (Voraussetzung) | Wirkung |
+|---|---|---|
+| Sprinter | Kräftiger Antritt | Windböe ×3,5 statt ×3 (Wirkung + 0,5) |
+| | Kurze Pause (Kräftiger Antritt) | Windböe lädt 4 s schneller |
+| | Wacher Antritt (Kräftiger Antritt) | Antritt schon bei +20 statt +25 rpm erkannt |
+| | Langer Spurt (Kurze Pause) | Windböe wirkt 1 s länger |
+| | Durchbruchskraft (Wacher Antritt) | +6 % Fortschritt in der Zone |
+| Kletterer | Zäher Kletterer | +4 % Fortschritt in der Zone |
+| | Tiefes Durchatmen (Zäher Kletterer) | Schild hält 2 s länger |
+| | Ruhiger Puls (Zäher Kletterer) | Innehalten schon nach 1,5 statt 2 s erkannt |
+| | Kurze Rast (Tiefes Durchatmen) | Schild lädt 6 s schneller |
+| | Gipfelsammler (Ruhiger Puls) | +8 % Punkte |
+| Ausdauer | Gleichmäßiger Tritt | Gleichmaß nach 8 statt 10 s erkannt |
+| | Tiefer Fokus (Gleichmäßiger Tritt) | Fokus ×1,75 statt ×1,5 (Wirkung + 0,25) |
+| | Breiter Tritt (Gleichmäßiger Tritt) | +2 rpm Zonenbreite |
+| | Taktgefühl (Tiefer Fokus) | Kombo-Grundpunkte + 15 (45 statt 30) |
+| | Glückspilz (Breiter Tritt) | +10 % Beute-Glück |
+
+**Legendäre Effekte:** Der Würfel vergibt `effect` **nur bei legendären Teilen** (2 % der Funde), gleichverteilt aus fünf
+Effekten (`Loot.EFFECTS`, Daten); alle anderen Teile behalten `""`. Ältere legendäre Teile ohne Effekt (oder mit unbekanntem
+Eintrag) bleiben gültig und wirken nur mit ihren Werten. Ein Effekt wirkt nur, solange das Teil **angelegt** ist; derselbe
+Effekt auf zwei angelegten Teilen zählt einmal.
+
+| Effekt | Wirkung |
+|---|---|
+| Rückstoß | „Antritt wirft Gegner zurück“: löst die Windböe aus, rückt der Verfolger der **Jagd** um 15 % Abstand ab und füllt sich der Balken des **Durchbruchs** um 10 % – nur wenn die Kadenz in diesem Schritt über der Schwelle des Bausteins liegt und höchstens bis 95 % (der Erfolg bleibt dem Treten vorbehalten); andere Bausteine merken nichts; Rückmeldung „Rückstoß!“ |
+| Tiefer Atem | Schild hält 4 s länger |
+| Kombo-Ernte | Kombo-Grundpunkte verdoppelt (60 statt 30) |
+| Im Fluss | Fokus doppelt so stark (×2,0 statt ×1,5; Wirkung + 1,0 statt + 0,5) und 4 s länger |
+| Auf dem Sprung | Windböe lädt 8 s schneller (10 statt 18 s) |
+
+**Wirkung im Lauf:** Beim Start eines Arcade-Laufs legt die Erweiterung `TalentArcade` (`src/talent_arcade.gd`) die erlernten
+Talente, danach die Effekte der angelegten legendären Teile auf den Lauf (`BuildEffects`, `src/build_effects.gd`, reine Logik).
+Jede Änderung ist Daten (`changes`) in einer von vier Formen: Wirkung, Dauer oder Abklingzeit einer Fähigkeit
+(`abilities.defs`, `add` oder `mul`), eine Schwelle eines Kadenzmusters (`patterns.thresholds`), ein Ausrüstungswert des Laufs
+(`run.gear`, gedeckelt durch die Obergrenze des Wertes) oder der Rückstoß. Abklingzeiten fallen nie unter 3 s, Schwellen nie
+unter 1; Schwellen, die ein Lauf verschoben hat, stehen im nächsten Lauf wieder auf dem Standard. Die Standarddaten
+(`Abilities.DEFS`, `CadencePatterns.THRESHOLDS`) bleiben unverändert. Der Hook läuft **nach** dem der Fähigkeiten (der setzt `defs`
+beim Start zurück); darum hängt die Hauptszene die Erweiterung nach dem Aufbau der Bühne mit `attach` an – sie steht nicht in
+`ArcadeStage.EXTENSIONS`, weil dort die Reihenfolge der Anmeldung zählt. Die Gutschrift der Punkte kommt über das Signal
+`run_finished` der Bühne.
+
+**Talente und Effekte ersetzen nie das Treten:** Sie verschieben nur Daten der Fähigkeiten (die selbst nur mit Kadenz in der Zone
+wirken), Schwellen und Ausrüstungswerte – ohne Kadenz dort kein Fortschritt, keine Punkte, keine Beute. Die Zielzone liegt nie
+außerhalb des Kadenzbereichs, auch nicht mit +Zonenbreite (Wächter `CadenceRange.limit_zone`). **Getrennte Welten (ADR-0010):**
+Talente und Effekte wirken nur im Arcade-Lauf; Rundfahrt und Training fahren mit allen Talenten und Effekten identisch zu ohne,
+und das Fahrerlevel bleibt allein bei den Kilometern.
+
+Für die **Empfohlene Stärke** (#54) liefert `Talents.gear_bonus(save)` die Ausrüstungswerte der Talente im Format von
+`Loot.modifiers`. Tests: `tests/test_talents.gd` (Arcade-Level, Baum, Zurücksetzen, Spielstand mit alten Ständen, jede Änderung
+verändert Fähigkeiten, Schwellen oder Werte; Gegenproben ohne Kadenz und zur Zielzone; Würfel, Effekte, Rückstoß) und
+`tests/test_talents_ride.gd` (echtes Spiel: Hook nach den Fähigkeiten, Simulator-Profil *Antritt* mit stärkerer Windböe und mit
+Rückstoß der Jagd, Punkte der Fahrt zählen zum Arcade-Level und stehen im Ergebnis, Rundfahrt und Training unverändert,
+Talentmenü samt Layout in 960×1040, 1920×1080 und 1152×648, Ausrüstungsmenü zeigt den Effekt).
 
 ### Ton (#44)
 
@@ -1226,21 +1382,29 @@ src/breakthrough.gd     Breakthrough: Baustein „Durchbruch“ – Balken über
 src/chase.gd            Chase: Baustein „Jagd“ – Verfolger abhängen (Abstand wächst über, schrumpft unter der Schwelle) – reine Logik (#47)
 src/rhythm_gates.gd     RhythmGates: Baustein „Takt-Tore“ – Taktschläge treffen, wenn die Kadenz im Zeitfenster in der Zone liegt – reine Logik (#48)
 src/collect.gd          Collect: Baustein „Sammeln“ – die Kadenz bestimmt den Magnetradius, Objekte im Radius werden eingesammelt – reine Logik (#48)
+src/boss_fight.gd       BossFight: Bosskampf – Phasen aus vorhandenen Bausteinen nacheinander, Lebensbalken, besiegt oder entkommen – reine Logik (#51)
 src/encounters.gd       Encounters: Herausforderungen (Zone, Schwelle), Würfeln, Bau der Bausteine mit Wächter des Kadenzbereichs; die Daten je Typ liegen in src/challenges/ (#46, #47, #63)
 src/encounter_registry.gd EncounterRegistry: Bausteintypen des Arcade – eine Zeile je Typ, Reihenfolge = Würfel-Pool (#63)
-src/challenges/         Herausforderungen als Daten und Bauanleitung je Bausteintyp: zone_hold_, breakthrough_, chase_, rhythm_gates_, collect_challenges.gd (#63, verschoben aus encounters.gd; #48)
+src/challenges/         Herausforderungen als Daten und Bauanleitung je Bausteintyp: zone_hold_, breakthrough_, chase_, rhythm_gates_, collect_challenges.gd (#63, verschoben aus encounters.gd; #48); boss_challenges.gd: Bosse als Phasen an festen Orten (#51)
 src/arcade_tiers.gd     ArcadeTiers: Stufen als Daten (Zonenbreite, Dauer, Punkte), Auswahl im Spielstand (#46)
 src/cadence_range.gd    CadenceRange: persönlicher Kadenzbereich, begrenzt jede Zielzone (limit_zone) (#46)
-src/arcade_run.gd       ArcadeRun: Arcade-Lauf – Herausforderungen je Abschnitt und Runde, Punkte, Beute, Ausrüstung, Zusammenfassung (#46, #49)
+src/arcade_run.gd       ArcadeRun: Arcade-Lauf – Herausforderungen je Abschnitt und Runde, Bosse an festen Orten, Punkte, Beute, Ausrüstung, Zusammenfassung (#46, #49, #51)
 src/arcade_stage.gd     ArcadeStage: Bühne des Arcade-Laufs – Lauf, HUD-Anbindung, Tore, Requisiten, Beute-Anzeige, Zusammenfassung, Signale, Hooks, Erweiterungen (#63)
 src/arcade_prop.gd      ArcadeProp: Basis der Darstellungen je Bausteintyp (nur Anzeige, ADR-0010), eingetragen in ArcadeStage.PROPS (#63)
 src/breakthrough_prop.gd BreakthroughProp: Darstellung des Durchbruchs – Zugbrücke statt Zieltor (#47, #63)
 src/chase_prop.gd       ChaseProp: Darstellung der Jagd – Verfolger hinter dem Fahrer (#47, #63)
 src/rhythm_gates_prop.gd RhythmGatesProp: Darstellung der Takt-Tore – ein Tor je Schlag auf der Straße, grün oder orange nach Treffer oder Verpasst, statt des Zieltors (#48)
 src/collect_prop.gd     CollectProp: Darstellung des Sammelns – Kristalle auf und neben der Straße, Magnetring um den Fahrer (#48)
+src/boss_prop.gd        BossProp: Darstellung der Bosse – Gestalt voraus statt des Zieltors, Lebensbalken im HUD (#51)
+src/boss_figure.gd      BossFigure: Gestalten der Bosse aus Grundkörpern – Tramuntana (Sturmgeist), Drac de na Coca (Drache), Dimonis (drei Teufel); kleiner mit sinkendem Lebensbalken, besiegt oder entkommen (#51)
+src/boss_bar.gd         BossBar: Lebensbalken eines Bosses oben im HUD – Name, Balken, laufende Phase mit Ziel und Restzeit, Ergebnis des Kampfes (#51)
 src/timed_markers.gd    TimedMarkers: Lage zeitgebundener Markierungen (Takt-Tore, Sammelobjekte) aus Fahrtposition, Restzeit und gefahrenem Tempo über GatePlacement (#48)
-src/loot.gd             Loot: Beute – Plätze, Seltenheiten, Werte als Daten, Würfel, Vergleich, Modifikatoren, Aussehen – reine Logik (#49)
+src/loot.gd             Loot: Beute – Plätze, Seltenheiten, Werte als Daten, Würfel, Vergleich, Modifikatoren, Aussehen – Spezialeffekte legendärer Teile – reine Logik (#49, #53)
 src/inventory.gd        Inventory: Inventar im Spielstand – ablegen, anlegen, vergleichen, zu Splittern verwerten – reine Logik (#49)
+src/arcade_level.gd     ArcadeLevel: Arcade-Level aus den Punkten der Arcade-Fahrten (getrennt vom Fahrerlevel), Talentpunkte – reine Logik (#53)
+src/talents.gd          Talents: Talentbaum mit 15 Knoten in drei Ästen als Daten, Erlernen, Zurücksetzen, Ausrüstungswerte für die Empfohlene Stärke – reine Logik (#53)
+src/build_effects.gd    BuildEffects: Wirkung von Talenten und legendären Effekten auf Fähigkeiten, Schwellen, Ausrüstungswerte, Rückstoß – reine Logik (#53)
+src/talent_arcade.gd    TalentArcade: Erweiterung der Arcade-Bühne (von `main.gd` angehängt) – Talente und Effekte beim Laufstart, Rückstoß, Punkte zum Arcade-Level (#53)
 src/loot_beam.gd        LootBeam: Lichtsäule eines Fundes in Seltenheitsfarbe, an einer Fahrtposition gestellt (#49)
 src/drawbridge.gd       Drawbridge: Zugbrücke des Durchbruchs – Türme und Klappe aus Quadern, senkt sich mit dem Balken, an einer Fahrtposition gestellt (#47)
 src/pursuer.gd          Pursuer: Verfolger der Jagd (Hund aus Grundkörpern) hinter dem Fahrer, Abstand folgt der Jagd (#47)
@@ -1257,8 +1421,9 @@ src/rider_model.gd      RiderModel: Fahrer und Rennrad aus Grundkörpern, Pose a
 src/ride_config.gd      RideConfig: liest config.cfg
 src/graphics_settings.gd GraphicsSettings: Grafik-/Fenstereinstellungen, Tageszeit/Wetter (user://settings.cfg), Anwenden, Fensterhälften
 scenes/settings_menu.*  Menü „Grafik und Fenster“ (F2, F11), von der Hauptszene eingehängt
-scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt-, Training- und Arcade-Auswahl (mit „Ausrüstung“), Radstatus (#30, #31, #37, #46, #49)
-scenes/gear_menu.gd     Ausrüstung: Inventar der Beute mit Vergleich, Anlegen und Verwerten, aus „Fahren → Arcade“ (#49)
+scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt-, Training- und Arcade-Auswahl (mit „Ausrüstung“, „Talente“ und Arcade-Level), Radstatus (#30, #31, #37, #46, #49, #53)
+scenes/gear_menu.gd     Ausrüstung: Inventar der Beute mit Vergleich, Anlegen und Verwerten, Effekt legendärer Teile, aus „Fahren → Arcade“ (#49, #53)
+scenes/talent_menu.gd   Talente: Talentbaum mit drei Ästen, Erlernen, kostenloses Zurücksetzen, Arcade-Level, aus „Fahren → Arcade“ (#53)
 scenes/wardrobe.gd      Garderobe: Trikot, Radfarbe, Helm mit Vorschau (SubViewport), gesperrte mit Level (#36)
 src/wardrobe.gd         Wardrobe: Teile und Farben, Auswahl prüfen und wählen, Standard je Kategorie – reine Logik
 src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Bestzeiten, Segment-Bestzeiten, Medaillen, Ghosts, Erfolge, Garderobe, Kamera, Arcade, Hochstufung
