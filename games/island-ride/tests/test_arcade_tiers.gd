@@ -381,7 +381,8 @@ func test_no_zone_leaves_the_personal_range_on_any_tier_in_any_round() -> void:
 func test_the_guard_catches_what_tier_and_round_would_push_out() -> void:
 	# Gegenprobe: ohne Wächter lägen die Ziele späterer Runden höherer Stufen außerhalb des Bereichs.
 	var personal := CadenceRange.new()
-	var spurt := Encounters.find("durchbruch_spurt")  # Schwelle bei 90 % = 114 rpm
+	var spurt := Encounters.find("durchbruch_spurt").duplicate()
+	spurt["threshold_at"] = 0.9  # Schwelle bei 90 % = 114 rpm (der Pool hat seit #55 85 %; die Gegenprobe braucht eine, die ohne Wächter überschießt)
 	var level := ArcadeTiers.level(6, 3)
 	var lift := roundf((20.0 - float(level["zone_width_rpm"])) / 2.0)
 	assert_gt(roundf(personal.at(0.9)) + lift, 120.0, "ohne Wächter über dem Bereich")
