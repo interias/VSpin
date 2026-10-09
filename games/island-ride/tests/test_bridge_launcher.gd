@@ -112,6 +112,19 @@ func test_unreachable_bridge_is_started_with_source_from_config() -> void:
 	assert_string_contains(launcher.hint(), "wird gestartet (Quelle ble)")
 
 
+func test_simulator_bridge_starts_with_cadence_from_config() -> void:
+	# Unter pythonw gibt es kein Terminal und keine Pfeiltasten – ohne Start-Kadenz stünde der Simulator auf 0 rpm.
+	var port := _closed_port()
+	var config := _config(port)
+	config.bridge_source = "sim"
+	config.bridge_sim_cadence = 85.0
+	var launcher := _launcher(config, port)
+	await _settle(launcher)
+	var args: PackedStringArray = processes.started[0][1]
+	assert_eq(args.slice(args.size() - 2), PackedStringArray(["--sim-cadence", "85"]), "Kadenz aus config.cfg")
+	assert_string_contains(" ".join(args), "--source sim")
+
+
 func test_closing_the_game_stops_own_bridge_cleanly() -> void:
 	var port := _closed_port()
 	var launcher := _launcher(_config(port), port)
@@ -191,6 +204,7 @@ func test_game_config_starts_simulator_bridge_from_repository() -> void:
 	assert_true(config.bridge_autostart)
 	assert_eq(config.bridge_program, "../../bridge/.venv/Scripts/pythonw.exe")
 	assert_eq(config.bridge_source, "sim")
+	assert_eq(config.bridge_sim_cadence, 80.0, "Simulator aus dem Spiel tritt mit 80 rpm")
 	assert_eq(config.bridge_sessions_dir, "../../bridge/sessions")
 	assert_eq(config.bus_url, "ws://127.0.0.1:%d" % BridgeLauncher.BRIDGE_PORT, "Spiel startet nur für die Bridge-Adresse")
 

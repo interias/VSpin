@@ -60,6 +60,7 @@ var _enabled: bool
 var _host := ""
 var _port := -1
 var _source: String
+var _sim_cadence: float
 var _sessions_dir: String
 var _stop_file: String
 var _processes: Processes
@@ -77,6 +78,7 @@ func _init(config: RideConfig, base_dir: String, processes: Processes = null, pl
 	program = _absolute(config.bridge_program, base_dir)
 	_sessions_dir = _absolute(config.bridge_sessions_dir, base_dir)
 	_source = config.bridge_source
+	_sim_cadence = config.bridge_sim_cadence
 	if _source not in SOURCES:
 		push_warning("BridgeLauncher: unbekannte Quelle '%s', nutze 'sim'" % _source)
 		_source = "sim"
@@ -178,6 +180,8 @@ func _launch() -> void:
 	DirAccess.remove_absolute(_stop_file)  # Rest eines früheren Laufs
 	args = PackedStringArray(["-m", "vspin_bridge", "--source", _source, "--sessions-dir", _sessions_dir,
 			"--stop-file", _stop_file])
+	if _source == "sim":  # ohne Terminal keine Pfeiltasten: Start-Kadenz aus config.cfg, sonst stünde sie auf 0
+		args.append_array(["--sim-cadence", str(int(roundf(_sim_cadence)))])
 	pid = _processes.start(program, args)
 	if pid <= 0:
 		push_warning("BridgeLauncher: Start gescheitert: %s %s" % [program, " ".join(args)])

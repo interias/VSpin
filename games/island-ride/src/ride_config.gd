@@ -44,6 +44,8 @@ var sky_weather := "clear"
 var bridge_autostart := true
 var bridge_program := "../../bridge/.venv/Scripts/pythonw.exe"
 var bridge_source := "sim"
+## Start-Kadenz des Simulators beim Start aus dem Spiel (rpm, nur bei Quelle sim).
+var bridge_sim_cadence := 80.0
 var bridge_sessions_dir := "../../bridge/sessions"
 
 
@@ -78,6 +80,7 @@ static func load_file(path: String = DEFAULT_PATH) -> RideConfig:
 	config.bridge_autostart = bool(file.get_value("bridge", "autostart", config.bridge_autostart))
 	config.bridge_program = str(file.get_value("bridge", "program", config.bridge_program))
 	config.bridge_source = str(file.get_value("bridge", "source", config.bridge_source))
+	config.bridge_sim_cadence = float(file.get_value("bridge", "sim_cadence", config.bridge_sim_cadence))
 	config.bridge_sessions_dir = str(file.get_value("bridge", "sessions_dir", config.bridge_sessions_dir))
 	return config
 

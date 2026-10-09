@@ -343,7 +343,8 @@ Reihenfolge egal: Startet das Spiel zuerst, zeigt es „Bridge nicht erreichbar 
    **Unter Windows geht es auch ohne Schritt 1 (#25, `src/bridge_launcher.gd`):** Ist beim Start keine Bridge auf
    `127.0.0.1:8765` erreichbar, startet das Spiel sie als unsichtbaren Kindprozess (`pythonw` aus `bridge/.venv`, kein
    Konsolenfenster) mit Quelle und Ablage aus `config.cfg [bridge]` (`autostart`, `program`, `source` = `sim`/`ble`,
-   `sessions_dir`; relative Pfade ab dem Spielordner). Beim Schließen (Fenster, „Beenden“) beendet es nur diese eigene
+   `sessions_dir`, beim Simulator die Start-Kadenz `sim_cadence`, Standard 80 rpm – unter `pythonw` gibt es keine
+   Pfeiltasten; relative Pfade ab dem Spielordner). Beim Schließen (Fenster, „Beenden“) beendet es nur diese eigene
    Bridge, sauber über die Stoppdatei (`--stop-file`, Session vollständig); erst wenn sie nach 5 s noch läuft, hart.
    Eine schon laufende Bridge wird nur mitbenutzt und nie beendet. Radstatus dabei: „Bridge nicht erreichbar – Bridge
    wird gestartet (Quelle sim) …“, „… – Bridge-Programm fehlt (config.cfg [bridge] program)“ oder „… – Bridge-Start
