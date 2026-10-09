@@ -31,6 +31,11 @@
 ## Ausrüstung (#49): `gear` sind die Modifikatoren der angelegten Beute (Loot.modifiers, {} = keine). Sie verbreitert die
 ## Zielzone um `zone_width_rpm` (je zur Hälfte nach unten und oben, danach der Wächter) und setzt den Faktor auf den
 ## Fortschritt in der Zone (`progress_pct`, ChallengeBlock.progress_factor). Nur der Arcade-Lauf reicht sie herein.
+##
+## Stufe und Runde (#54): `lap_index` ist die Runde im Lauf (0 = erste). Stufe und Rundensteigerung kommen zusammen aus
+## `ArcadeTiers.level(tier, lap_index)` – Zonenbreite (auch der Hub einer Schwelle), Dauer, Punkte; die Phasen eines Bosses
+## bekommen zusätzlich den Boss-Faktor der Stufe auf die Dauer. Jede Phase, die wandernde Zone (`zone_path`) und `zone_for`
+## bekommen dieselbe Runde, also läuft auch eine engere Zone späterer Runden vor dem Wächter durch `limit_zone`.
 class_name Encounters
 extends RefCounted
 
@@ -61,9 +66,15 @@ static func roll(rng: RandomNumberGenerator, count: int, pool: Array = CHALLENGE
 
 
 ## Baustein der Herausforderung `definition` auf Stufe `tier` im Kadenzbereich `cadence_range` mit der Ausrüstung
-## `gear` (null bei unbekanntem Baustein).
+## `gear` in der Runde `lap_index` des Laufs (0 = erste; null bei unbekanntem Baustein).
 static func build(definition: Dictionary, tier: int, cadence_range: CadenceRange,
-		gear: Dictionary = {}) -> ChallengeBlock:
+		gear: Dictionary = {}, lap_index: int = 0) -> ChallengeBlock:
+	return _build(definition, tier, cadence_range, gear, lap_index, bool(definition.get("boss", false)))
+
+
+## `build` mit `boss`: Teil eines Bosses (die Phasen erben es) – Dauer × Boss-Faktor der Stufe.
+static func _build(definition: Dictionary, tier: int, cadence_range: CadenceRange, gear: Dictionary, lap_index: int,
+		boss: bool) -> ChallengeBlock:
 	var type := EncounterRegistry.type_of(definition.get("block"))
 	if type == null:
 		push_warning("Encounters: unbekannter Baustein %s" % definition.get("block"))
@@ -72,14 +83,15 @@ static func build(definition: Dictionary, tier: int, cadence_range: CadenceRange
 	if definition.get("phases") is Array:  # Boss (#51): Phasen aus Bausteinen, jede hier gebaut (Wächter, Stufe, Ausrüstung)
 		var phases := []
 		for phase in definition["phases"]:
-			phases.append(build(phase, tier, cadence_range, gear))
+			phases.append(_build(phase, tier, cadence_range, gear, lap_index, boss or bool(phase.get("boss", false))))
 		block = type.build_phases(definition, phases)
 		if block is EliteGroup:  # Elite (#52): wandernde Zonen je Augenblick durch zone_for (Wächter)
 			var steps: Array = definition["phases"]
 			block.zone_path = func(index: int, at_s: float) -> Vector2:
-				return zone_for(steps[index], tier, cadence_range, gear, at_s)
+				return zone_for(steps[index], tier, cadence_range, gear, at_s, lap_index)
 	else:
-		block = type.build(definition, ArcadeTiers.get_tier(tier), zone_for(definition, tier, cadence_range, gear))
+		block = type.build(definition, ArcadeTiers.level(tier, lap_index, boss),
+				zone_for(definition, tier, cadence_range, gear, 0.0, lap_index))
 	if block == null:
 		return null
 	block.progress_factor = 1.0 + maxf(float(gear.get("progress_pct", 0)), 0.0) / 100.0
@@ -91,15 +103,17 @@ static func build(definition: Dictionary, tier: int, cadence_range: CadenceRange
 ## `cadence_range` (Wächter, CadenceRange.limit_zone). Bei einer Schwelle (`threshold_at`, #47) ist es
 ## [Schwelle, obere Grenze des Bereichs]; die Schwelle liegt nie über dieser Grenze, die Ausrüstung senkt sie um die
 ## halbe Zonenbreite. `at_s`: Zeit in der Herausforderung (s) – nur für eine wandernde Zone (`wander`, #52) von Belang,
-## ihre Lage verschiebt sich vor dem Wächter.
+## ihre Lage verschiebt sich vor dem Wächter. `lap_index`: Runde im Lauf (#54) – spätere Runden haben schmalere Zonen
+## und höhere Schwellen (ArcadeTiers.level), ebenfalls vor dem Wächter.
 static func zone_for(definition: Dictionary, tier: int, cadence_range: CadenceRange,
-		gear: Dictionary = {}, at_s: float = 0.0) -> Vector2:
+		gear: Dictionary = {}, at_s: float = 0.0, lap_index: int = 0) -> Vector2:
 	if definition.get("phases") is Array and not definition["phases"].is_empty():  # Boss (#51): Ziel der ersten Phase
-		return zone_for(definition["phases"][0], tier, cadence_range, gear)
+		return zone_for(definition["phases"][0], tier, cadence_range, gear, 0.0, lap_index)
 	var zone: Vector2
 	var shift := wander_shift(definition, at_s)
+	var width: float = ArcadeTiers.level(tier, lap_index)["zone_width_rpm"]
 	if definition.has("threshold_at"):
-		var lift: float = (float(ArcadeTiers.LIST[0]["zone_width_rpm"]) - ArcadeTiers.get_tier(tier)["zone_width_rpm"]) / 2.0
+		var lift := roundf((float(ArcadeTiers.LIST[0]["zone_width_rpm"]) - width) / 2.0)  # ganze rpm
 		var threshold := minf(roundf(cadence_range.at(float(definition["threshold_at"]) + shift)) + lift,
 				cadence_range.maximum)
 		var lower := threshold - maxf(float(gear.get("zone_width_rpm", 0)), 0.0) / 2.0
@@ -109,7 +123,7 @@ static func zone_for(definition: Dictionary, tier: int, cadence_range: CadenceRa
 		zone = Vector2(float(definition["zone_rpm"][0]) + moved, float(definition["zone_rpm"][1]) + moved)
 	else:
 		var center := roundf(cadence_range.at(float(definition.get("zone_at", 0.5)) + shift))
-		var half: float = ArcadeTiers.get_tier(tier)["zone_width_rpm"] / 2.0
+		var half := width / 2.0
 		zone = Vector2(center - half, center + half)
 	var wider := maxf(float(gear.get("zone_width_rpm", 0)), 0.0) / 2.0
 	return cadence_range.limit_zone(zone.x - wider, zone.y + wider)
@@ -133,6 +147,7 @@ static func target_text(definition: Dictionary, zone: Vector2) -> String:
 	return RideHud.zone_range_text(zone.x, zone.y)
 
 
-## Punkte für das Schaffen der Herausforderung auf Stufe `tier`.
-static func points_for(definition: Dictionary, tier: int) -> int:
-	return roundi(float(definition.get("points", 0)) * ArcadeTiers.get_tier(tier)["points_factor"])
+## Punkte für das Schaffen der Herausforderung auf Stufe `tier` in der Runde `lap_index` des Laufs (#54: spätere Runden
+## bringen mehr).
+static func points_for(definition: Dictionary, tier: int, lap_index: int = 0) -> int:
+	return roundi(float(definition.get("points", 0)) * ArcadeTiers.level(tier, lap_index)["points_factor"])

@@ -119,7 +119,11 @@ func test_run_hook_puts_talents_and_effects_on_the_abilities_of_the_run() -> voi
 	assert_not_null(extension, "Fähigkeiten angemeldet")
 	assert_not_null(game.talent_arcade, "Talente angehängt")
 	assert_eq(game.arcade_stage.extensions.size(), ArcadeStage.EXTENSIONS.size(), "ohne Eintrag in EXTENSIONS")
-	assert_eq(game.arcade_stage.run_hooks.size(), 2, "zwei Hooks: erst die Fähigkeiten, dann die Talente")
+	# Ein Hook je Erweiterung (die Fähigkeiten zuerst; #54 Stufen danach), die Talente zuletzt.
+	var hooks: Array = game.arcade_stage.run_hooks
+	assert_eq(hooks.size(), ArcadeStage.EXTENSIONS.size() + 1, "Hooks: erst die Erweiterungen, dann die Talente")
+	assert_true(hooks[0].get_object() == extension, "erst die Fähigkeiten")
+	assert_true(hooks[-1].get_object() == game.talent_arcade, "dann die Talente")
 	assert_eq(extension.abilities.defs["windboe"]["power"], 2.0, "vor dem Lauf: die Standarddaten")
 	game.arcade_stage.begin(true, 1, game.save_game, 0.0)
 	assert_almost_eq(float(extension.abilities.defs["windboe"]["power"]), 2.5, 1e-9, "Talent „Kräftiger Antritt“")

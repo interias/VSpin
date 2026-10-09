@@ -13,7 +13,8 @@
 ##                                 "wardrobe": {"trikot"|"radfarbe"|"helm": "<teil-id>"},
 ##                                 "camera": {"view": "nah"|"verfolger"|"weit"},
 ##                                 "arcade": {"cadence_range": {"min": 60, "max": 120}, "tier": 1,
-##                                            "best_points": {"<stufe>": <punkte>}}}}}
+##                                            "best_points": {"<stufe>": <punkte>}, "unlocked": 3,
+##                                            "defeated": {"<stufe>": ["<boss-id>", …]}}}}}
 ##
 ## Bestzeiten (#31): schnellste Runde je Strecke und Richtung (LapTiming.DIRECTION_*), in Sekunden.
 ## Segment-Bestzeiten (#33): schnellste Zeit je Strecke, Richtung und Segment-ID, in Sekunden.
@@ -37,8 +38,9 @@
 ## geschafft, verfehlt); ihre km zählen wie jede Fahrt für Fahrtenbuch, Fahrerlevel und Erfolge. Bestzeit,
 ## Segmentzeiten, Medaillen und Ghosts schreibt Arcade nie (ADR-0010). Der Bereich `arcade` hält den persönlichen
 ## Kadenzbereich (CadenceRange prüft), die zuletzt gewählte Stufe (ArcadeTiers prüft) und die beste Punktzahl je Stufe;
-## spätere Pakete (Beute #49, Talente #53, Stufen #54) ergänzen ihn. Ein Stand ohne ihn bekommt beim Laden den leeren
-## Bereich (es gelten die Standards) – additiv, die Formatversion bleibt 1.
+## spätere Pakete (Beute #49, Talente #53, Stufen #54) ergänzen ihn. Stufen (#54): `unlocked` ist die höchste wählbare Stufe
+## (fehlt → die drei Startstufen), `defeated` je Stufe die dort besiegten Bosse (ArcadeTiers prüft und schreibt beides).
+## Ein Stand ohne ihn bekommt beim Laden den leeren Bereich (es gelten die Standards) – additiv, die Formatversion bleibt 1.
 ##
 ## Erweitern (spätere Pakete) geht additiv:
 ## neue Bereiche in PROFILE_DEFAULTS bekommen beim Laden ihren Standardwert. Ändert sich das Format, steigt

@@ -4,8 +4,10 @@
 ##                   Einstellungsmenü), Ghost (aus, Bestzeit, letzte Fahrt; ohne Aufzeichnung ausgegraut, #32), Bestzeit
 ##                   der gewählten Richtung; „Losfahren“ (#31)
 ##   Training      → Einheit (aus `res://trainings`, Training.load_all) mit Beschreibung und Dauer; „Losfahren“ (#37)
-##   Arcade        → Stufe (ArcadeTiers, drei) mit Beschreibung, persönlicher Kadenzbereich (von/bis, CadenceRange),
-##                   beste Punktzahl der Stufe; „Losfahren“ (#46). Der Kadenzbereich steht hier, weil er nur im Arcade
+##   Arcade        → Stufe (ArcadeTiers; gesperrte ausgegraut, die nächste mit dem Stand der besiegten Bosse, #54) mit
+##                   Beschreibung, persönlicher Kadenzbereich (von/bis, CadenceRange), beste Punktzahl der Stufe,
+##                   Arcade-Level (#53) und eigene gegen empfohlene Stärke der Stufe (#54, in derselben Zeile – die Seite
+##                   passt sonst nicht in 1152×648); „Losfahren“ (#46). Der Kadenzbereich steht hier, weil er nur im Arcade
 ##                   wirkt (Grenze aller Zielzonen) und vor dem Losfahren gewählt wird wie die Stufe. „Ausrüstung“ öffnet
 ##                   das Inventar der Beute (#49) – aus demselben Grund hier und nicht auf der Hauptseite.
 ##   Fahrtenbuch   öffnet das Fahrtenbuch (Statistik, Bestzeiten, Erfolge, letzte Fahrten; #35)
@@ -76,6 +78,9 @@ var _arcade_page: VBoxContainer
 var _arcade_info: Label
 var _arcade_best: Label
 var _arcade_level: Label
+var _arcade_strength: Label
+## Eigene Stärke (#54, ArcadeTiers.strength), verglichen mit der empfohlenen der gewählten Stufe.
+var _own_strength := 0
 var _best_label: Label
 var _training_info: Label
 var _center: CenterContainer
@@ -253,6 +258,38 @@ func cadence_range() -> CadenceRange:
 			CadenceRange.MAX_CHOICES[maxi((options["cadence_max"] as OptionButton).selected, 0)])
 
 
+## Freigeschaltete Stufen (#54): Stufen über `count` sind ausgegraut und nicht wählbar; die nächste zeigt, wie viele Bosse
+## auf der höchsten freien Stufe schon besiegt sind (`defeated` von `bosses`). Eine gewählte gesperrte Stufe weicht auf die
+## höchste freie aus.
+func set_arcade_unlocked(count: int, defeated: int = 0, bosses: int = 0) -> void:
+	var tiers := options["tier"] as OptionButton
+	for i in range(ArcadeTiers.LIST.size()):
+		var entry: Dictionary = ArcadeTiers.LIST[i]
+		var locked: bool = entry["tier"] > count
+		var text: String = entry["name"]
+		if locked and entry["tier"] == count + 1 and bosses > 0:
+			text += " (gesperrt – Bosse auf %s: %d/%d)" % [ArcadeTiers.get_tier(count)["name"], defeated, bosses]
+		elif locked:
+			text += " (gesperrt)"
+		tiers.set_item_text(i, text)
+		tiers.set_item_disabled(i, locked)
+	if tiers.is_item_disabled(maxi(tiers.selected, 0)):
+		tiers.select(clampi(count, 1, ArcadeTiers.LIST.size()) - 1)
+		_show_arcade_info()
+
+
+## Ist Stufe `tier` im Menü wählbar (#54)?
+func arcade_tier_unlocked(tier: int) -> bool:
+	var index := ArcadeTiers.LIST.find(ArcadeTiers.get_tier(tier))
+	return index >= 0 and not (options["tier"] as OptionButton).is_item_disabled(index)
+
+
+## Eigene Stärke aus Ausrüstung und Talenten (#54); daneben steht die empfohlene der gewählten Stufe.
+func show_arcade_strength(own: int) -> void:
+	_own_strength = own
+	_show_arcade_strength()
+
+
 ## Arcade-Level (#53); der Knopf „Talente“ zeigt die freien Talentpunkte.
 func show_arcade_level(level: int, free_points: int) -> void:
 	_arcade_level.text = "Arcade-Level %d" % level
@@ -271,6 +308,16 @@ func _on_arcade_option(_index: int) -> void:
 
 func _show_arcade_info() -> void:
 	_arcade_info.text = ArcadeTiers.get_tier(arcade_tier())["description"]
+	_show_arcade_strength()
+
+
+## „Stärke 12 / empfohlen 20“ – grün, wenn die eigene reicht, sonst gelb (eine Empfehlung, keine Sperre).
+func _show_arcade_strength() -> void:
+	if _arcade_strength == null:
+		return
+	var recommended := ArcadeTiers.recommended_strength(arcade_tier())
+	_arcade_strength.text = "Stärke %d / empfohlen %d" % [_own_strength, recommended]
+	_arcade_strength.add_theme_color_override("font_color", COLOR_OK if _own_strength >= recommended else COLOR_WARN)
 
 
 static func _nearest(choices: Array, value: float) -> int:
@@ -446,6 +493,7 @@ func _build() -> void:
 	arcade_grid.add_theme_constant_override("v_separation", 10)
 	_arcade_page.add_child(arcade_grid)
 	_add_option(arcade_grid, "tier", "Stufe", ArcadeTiers.LIST.map(func(t): return t["name"]))
+	(options["tier"] as OptionButton).fit_to_longest_item = false  # gesperrte Einträge sind lang (#54)
 	# Kadenzbereich in einer Zeile („von … bis …“): mit zwei Zeilen passte die Seite nicht in 1152×648.
 	var range_caption := Label.new()
 	range_caption.text = "Kadenzbereich"
@@ -474,12 +522,17 @@ func _build() -> void:
 	_arcade_level = Label.new()
 	_arcade_level.name = "ArcadeLevel"
 	_arcade_level.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var arcade_status := HBoxContainer.new()  # Bestpunktzahl und Arcade-Level in einer Zeile (spart Höhe im kleinen Fenster)
+	_arcade_strength = Label.new()
+	_arcade_strength.name = "ArcadeStrength"
+	_arcade_strength.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# Bestpunktzahl, Arcade-Level und Stärke in einer Zeile (spart Höhe im kleinen Fenster)
+	var arcade_status := HBoxContainer.new()
 	arcade_status.alignment = BoxContainer.ALIGNMENT_CENTER
 	arcade_status.add_theme_constant_override("separation", 28)
 	_arcade_page.add_child(arcade_status)
 	arcade_status.add_child(_arcade_best)
 	arcade_status.add_child(_arcade_level)
+	arcade_status.add_child(_arcade_strength)
 	var arcade_actions := HBoxContainer.new()
 	arcade_actions.add_theme_constant_override("separation", 10)
 	_arcade_page.add_child(arcade_actions)
@@ -489,7 +542,9 @@ func _build() -> void:
 	_add_button(arcade_actions, "arcade_back", "Zurück", show_page.bind(true))
 	for key in ["arcade_start", "arcade_gear", "arcade_talents", "arcade_back"]:  # vier nebeneinander: schmaler als 200 px
 		buttons[key].custom_minimum_size.x = 150
+	set_arcade_unlocked(ArcadeTiers.START_UNLOCKED)
 	set_arcade_choices(ArcadeTiers.DEFAULT, CadenceRange.new())
+	show_arcade_strength(0)
 	show_arcade_best(0)
 	show_arcade_level(1, 0)
 	var status := PanelContainer.new()
