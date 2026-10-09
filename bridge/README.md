@@ -78,8 +78,10 @@ unter [`profiles/`](profiles/):
 | `arcade/zone_perfekt.toml` | Arcade-Szenario (#46) „perfekt in der Zone“: 45 s 90 rpm, dann Ende |
 | `arcade/zone_knapp_daneben.toml` | Arcade-Szenario „knapp daneben“: 50 s 102 rpm (2 rpm über der Zone), dann Ende |
 | `arcade/zone_abbruch.toml` | Arcade-Szenario „Abbruch“: 15 s 90 rpm → 4 s keine Daten → 30 s `disconnected` → 30 s 90 rpm, dann Ende |
+| `arcade/antritt.toml` | Messprofil Kadenzmuster (#45): drei Antritte aus 80 rpm (+30 in 0,5 s, +30 in 1,5 s, +26 in 2 s), dann Ende |
+| `arcade/innehalten.toml` | Messprofil Kadenzmuster (#45): zweimal 3 s Kadenz 0 (aus 80 und 110 rpm), am Ende 1,5 s (kein Innehalten), dann Ende |
 
-Die Arcade-Szenarien spielt das Spiel auch in seinen Tests nach (`games/island-ride/tests/test_arcade_ride.gd`, gleicher
+Die Arcade-Szenarien `zone_*` spielt das Spiel auch in seinen Tests nach (`games/island-ride/tests/test_arcade_ride.gd`, gleicher
 Kadenzverlauf über den Fake-Bus) und prüft dort das Ergebnis: geschafft, weich verfehlt, Pause bei Abbruch.
 
 Format:
@@ -165,6 +167,10 @@ Gilt für alle Quellen gleich, auch für den Simulator (ADR-0004):
   keinen neuen Wert, zählen aber für diese Regel. Kommen gar keine Daten, erfindet die Bridge
   nichts – dann wird der Status nach 3 s `stale`. Der nächste Wert nach ≥ 2,5 s ohne Wert
   startet die Glättung neu.
+- **Ungeglättet für die Kadenzmuster:** Zusätzlich geht `cadence_raw` auf den Bus – dieselben Regeln (Ausreißer,
+  Kadenz 0 nach 2,5 s), nur ohne EMA; zwischen zwei neuen Werten gilt der letzte. Anzeige und Fahrmodell nutzen
+  `cadence`. Grund: Bei 250 ms Meldetakt kostet der EMA Antritt und Innehalten 250–500 ms (Messung unten unter
+  „Testen“, Nachtrag #45 in ADR-0004).
 - Geschwindigkeit, Leistung und Puls gehen ungeglättet durch.
 
 Gerechnet wird auf der Zeitachse der Quelle – beim Replay der Aufnahme. Ein Replay liefert
@@ -241,6 +247,13 @@ bricht den Lauf ab, statt still auf 8765 zu fallen.
 Der Harness beendet die Bridge wie im Betrieb: unter Linux/macOS mit SIGTERM, unter Windows über die Stoppdatei
 wie das Spiel; „Strg+C“ ist SIGINT bzw. unter Windows Strg+Untbr an die eigene Prozessgruppe.
 
+**Messung Kadenzmuster (#45):** `python tests/cadence_latency.py` (im Ordner `bridge/`, mit `PYTHONPATH=src` oder
+installiertem Paket) misst die Erkennungsverzögerung von Antritt und Innehalten am geglätteten gegen den
+ungeglätteten Wert – Profile mit Meldetakt 250 ms und 1 s, Rauschen mit Seeds 1–20, dazu CSC-Replays – und gibt eine
+Tabelle aus. `--profile DATEI`, `--interval MS`, `--seeds N`, `--replay DATEI.raw.jsonl` (z. B. ein JC312-Mitschnitt,
+#1) wählen andere Eingaben. Die Detektoren dort sind vorläufig (Definition im Kopf der Datei); die Zahlen ohne
+Rauschen hält `tests/test_cadence_raw.py` fest.
+
 Parser und Aufbereitung werden ebenso nur von außen getestet: Replay-Fixtures unter
 `tests/fixtures/` (handgebaut, erzeugt von `tests/fixtures/make_fixtures.py`; neu erzeugen mit
 `python tests/fixtures/make_fixtures.py`) laufen beschleunigt durch die Bridge, geprüft werden Bus,
@@ -249,7 +262,7 @@ Session-Dateien und Terminal.
 Struktur (teils noch geplant):
 
 ```
-profiles/        Beispielprofile für den Simulator (--profile); arcade/: Arcade-Szenarien des Spiels (#46)
+profiles/        Beispielprofile für den Simulator (--profile); arcade/: Arcade-Szenarien des Spiels (#46), Messprofile Kadenzmuster (#45)
 src/vspin_bridge/
   sources/      sim (+ profile), replay, später ble  – alle implementieren DeviceSource
   parsers/      rohe Notification → TelemetrySample (CSC, FTMS Indoor Bike Data)
@@ -257,4 +270,5 @@ src/vspin_bridge/
   bus/          WebSocket-Server (docs/bus-protocol.md)
   session/      Session-CSV und Rohdaten (ADR-0008)
 tests/fixtures/  Replay-Fixtures (handgebaut; später echte JC312-Dumps)
+tests/cadence_latency.py  Messung Erkennungsverzögerung der Kadenzmuster (#45)
 ```

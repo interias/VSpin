@@ -16,6 +16,9 @@ Aufnahme, daher unabhängig von `--speed`):
 
 Auf den Bus geht der geglättete Wert (auf 0,1 rpm gerundet), die CSV bekommt zusätzlich
 den Rohwert des Samples (`cadence_raw`, auch verworfene Ausreißer; leer ohne neuen Wert).
+Für die Kadenzmuster (#45, Nachtrag ADR-0004) geht außerdem die ungeglättete Kadenz auf den Bus
+(`TelemetrySample.cadence_raw`): dieselben Regeln (Plausibilität, Kadenz 0 nach 2,5 s), nur ohne EMA –
+der letzte angenommene Wert gilt, bis ein neuer kommt.
 Geschwindigkeit, Leistung und Puls gehen unverändert durch.
 """
 
@@ -34,7 +37,7 @@ ROUND_DIGITS = 1
 
 @dataclass(frozen=True, slots=True)
 class Processed:
-    sample: TelemetrySample  # Kadenz geglättet – so geht es auf den Bus
+    sample: TelemetrySample  # so geht es auf den Bus: Kadenz geglättet, `cadence_raw` ungeglättet
     cadence_raw: float | None  # Rohwert aus der Quelle (CSV-Spalte `cadence_raw`)
     discarded: bool = False  # Rohwert lag außerhalb 0–200 rpm und wurde verworfen
 
@@ -48,6 +51,7 @@ class CadenceProcessor:
         self._ema: float | None = None
         self._ema_t: int | None = None  # Zeit des letzten Werts im EMA
         self._last_value_t: int | None = None  # Zeit des letzten neuen Werts (oder 1. Sample)
+        self._unsmoothed: float | None = None  # letzter angenommener Wert bzw. 0 nach der 2,5-s-Regel
 
     def process(self, sample: TelemetrySample) -> Processed:
         t, raw = sample.t_ms, sample.cadence
@@ -58,10 +62,12 @@ class CadenceProcessor:
             self._add(t, raw)
         elif self._last_value_t is not None and t - self._last_value_t >= ZERO_AFTER_MS:
             self._ema, self._ema_t = 0.0, t
-        cadence = None if self._ema is None else round(self._ema, ROUND_DIGITS) + 0.0
-        return Processed(replace(sample, cadence=cadence), raw, discarded)
+            self._unsmoothed = 0.0
+        published = replace(sample, cadence=_rounded(self._ema), cadence_raw=_rounded(self._unsmoothed))
+        return Processed(published, raw, discarded)
 
     def _add(self, t: int, value: float) -> None:
+        self._unsmoothed = float(value)
         restart = (
             self._ema is None
             or self._last_value_t is None
@@ -75,3 +81,7 @@ class CadenceProcessor:
             if value == 0 and self._ema < ZERO_BELOW_RPM:
                 self._ema = 0.0
         self._ema_t = self._last_value_t = t
+
+
+def _rounded(value: float | None) -> float | None:
+    return None if value is None else round(value, ROUND_DIGITS) + 0.0

@@ -56,6 +56,31 @@ func test_telemetry_without_cadence_keeps_last_value() -> void:
 	assert_eq(client.cadence, 85.0)
 
 
+func test_reads_unsmoothed_cadence_next_to_smoothed() -> void:
+	# Bridge ab #45: `cadence_raw` (ungeglättet) neben `cadence`; `null` behält den letzten Wert.
+	var gap := FakeBusServer.telemetry(40.0, 0.3, {"cadence_raw": null})
+	var bus := start_fake_bus([
+		FakeBusServer.status(),
+		FakeBusServer.telemetry(80.0, 0.1, {"cadence_raw": 80.0}),
+		FakeBusServer.telemetry(52.3, 0.2, {"cadence_raw": 0.0}),
+		gap,
+	])
+	var client := connect_client(bus)
+	assert_true(await run_until(func(): return client.last_telemetry_t_ms == 200, 3.0))
+	assert_eq(client.cadence_raw, 0.0, "ungeglättet: Treten hört sofort auf")
+	assert_eq(client.cadence, 52.3, "geglättet bleibt getrennt")
+	assert_true(await run_until(func(): return client.last_telemetry_t_ms == 300, 3.0))
+	assert_eq(client.cadence_raw, 0.0, "null behält den letzten Wert")
+	assert_eq(client.cadence, 40.0)
+
+
+func test_older_bridge_without_unsmoothed_cadence_falls_back_to_cadence() -> void:
+	var bus := start_fake_bus([FakeBusServer.status(), FakeBusServer.telemetry(77.0, 0.1)])
+	var client := connect_client(bus)
+	assert_true(await run_until(func(): return client.cadence == 77.0, 3.0))
+	assert_eq(client.cadence_raw, 77.0)
+
+
 func test_ignores_unknown_messages() -> void:
 	var bus := start_fake_bus([
 		FakeBusServer.status(),
