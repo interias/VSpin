@@ -819,9 +819,16 @@ func _build_village() -> void:
 	var church_at := _beside_road(square, 27.0)
 	var to_road := track.position_at(square) - church_at
 	var church_parts := {}
-	_church(church_parts, church_at - Vector3(0.0, 0.3, 0.0), atan2(-to_road.x, -to_road.z))
+	var church_yaw := atan2(-to_road.x, -to_road.z)
+	_church(church_parts, church_at - Vector3(0.0, 0.3, 0.0), church_yaw)
 	for file in church_parts:
 		_scatter(church, file, "fantasy-town/%s.glb" % file, church_parts[file])
+	# Einhängepunkt der Dorfglocke (#44): Schallfenster im obersten Turmgeschoss
+	var belfry := Node3D.new()
+	belfry.name = "Glockenstuhl"
+	belfry.position = Transform3D(Basis(Vector3.UP, church_yaw).scaled(Vector3.ONE * CHURCH_MODULE_M),
+			church_at - Vector3(0.0, 0.3, 0.0)) * Vector3(1.5, 4.5, -1.5)
+	church.add_child(belfry)
 	_place_model(node, "fantasy-town/fountain-round.glb", _beside_road(square, 12.5), 0.0, 3.0)
 	_place_model(node, "fantasy-town/stall-red.glb", _beside_road(square - 12.0, 13.0), _yaw_at(square), 3.0)
 	_place_model(node, "fantasy-town/stall-red.glb", _beside_road(square + 12.0, 13.0), _yaw_at(square), 3.0)

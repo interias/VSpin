@@ -20,6 +20,8 @@
 ## und gilt in Rundfahrt und Training, in beiden Richtungen; Intro und Panorama laufen in sie zurück, der Sichtfeld-Kick
 ## wirkt in allen. Nur Kamera (ADR-0010).
 ## HUD (`Hud`, RideHud, Szene `scenes/hud.tscn`): bekommt pro Frame die Werte, Rundenfortschritt und Position.
+## Ton (#44, RideSound, Kind `Sound`): Fahrtwind, Freilauf, Meer, Regen, Möwen, Schafglocken, Dorfglocke und UI-Klänge,
+## prozedural und dezent; Lautstärke und Aus-Schalter im Einstellungsmenü. Nur Ausgabe (ADR-0010).
 ##
 ## Szenenfluss (#30): Titel → Modus-Auswahl → Fahrt → Ergebnis → Menü. Nach dem Start (`start_in_menu`) steht das
 ## Startmenü (`scenes/start_menu.gd`) über einem langsamen Kameraflug über die lebende Insel (Licht, Wetter, Bewegung
@@ -230,6 +232,8 @@ var world: IslandWorld = null
 var sky: SkyController = null
 ## Geschwindigkeitslinien und Sichtfeld-Kick (#42), Kind `SpeedEffects`.
 var speed_effects: SpeedEffects
+## Ton (#44), Kind `Sound`.
+var sound: RideSound
 ## Kamera-Modus (CAMERA_*) und Zeit seit seinem Beginn (s).
 var camera_mode := CAMERA_FOLLOW
 var camera_shot_s := 0.0
@@ -316,6 +320,11 @@ func _ready() -> void:
 	speed_effects.setup(camera)
 	speed_effects.enabled = settings_menu.settings.speed_effects
 	panorama_enabled = settings_menu.settings.panorama
+	sound = RideSound.new()
+	add_child(sound)
+	sound.setup(self)
+	sound.apply_settings(settings_menu.settings.sound_enabled, settings_menu.settings.sound_volume)
+	hud.celebration_shown.connect(func(_text): sound.play_ui(RideSound.UI_CELEBRATION))
 	bus = BusClient.from_config(config)
 	bus.telemetry_received.connect(_on_telemetry)
 	bus.status_changed.connect(_on_status_changed)
@@ -369,6 +378,8 @@ func _on_settings_changed(key: String) -> void:
 		speed_effects.enabled = settings_menu.settings.speed_effects
 	if key == "panorama":
 		panorama_enabled = settings_menu.settings.panorama
+	if key in ["sound", "sound_volume"]:
+		sound.apply_settings(settings_menu.settings.sound_enabled, settings_menu.settings.sound_volume)
 	if key == "camera_view":
 		set_camera_view(settings_menu.camera_view, false)
 	if key in ["time", "weather", "season"]:
@@ -745,6 +756,7 @@ func _apply_wardrobe() -> void:
 
 
 func _on_settings_visibility_changed() -> void:
+	sound.play_ui(RideSound.UI_CLICK)
 	start_menu.set_covered(settings_menu.visible)
 	if not settings_menu.visible:
 		logbook.focus_default.call_deferred()  # Einstellungen über dem Fahrtenbuch geschlossen
@@ -1206,6 +1218,7 @@ func _show_training() -> void:
 		hud.show_training("", "", "", "")
 		hud.hide_zone()
 		hud.show_announcement("")
+		sound.announce("", -1)
 		return
 	var phase := training.phase()
 	var next := training.next_phase()
@@ -1213,7 +1226,9 @@ func _show_training() -> void:
 			"%s · %s" % [next["name"], Training.target_text(next)] if not next.is_empty() else "Ende der Einheit")
 	hud.show_zone(phase["cadence_min"], phase["cadence_max"], bus.cadence,
 			Training.percent_text(training.phase_score(training.phase_index())))
-	hud.show_announcement(training.announcement())
+	var announcement := training.announcement()
+	hud.show_announcement(announcement)
+	sound.announce(announcement, training.phase_index())
 
 
 func _new_gate(node_name: String) -> CourseGate:

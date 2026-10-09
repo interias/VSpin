@@ -30,6 +30,9 @@
 class_name RideHud
 extends CanvasLayer
 
+## Eine Einblendung (Celebration) erscheint gerade – je sichtbarer Einblendung einmal (#44: dezenter Klang).
+signal celebration_shown(text: String)
+
 ## Ab diesem Betrag gilt die Steigung als bergauf/bergab, ab GRADE_STEEP als steil.
 const GRADE_FLAT := 0.005
 const GRADE_STEEP := 0.06
@@ -266,7 +269,10 @@ func queued_celebrations() -> Array:
 	return _celebration_queue.duplicate()
 
 
+## Die einzige Stelle, an der eine Einblendung wirklich erscheint (auch eingereihte); meldet `celebration_shown` (Klang,
+## #44).
 func _show_celebration(text: String) -> void:
+	celebration_shown.emit(text)
 	_celebration.text = text
 	_celebration.visible = true
 	_celebration.modulate.a = 1.0

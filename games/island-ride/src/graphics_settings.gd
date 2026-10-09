@@ -1,5 +1,6 @@
 ## Grafik- und Fenstereinstellungen der Inselfahrt (Menü `F2`, G4): Kantenglättung, Render-Auflösung, VSync,
-## fps-Limit, Schatten, Tempo-Effekte (#42), Panorama-Momente (#43), Fenstermodus und -geometrie; dazu Tageszeit, Wetter und Jahreszeit (G8, #39; Abschnitt `[sky]`, nur geschrieben,
+## fps-Limit, Schatten, Tempo-Effekte (#42), Panorama-Momente (#43), Ton an/aus und Lautstärke (#44, Abschnitt `[sound]`),
+## Fenstermodus und -geometrie; dazu Tageszeit, Wetter und Jahreszeit (G8, #39; Abschnitt `[sky]`, nur geschrieben,
 ## sobald im Menü gewählt – sonst gilt `config.cfg [sky]`). Gespeichert in `user://settings.cfg` (ConfigFile), getrennt von
 ## der Spiel-Konfiguration `config.cfg` (Bus, Fahrmodell). Fehlende Datei oder Schlüssel, ungültige Werte → Standard.
 ## Logik und Werte hier; das Menü (`scenes/settings_menu.gd`) zeigt sie an und wendet sie an.
@@ -54,6 +55,10 @@ const WINDOW_SIZES := [Vector2i(960, 1040), Vector2i(1280, 720), Vector2i(1600, 
 ## Position „mittig auf dem Bildschirm“.
 const POSITION_CENTERED := Vector2i(-1, -1)
 
+## Lautstärke des Tons (#44, Bus RideSound.BUS) im Menü: Anteil 0..1; Standard leise, damit Musik nebenher bleibt.
+const SOUND_VOLUMES := [0.1, 0.2, 0.3, 0.5, 0.7, 1.0]
+const DEFAULT_SOUND_VOLUME := 0.3
+
 ## Tageszeit im Menü: feste Ortszeiten (Stunden) und Zeitraffer (Minuten je Tag).
 const FIXED_HOURS := [6.0, 9.0, 12.0, 15.0, 18.0, 20.5, 22.0, 0.0]
 const TIMELAPSE_DAY_MINS := [12.0, 24.0, 48.0]
@@ -68,6 +73,9 @@ var shadows := SHADOWS_MEDIUM
 var speed_effects := true
 ## Panorama-Momente an den Sehenswürdigkeiten (#43).
 var panorama := true
+## Ton (#44): an/aus und Lautstärke 0..1.
+var sound_enabled := true
+var sound_volume := DEFAULT_SOUND_VOLUME
 var window_mode := WINDOW_WINDOWED
 var window_size := Vector2i(1600, 900)
 ## Position der Client-Fläche (ohne Rahmen); POSITION_CENTERED = mittig.
@@ -103,6 +111,8 @@ static func load_file(path: String = DEFAULT_PATH) -> GraphicsSettings:
 			settings.shadows)
 	settings.speed_effects = bool(file.get_value("graphics", "speed_effects", settings.speed_effects))
 	settings.panorama = bool(file.get_value("graphics", "panorama", settings.panorama))
+	settings.sound_enabled = bool(file.get_value("sound", "enabled", settings.sound_enabled))
+	settings.sound_volume = clampf(_number(file.get_value("sound", "volume"), settings.sound_volume), 0.0, 1.0)
 	settings.window_mode = _choice(file.get_value("window", "mode", settings.window_mode), WINDOW_MODES,
 			settings.window_mode)
 	var size = file.get_value("window", "size", settings.window_size)
@@ -138,6 +148,8 @@ func save_file(path: String = DEFAULT_PATH) -> Error:
 	file.set_value("graphics", "shadows", shadows)
 	file.set_value("graphics", "speed_effects", speed_effects)
 	file.set_value("graphics", "panorama", panorama)
+	file.set_value("sound", "enabled", sound_enabled)
+	file.set_value("sound", "volume", sound_volume)
 	file.set_value("window", "mode", window_mode)
 	file.set_value("window", "size", window_size)
 	file.set_value("window", "position", window_position)
