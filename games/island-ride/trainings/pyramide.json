@@ -1,0 +1,24 @@
+{
+	"name": "Pyramide",
+	"description": "70 → 80 → 90 → 100 → zurück, je 3 min",
+	"phases": [
+		{"name": "Aufwärmen", "kind": "warmup", "duration_s": 480, "cadence_rpm": [80, 90],
+			"announcement": "Widerstand leicht, bei 85 rpm einrollen"},
+		{"name": "70 rpm", "kind": "work", "duration_s": 180, "cadence_rpm": [67, 73],
+			"announcement": "Widerstand 3 Stufen hoch, 70 rpm halten"},
+		{"name": "80 rpm", "kind": "work", "duration_s": 180, "cadence_rpm": [77, 83],
+			"announcement": "Widerstand 1 Stufe runter, 80 rpm halten"},
+		{"name": "90 rpm", "kind": "work", "duration_s": 180, "cadence_rpm": [87, 93],
+			"announcement": "Widerstand 1 Stufe runter, 90 rpm halten"},
+		{"name": "100 rpm", "kind": "work", "duration_s": 180, "cadence_rpm": [97, 103],
+			"announcement": "Widerstand 1 Stufe runter, 100 rpm halten"},
+		{"name": "90 rpm zurück", "kind": "work", "duration_s": 180, "cadence_rpm": [87, 93],
+			"announcement": "Widerstand 1 Stufe hoch, 90 rpm halten"},
+		{"name": "80 rpm zurück", "kind": "work", "duration_s": 180, "cadence_rpm": [77, 83],
+			"announcement": "Widerstand 1 Stufe hoch, 80 rpm halten"},
+		{"name": "70 rpm zurück", "kind": "work", "duration_s": 180, "cadence_rpm": [67, 73],
+			"announcement": "Widerstand 1 Stufe hoch, 70 rpm halten"},
+		{"name": "Ausrollen", "kind": "cooldown", "duration_s": 300, "cadence_rpm": [70, 80],
+			"announcement": "Widerstand ganz runter, bei 75 rpm ausrollen"}
+	]
+}

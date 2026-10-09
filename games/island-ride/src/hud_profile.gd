@@ -2,8 +2,10 @@
 ## Fahrerposition und der gefahrene Teil hinterlegt.
 ## Das Profil wird nur bei `setup()` und Größenänderung gezeichnet; pro Frame bewegen sich nur Marker und
 ## Hinterlegung (eigene Knoten), und auch nur, wenn sich ihre Pixelposition ändert.
-##   setup(track)               Profil aus der Strecke abtasten (Höhe = y des Pfads), Stationen übernehmen
-##   distance_m = d             Fahrerposition innerhalb der Runde
+##   setup(track)               Profil aus der Strecke abtasten (Höhe = y des Pfads), Stationen übernehmen – beides in
+##                              Fahrtrichtung (Track.ride_position_at, ride_stations; gegen den Uhrzeigersinn
+##                              gespiegelt, #34)
+##   distance_m = d             Fahrerposition (Fahrtposition) innerhalb der Runde
 ##   profile_point(...)         reine Rechnung Streckenposition/Höhe → Punkt im Zeichenbereich (Tests)
 class_name HudProfile
 extends Control
@@ -13,6 +15,8 @@ const SAMPLE_M := 20.0
 ## Höhe der Namenszeile über dem Profil (px) und Abstand des Profils zum Rand.
 const LABEL_ROW_PX := 18.0
 const INSET_PX := 4.0
+## Kleinster Zeichenbereich (px), ab dem die Profilfläche gezeichnet wird.
+const MIN_PLOT_PX := 8.0
 const NAME_FONT_SIZE := 13
 const FILL_COLOR := Color(0.95, 0.9, 0.75, 0.2)
 const LINE_COLOR := Color(1.0, 1.0, 1.0, 0.9)
@@ -26,7 +30,7 @@ var length_m := 0.0
 var heights := PackedFloat32Array()
 var min_height_m := 0.0
 var max_height_m := 1.0
-## [{name, start_m}] wie Track.stations.
+## [{name, start_m}] wie Track.ride_stations().
 var stations: Array = []
 ## Fahrerposition innerhalb der Runde (m).
 var distance_m := 0.0:
@@ -53,11 +57,11 @@ func _ready() -> void:
 
 func setup(track: Track) -> void:
 	length_m = track.length_m()
-	stations = track.stations
+	stations = track.ride_stations()
 	heights.clear()
 	var count := maxi(int(ceil(length_m / SAMPLE_M)), 1)
 	for i in range(count + 1):
-		heights.append(track.position_at(length_m * i / count).y)
+		heights.append(track.ride_position_at(length_m * i / count).y)
 	min_height_m = heights[0]
 	max_height_m = heights[0]
 	for h in heights:
@@ -81,6 +85,20 @@ static func profile_point(d: float, h: float, length: float, min_h: float, max_h
 	return Vector2(area.position.x + area.size.x * along, area.end.y - area.size.y * up)
 
 
+## Fläche unter der Profillinie `line`: die Linie, dazu die beiden unteren Ecken von `area`. Leer, wenn sie sich nicht
+## zeichnen ließe – vor dem ersten Layout (Zeichenbereich kleiner als MIN_PLOT_PX, etwa direkt nach `setup()` beim
+## Richtungswechsel) fallen die Punkte zusammen, und die Triangulierung scheitert („Invalid polygon data“, seit #34).
+static func fill_polygon(line: PackedVector2Array, area: Rect2) -> PackedVector2Array:
+	if line.size() < 2 or area.size.x < MIN_PLOT_PX or area.size.y < MIN_PLOT_PX:
+		return PackedVector2Array()
+	var fill := line.duplicate()
+	fill.append(Vector2(area.end.x, area.end.y))
+	fill.append(Vector2(area.position.x, area.end.y))
+	if Geometry2D.triangulate_polygon(fill).is_empty():
+		return PackedVector2Array()
+	return fill
+
+
 ## Höhe des Profils an Streckenposition `d` (linear zwischen den Abtastpunkten).
 func height_at(d: float) -> float:
 	if heights.size() < 2 or length_m <= 0.0:
@@ -101,9 +119,9 @@ func _draw() -> void:
 	var line := PackedVector2Array()
 	for i in range(heights.size()):
 		line.append(_point(length_m * i / (heights.size() - 1), heights[i]))
-	var fill := line.duplicate()
-	fill.append(Vector2(area.end.x, area.end.y))
-	fill.append(Vector2(area.position.x, area.end.y))
+	var fill := fill_polygon(line, area)
+	if fill.is_empty():
+		return
 	draw_colored_polygon(fill, FILL_COLOR)
 	draw_polyline(line, LINE_COLOR, 2.0, true)
 	var font := get_theme_default_font()

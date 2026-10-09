@@ -3,8 +3,9 @@
 Prototyp-Game (ADR-0005): 3D-Radsimulator in Godot 4.4 (GDScript). Das Spiel ist ein Client am
 Bus (`docs/bus-protocol.md`); die Kadenz bewegt den Fahrer entlang eines `Path3D` – kein Lenken.
 Stand: Insel-Rundkurs (~9,2 km, Grundform aus Gelände + Straße, #14) mit HUD, Debug-Anzeige, Spielzuständen
-(Pause bei Verbindungsverlust, manuelle Pause, Ziel mit Zusammenfassung) und `set_grade` an die Bridge. Die kurze
-Graybox-Strecke bleibt per Konfiguration wählbar (und ist die Grundlage vieler Tests).
+(Pause bei Verbindungsverlust, manuelle Pause, Ziel mit Zusammenfassung) und `set_grade` an die Bridge; Startmenü
+mit Titelbild und Spielstand (#30). Die kurze Graybox-Strecke bleibt per Konfiguration wählbar (und ist die Grundlage
+vieler Tests).
 
 ## Insel und Rundkurs (#14, ADR-0006)
 
@@ -23,6 +24,14 @@ gefahren im Uhrzeigersinn über West → Nord → Ost:
 
 Steigung überall ≤ 10 %, ohne Sprünge (≤ 1 Prozentpunkt je 5 m). Exakte Werte prüfen die Tests
 (`tests/test_island_course.gd`); die Tabelle ist gerundet.
+
+**Gegenrichtung (#34):** Im Menü „Rundfahrt“ lässt sich die Runde auch **gegen den Uhrzeigersinn** fahren – derselbe
+Pfad rückwärts, gleiche Länge, Steigung gespiegelt: ab dem Hafen der lange Anstieg über den Osthang (Station heißt
+dann **Osthang**, Ø ~7,5 %, bis 8,8 %), Bergdorf, Hain, die Serpentinen als Abfahrt, Küstenstraße, Ziel im Hafen.
+Gespiegelt wird nur in `Track` (Fahrtposition d → Pfadposition L − d, Vorzeichen der Steigung); Rundenwertung,
+Segmente und Ghost sehen in beiden Richtungen eine steigende Fahrtposition. Stationsschilder, Kilometersteine und
+Segment-Torbögen stehen je Richtung richtig; Minikarte und Höhenprofil zeigen die Fahrtrichtung. Das Training fährt
+im Uhrzeigersinn (`tests/test_counter_direction.gd`, `tests/test_counter_direction_ride.gd`).
 
 **Aufbau ohne Plugin (Abweichung von ADR-0006, siehe dort „Nachtrag“):** Terrain3D war in der Build-Umgebung nicht
 verfügbar, daher nur Godot-Bordmittel:
@@ -65,19 +74,65 @@ verfügbar, daher nur Godot-Bordmittel:
     Serpentinen-Rampen nach Westen voraus, von der Küstenstraße am Hang), Burgruine `burg` (Abfahrt 7,0 km links auf
     Felssockel über der Ostküste, ab ~6,4 km voraus), Aquädukt `aquaedukt` (Abfahrt 6,87 km rechts, parallel zur
     Straße), drei Windmühlen `windmuehlen/Muehle1..3` (8,33 / 8,52 / 8,70 km). Kleindetails unter `World/Details`:
-    Kilometersteine 1–9 rechts am Rand, Agaven (teils mit Blütenstand), Feigenkakteen, Blumen, Schaf- und
-    Ziegenherden, Boote und Bojen in den Buchten der Westküste, Bushaltestelle vor dem Bergdorf. Nur Godot-Grundkörper
+    Kilometersteine 1–9 rechts am Rand, Agaven (teils mit Blütenstand), Feigenkakteen, Blumen, die Lagen der Schaf-
+    und Ziegenherden (gebaut und bewegt von IslandFauna, #40), Boote und Bojen in den Buchten der Westküste, Bushaltestelle vor dem Bergdorf. Nur Godot-Grundkörper
     (je Landmarke ein Mesh) und vorhandene Kenney-Modelle, eigene Seeds 1507/1508. Animierbar (für bewegte Szenen):
     `windmuehlen/Muehle<n>/Fluegel` (Drehachse lokal z), `leuchtturm/Lampe` (Drehachse lokal y), `Details/Boote/*`.
+  - **Vegetation und Bodentexturen (#38, `src/island_vegetation.gd`, Knoten `World/Vegetation/<Station>`):** auf jeder
+    Station Grasbüschel (~210–450 je 100 m), Unterholz (~35–80) und Sträucher (~12–24) beidseits der Straße, am
+    Bankett am dichtesten; Low-Poly aus Grundformen (Halme als Prismen, Polster und Sträucher aus Ikosaedern), keine
+    Modelldateien, alle im Wind. Ausgespart: Fahrbahn und Mauer, Strand, Steilhänge, Kai, Häuser, Kirchplatz,
+    Fincas, Aussichtspunkt, Landmarken. Je Art und 50 m Strecke ein MultiMesh mit Sichtweite (Gras 150 m,
+    Unterholz 220 m, Sträucher 400 m), ohne Schatten. Gelände und Fahrbahn tragen eine dezente Detailtextur
+    (prozedural, weltfest projiziert): Boden mit Flecken aus Erde und Gras und Körnung, Straße mit Asphaltkorn und
+    ausgebesserten Stellen. **Browser:** halb so viel Gras und Unterholz, 70 % der Sichtweite. Alle Farben in
+    `IslandVegetation.PALETTE`; `IslandVegetation.set_palette()` färbt Vegetation und Bodentextur zentral um
+    (Einhängepunkt für die Jahreszeiten, #39). Eigene Seeds 1511–1516. Dazu die Arten der Jahreszeiten (#39, siehe
+    „Jahreszeiten“): Mohn am Wegrand, Mandelbäume im Hain und an der Abfahrt, Getreidefelder an der Abfahrt.
+    Kosten: fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070): Mittel 60,0 fps, 1-%-Tief 53,1 fps,
+    24 von 39 724 Frames < 50 fps – vorher auf derselben Fahrt 60,0 / 53,2 / 18; im Compatibility-Renderer 59,9 /
+    59,3 / 66.
+  - **Weide- und Dorftiere (#40, `src/island_fauna.gd`, Knoten `World/Fauna`):** reine Deko (ADR-0010), Low-Poly
+    aus Grundkörpern. Die Schaf- und Ziegenherden grasen (Kopf gesenkt und kauend, ein paar Schritte, Umschauen;
+    MultiMesh `Details/Schafe|Ziegen` mit Köpfen `…/Koepfe`), die Schafe tragen Glocken. Ziegengruppen queren an drei
+    Stellen die Straße (1,24 km Küste, 2,86 und 3,62 km Serpentinen) und springen über die Mauer: abhängig vom
+    Abstand des Fahrers in Fahrtrichtung, ab 100 m voraus, ab 35 m ist die Fahrbahn frei – in beiden Richtungen.
+    An jeder Finca der Abfahrt steht ein Esel am Pfosten mit Heu, im Bergdorf sitzen und streifen acht Katzen auf
+    dem Gehweg und am Kirchplatz. Nicht auf der Fahrbahn, in Häusern oder auf Feldern. Bewegt werden nur Tiere bis
+    250 m um die Kamera. Glocken-Einhängepunkt für den Ton (#44): `Fauna/Glocken/Herde<n>` (Meta `count`).
+    Sichtprüfung: `view_probe --fauna`. Kosten: fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080,
+    13:00, Frühling, VSync an (RTX 4070): Mittel 60,0 fps, 1-%-Tief 58,2 fps, 8 von 39 712 Frames < 50 fps –
+    vorher auf derselben Fahrt 60,0 / 58,2 / 4.
+  - **Tiere an Meer, Himmel und Wegrand (#41, `src/island_fauna.gd`, Gruppen `World/Fauna/<Art>`):** reine Deko,
+    Low-Poly aus Grundkörpern. Delfinschulen kreisen in der Hafenbucht und vor der Westküste und springen
+    nacheinander, Fische springen mit Spritzern nah am Kai und unter der Küstenstraße, vier Mönchsgeier kreisen in
+    der Thermik über den Serpentinen (der einzelne Greifvogel aus WorldMotion bleibt als Milan), Schmetterlinge
+    flattern paarweise über Gras am Wegrand, Eidechsen sonnen sich auf der Mauer an Küstenstraße und Serpentinen und
+    huschen ein Stück. Wann sie sich zeigen, regelt `IslandFauna.SHOWN_WHEN` (der SkyController stellt es über
+    `set_conditions`): Schmetterlinge nur tagsüber ohne Regen und nicht im Winter, Eidechsen nur bei Sonne, Geier
+    tagsüber ohne Regen, Fische nicht im Regen, Delfine bei jedem Wetter – nachts keine. Im Browser halb so viele
+    Fische, Schmetterlinge und Eidechsen. Sichtprüfung: `view_probe --fauna` (Delfine und Fische im Sprung).
+    Kosten: fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, 13:00, Frühling, VSync an (RTX 4070): Mittel 60,0 fps,
+    1-%-Tief 58,1 fps, 7 von 39 718 Frames < 50 fps – vorher (nach #40) 60,0 / 58,2 / 8.
   - Modelle: Kenney Watercraft Kit, City Kit (Suburban), Nature Kit, Fantasy Town Kit (CC0) unter `assets/kenney/`,
     nur die benutzten `.glb` (~1,4 MB) – Nachweis in `ASSETS.md`. Wiederholte Modelle (Bäume, Büsche, Felsen,
     Mauern, Hausmodule) als `MultiMeshInstance3D`. Sichtprüfung/fps: `tools/view_probe.gd` (Screenshots an Streckenpositionen, fps-Fahrt).
-- Kamera (`scenes/main.gd`): sitzt 5,5 m hinter dem Fahrer **auf der Strecke** (schwenkt in Kehren nicht seitlich
-  aus), 2,4 m hoch, blickt 10 m voraus, beides exponentiell geglättet (0,45 s), mindestens 1,5 m über dem Gelände.
-  Abstand, Höhe und Vorausblick in `config.cfg` (`[camera]`, siehe Konfiguration); vor G5 9 m / 3,5 m / 14 m.
+- Kamera (`scenes/main.gd`): sitzt hinter dem Fahrer **auf der Strecke** (schwenkt in Kehren nicht seitlich
+  aus), blickt 10 m voraus, beides exponentiell geglättet (0,45 s), mindestens 1,5 m über dem Gelände; vor G5
+  9 m / 3,5 m / 14 m. **Drei Perspektiven** (#59, `src/camera_views.gd`): *Nah* 3,5 m hinter / 1,8 m hoch (Fahrer groß
+  im Bild), *Verfolger* 4,5 m / 2,1 m (Standard) und *Weit* 5,5 m / 2,4 m (für die Landschaft). Taste `C` blättert
+  während der Fahrt der Reihe nach durch (Name kurz im HUD), dasselbe im Grafikmenü (*Kamera*). Die Wahl steht im
+  Spielstand (`camera`: `{"view": "nah"|…}`, Format weiter Version 1) und gilt in Rundfahrt und Training, in
+  beiden Richtungen; Intro und Panorama laufen in sie zurück, der Sichtfeld-Kick wirkt in allen drei. Nur
+  Darstellung (ADR-0010). `config.cfg [camera]`: `behind_m` und `height_m` sind die Perspektive *Weit* (eine
+  bestehende Konfiguration wirkt dort weiter), `look_ahead_m` und `look_height_m` gelten für alle drei.
+  Sichtprüfung: `view_probe.gd -- --view=nah|verfolger|weit` (mit `--hud` samt Namenseinblendung).
+  Beim Fahrtstart ein **Kamera-Intro** (#42, siehe „Farbstimmung, Höhennebel und Tempo“), an Sehenswürdigkeiten
+  **Panorama-Momente** (#43, ebenda).
 - HUD zeigt zusätzlich den aktuellen Abschnitt, Höhenprofil und Minikarte der Insel (siehe HUD).
 
-Weltaufbau beim Start ca. 0,6 s, beim allerersten Start (oder nach Änderung an Gelände/Rundkurs) ca. 1,8 s
+Weltaufbau beim Start ca. 0,6 s (mit der Vegetation aus #38 ca. 1,1 s), beim allerersten Start (oder nach Änderung
+an Gelände/Rundkurs) ca. 1,8 s
 (headless gemessen, #19). Das Gelände (Höhen, Straßenabstand) liegt als Cache in `user://terrain_cache.bin`
 (~1 MB; unter Windows `%APPDATA%\Godot\app_userdata\Inselfahrt\`); Schlüssel ist ein SHA-256 über den Quelltext von
 `src/island_terrain.gd` und `src/island_course.gd` und die Engine-Version – jede Änderung daran erzeugt neu. Datei
@@ -187,7 +242,7 @@ einfarbige Flächen) ×0,78, Sonne/Mond ×0,8, Belichtung ×0,92, Umgebungslicht
 `MODE_FIXED`, `MODE_TIMELAPSE` (Stunde = Ortszeit 0–24) und `sky.set_weather_mode(mode, state = "")` mit
 `Weather.MODE_CHANGING`/`MODE_FIXED` und `Weather.CLEAR`, `LIGHT_CLOUDS`, `OVERCAST`, `RAIN`. Lesen: `sky.clock`
 (`local_hour()`, `timelapse_day_min`), `sky.weather.state`, `sky.sun_angles`. `set_compatibility(bool)` schaltet das
-Lichtprofil (Tests, Vergleich). Im Grafikmenü (`Esc`/`F2`, G8) lassen sich Tageszeit und Wetter umstellen; die Auswahl
+Lichtprofil (Tests, Vergleich). Im Grafikmenü (`Esc`/`F2`, G8) lassen sich Tageszeit, Wetter und Jahreszeit umstellen; die Auswahl
 liegt in `user://settings.cfg [sky]` über `config.cfg [sky]` (siehe „Grafik und Fenster“).
 
 **Sichtprüfung:** `view_probe.gd -- --time=21:30 --date=2026-06-21 --weather=rain` (feste Ortszeit/Datum/Wetter
@@ -196,6 +251,68 @@ Compatibility-Renderer: `godot --rendering-method gl_compatibility …`).
 **Kosten:** fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070), Datum 21.06.: Tag (13:30, klar) Mittel
 59,9 / min 7,2 / 1-%-Tief 53,2 / 61 Frames < 50 fps; Nacht (23:30) 60,0 / 36,4 / 52,2 / 342; Regen (14:00) 60,0 /
 8,8 / 52,6 / 30 – jeweils ~39 700 Frames (Einzelhänger wie vor G6, siehe oben).
+
+### Jahreszeiten (#39)
+
+Die **Jahreszeit** folgt wie die Tageszeit dem echten Datum auf Mallorca (dieselbe Uhr, `sky.clock`; Ortsdatum) –
+oder steht fest (Grafikmenü, Feld *Jahreszeit*: *Nach Datum (Mallorca)* oder eine Phase; gespeichert in
+`settings.cfg [sky]` als `season_mode`/`season`). Fünf Phasen (`src/season.gd`, `Season`, reine Logik):
+
+| Phase | Datum | Insel |
+|---|---|---|
+| Mandelblüte (`almond`) | 25.01.–09.03. | Mandelbäume weiß-rosa, Wiesen und junges Getreide grün |
+| Frühling (`spring`) | 10.03.–31.05. | saftig grün, roter Mohn am Wegrand |
+| Sommer (`summer`) | 01.06.–15.09. | Gras, Unterholz und Felder goldgelb und trocken, Boden heller, Licht warm |
+| Herbst (`autumn`) | 16.09.–30.11. | ockerfarbenes Gras, Stoppelfelder, Licht warm und milder |
+| Winter (`winter`) | 01.12.–24.01. | grün (Regenzeit), Mandelbäume kahl, Licht kühler und blasser |
+
+Ein Wechsel färbt die Welt um, ohne sie neu zu bauen (`IslandWorld.set_season`): Vegetation und Boden über
+`IslandVegetation.set_palette()`, die Kenney-Vegetation über `IslandWorld.tint_nature()` (Faktor je Materialname
+`grass`/`leafsGreen` auf die Farben vom Laden), der Mohn blendet ein/aus. Die Farben je Phase stehen in
+`Season.LOOKS`, die dezente Farbstimmung des Lichts (Sonne, Umgebungslicht, Sättigung) in
+`SkyController.SEASON_MOOD`. Für die Erfolge zählt die Mandelblüte als Frühling (Erfolg *Mandelblüte*).
+Schnittstelle: `sky.set_season_mode(Season.MODE_REAL | MODE_FIXED, phase)`, `sky.season()`.
+**Sichtprüfung:** `view_probe.gd -- --season=summer` (ohne Angabe nach `--date` bzw. heute).
+**Kosten:** fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070), Frühling (Mohn sichtbar): Mittel
+60,0 fps, 1-%-Tief 53,0 fps, 2 von 39 723 Frames < 50 fps (vorher 60,0 / 53,2 / 2).
+
+### Farbstimmung, Höhennebel und Tempo (#42)
+
+**Farbstimmung** je Tageszeit und Wetter an derselben Stelle wie das Licht (`SkyController.look`, Konstanten
+`MOOD_MORNING`, `MOOD_EVENING`, `MOOD_GREY`), vor der Jahreszeit-Tönung (`SEASON_MOOD`, dazu `SEASON_FOG` für die
+Nebelfarbe – ein Faktor obendrauf): tiefe Sonne **morgens** (Sonne im Osten) kühl-pfirsich mit Dunst, **abends**
+golden und satter, **Wolken und Regen** kühl und flauer. Am klaren Mittag und nachts bleibt das Licht wie bisher. Alle
+Gewichte laufen stetig mit Sonnenhöhe, Azimut und Wetter – keine Sprünge. **Höhennebel** (`fog_height`,
+`fog_height_density` des Environments): Morgendunst und Regen liegen über Meer und Hafen (bis 2,5 m bzw. 5 m über dem
+Meer), bei Bewölkung schwächer, am klaren Tag aus. Er wirkt in beiden Renderern; volumetrischen Nebel gibt es nicht.
+
+**Tempo-Effekte** (`src/speed_effects.gd`, Shader `src/shaders/speed_lines.gdshader`): ab 35 km/h ziehen feine
+**Geschwindigkeitslinien** vom Bildrand nach außen und das Sichtfeld weitet sich leicht (bis +5° bei 60 km/h) –
+stetig mit dem Tempo und geglättet, in Pausen weich aus. Abschaltbar im Grafikmenü (*Tempo-Effekte*). Nur Darstellung:
+Fahrmodell, Zeiten und Wertung sehen davon nichts (ADR-0010).
+
+**Kamera-Intro:** Nach „Losfahren“ (Rundfahrt in beiden Richtungen und Training) schwenkt die Kamera in 3 s von
+schräg vor dem Fahrer über seine rechte Seite hinter ihn. Die Fahrt und die Zeitmessung laufen dabei normal. Die
+Kamera hat dafür einen Modus (`camera_mode`: `CAMERA_FOLLOW`, `CAMERA_INTRO`, `CAMERA_PANORAMA`) an einer Stelle
+(`_update_camera`).
+
+**Panorama-Momente (#43):** An den acht vorhandenen Sehenswürdigkeiten (Aussichtspunkt, Leuchtturm, Cala, Talaia,
+Ermita, Burgruine, Aquädukt, Windmühlen; `IslandWorld.panorama_spots`) schwenkt die Kamera beim Vorbeifahren 4 s lang
+weich auf die abgewandte Seite des Fahrers, etwas erhöht, und blickt über ihn zur Sehenswürdigkeit; oben im HUD steht
+dezent ihr Name. Danach gleitet sie ohne Sprung zurück hinter den Fahrer. Auslösepunkt ist die Fahrtposition der
+Sehenswürdigkeit, also in beiden Richtungen (gegen den Uhrzeigersinn liegt der Aussichtspunkt am Ende der
+Serpentinen-Abfahrt; der Blick aufs Meer funktioniert auch dort). Je Sehenswürdigkeit höchstens einmal je Runde. Kein
+Panorama mit Ghost, im Training, während des Intros oder eines anderen Panoramas. Abschaltbar im Grafikmenü
+(*Panorama-Momente*). Das Stationsschild am Aussichtspunkt blendet im Schwenk aus. Auch das ist nur Kamera: Fahrmodell
+und Zeiten laufen unverändert (ADR-0010).
+
+**Sichtprüfung:** `view_probe.gd -- --shots=3000 --time=08:45` (bzw. 13:00, 18:30, `--weather=rain`),
+`--effects-kmh=55` (Tempo-Effekte in `--shots` wie bei 55 km/h), `--intro [--ccw]` (`intro_0.png`, `intro_1.png`,
+`intro_2.png`), `--hud --panorama[=aussichtspunkt,burg]` (`panorama_<id>.png` mitten im Schwenk, ohne Liste alle,
+mit `--ccw` in Gegenrichtung). Die fps-Fahrt zeigt die Tempo-Effekte bei ihrem Tempo; Panoramen löst sie nicht aus.
+**Kosten:** fps-Fahrt 0–9210 m, 50 km/h, 1920 × 1080, VSync an (RTX 4070), Tempo-Effekte an (Stärke 0,65), Frühling:
+13:00 klar Mittel 60,0 fps, 1-%-Tief 58,4 fps, 31 von 39 714 Frames < 50 fps (vorher nach #41: 60,0 / 58,1 / 7);
+7:30 Regen mit Höhennebel 60,0 / 53,1 / 21 von 39 718.
 
 ## Fahrer und Rad
 
@@ -223,12 +340,72 @@ Kurbel mit Kettenblatt, Kette und Pedalen, Trinkflasche; Fahrer mit Helm und Bri
 Reihenfolge egal: Startet das Spiel zuerst, zeigt es „Bridge nicht erreichbar … Bridge starten:
 `vspin-bridge --source sim`“ und versucht alle `reconnect_s` Sekunden zu verbinden.
 
+   **Unter Windows geht es auch ohne Schritt 1 (#25, `src/bridge_launcher.gd`):** Ist beim Start keine Bridge auf
+   `127.0.0.1:8765` erreichbar, startet das Spiel sie als unsichtbaren Kindprozess (`pythonw` aus `bridge/.venv`, kein
+   Konsolenfenster) mit Quelle und Ablage aus `config.cfg [bridge]` (`autostart`, `program`, `source` = `sim`/`ble`,
+   `sessions_dir`, beim Simulator die Start-Kadenz `sim_cadence`, Standard 80 rpm – unter `pythonw` gibt es keine
+   Pfeiltasten; relative Pfade ab dem Spielordner). Beim Schließen (Fenster, „Beenden“) beendet es nur diese eigene
+   Bridge, sauber über die Stoppdatei (`--stop-file`, Session vollständig); erst wenn sie nach 5 s noch läuft, hart.
+   Endet das Spiel ohne Stoppdatei (Absturz, „Stop“ im Editor), beendet sich die Bridge selbst (`--parent-pid`).
+   Eine schon laufende Bridge wird nur mitbenutzt und nie beendet. Radstatus dabei: „Bridge nicht erreichbar – Bridge
+   wird gestartet (Quelle sim) …“, „… – Bridge-Programm fehlt (config.cfg [bridge] program)“ oder „… – Bridge-Start
+   gescheitert“. Im Web-Export und in Tests/Prüfhilfen (Bus nicht auf 8765 bzw. `autostart` aus) startet nichts.
+3. Im Startmenü **Fahren → Rundfahrt** wählen, Rundenzahl und Tageszeit einstellen, **Losfahren** – oder
+   **Fahren → Training**, Einheit wählen, **Losfahren**.
+
+### Startmenü und Spielstand (#30)
+
+Nach dem Start erscheint das **Titelbild**: die Kamera fliegt langsam hoch über dem Rundkurs (38 m über der Straße,
+9 m/s, mindestens 22 m über dem Gelände) über die lebende Insel – Tageszeit, Wetter, Bewegung wie in der Fahrt; HUD
+und Fahrer sind ausgeblendet. Darüber das Menü (`scenes/start_menu.gd`, per Maus oder Tastatur: Pfeiltasten/Tab,
+Enter/Leertaste):
+
+| Punkt | Wirkung |
+|---|---|
+| **Fahren** | Modus-Auswahl: **Rundfahrt**, **Training**, *Arcade – bald* ausgegraut, „Zurück“ |
+| **Fahren → Rundfahrt** | **Runden** 1–20 oder *Endlos* (Standard 1), **Richtung** (*Im Uhrzeigersinn*, *Gegen den Uhrzeigersinn*, #34), **Tageszeit** (dieselbe Auswahl wie im Einstellungsmenü, Standard *Echtzeit*; wirkt und bleibt wie dort gewählt), **Ghost** (*Aus*, *Bestzeit*, *Letzte Fahrt*; ohne Aufzeichnung ausgegraut, Standard *Bestzeit*, sobald es sie gibt, #32), die **Bestzeit** der Strecke in der gewählten Richtung; **Losfahren** startet die Fahrt (#31) |
+| **Fahren → Training** | **Einheit** (*Intervalle kurz*, *Pyramide*, *Tempo-Blöcke*) mit Beschreibung und Dauer; **Losfahren** startet das Training (#37, siehe unten) |
+| **Fahrtenbuch** | Statistik, Bestzeiten, Segmentzeiten, Medaillen, Erfolge und die letzten Fahrten (#35, siehe unten) |
+| **Garderobe** | Trikot, Radfarbe und Helm mit Vorschau, freigeschaltet über das Fahrerlevel (#36, siehe unten) |
+| **Einstellungen** | öffnet das Menü „Grafik und Fenster“ (wie `Esc`/`F2`) |
+| **Beenden** | beendet das Spiel (im Browser ausgeblendet) |
+
+Unten steht dauerhaft der **Radstatus**: „Rad verbunden“ (Quelle `ble`), „Simulator läuft“ (`sim`), „Bridge nicht
+erreichbar – Bridge starten: …“ oder „Bridge läuft – Rad nicht verbunden (stale)“. Im Menü läuft keine Fahrt und es geht
+kein `set_grade` an die Bridge. **Zurück ins Menü**, ohne das Spiel zu schließen: im Ziel mit `Enter`, jederzeit über
+„Fahrt beenden“ in den Einstellungen (`Esc`/`F2`). Eine neue Fahrt beginnt wieder am Start.
+
+**Spielstand** (`src/save_game.gd`, ADR-0008 Nachtrag): `user://savegame.json` – unter Windows
+`%APPDATA%\Godot\app_userdata\Inselfahrt\savegame.json`, im Browser im lokalen Speicher des Browsers. JSON mit
+`version` (Formatversion, derzeit 1) und `active_profile` (Profilschlüssel, 16 Hex-Zeichen, ab dem ersten Speichern);
+darunter je Fahrerprofil die Fahrten. Jede beendete Fahrt wird als Zusammenfassung angehängt – im Ziel sofort, bei
+Abbruch („Fahrt beenden“, Beenden, Fenster schließen), sofern gefahren wurde: Datum (UTC), Modus, Strecke,
+`finished`, Runden (volle), Dauer, Strecke in km, Ø Kadenz, Ø Tempo, Rundenzeiten (`lap_times_s`), Richtung
+(`direction`) und je Segment die beste Zeit dieser Fahrt (`segment_times_s`, Nacharbeit #26). Keine Rohtelemetrie
+(die steht in der Session-CSV der Bridge). Bestzeiten stehen je Profil unter `best_times` (Strecke → Richtung →
+Sekunden, z. B. `{"island": {"cw": 873.4}}`), Segment-Bestzeiten unter `segment_best_times` und die beste Medaille je Runde
+(`lap`) und Segment unter `medals` (Strecke → Richtung → Segment-ID, #33), die Ghosts unter `ghosts` (Strecke → Richtung →
+`best`/`last`, je nur `lap_length_m`, `sample_s`, `time_s` und `distance_m`, #32), die freigeschalteten Erfolge unter
+`achievements` (Erfolg-ID → Datum, #35). Spätere Bereiche kommen additiv dazu; ältere
+Stände werden beim Laden hochgestuft, ein Stand einer neueren Version bleibt unverändert erhalten, eine unlesbare
+Datei wird als `savegame.json.defekt` beiseitegelegt statt überschrieben.
+
+Sichtprüfung: `view_probe.gd -- --title [--window=left|right|fullscreen]` speichert `title.png`, `title_modes.png`
+und `title_b.png` (3 s später); mit `--laps=3` zusätzlich `title_round_trip.png`. `--hud --laps=3 --shots=1500`
+zeigt das HUD in Runde 2 und speichert danach `result.png` (Ergebnis mit allen Rundenzeiten, Medaillen und Segmenten).
+`--hud --segments` speichert je Segment `segment_<id>.png` (Live-Zeit) und `segment_<id>_result.png` (Ergebnis beim
+Verlassen); die Torbögen zeigt `--shots=466,2326,5686`. `--ghost=1.4` lässt einen Beispiel-Ghost mitfahren, gegen den
+der Fahrer 1,4 s zurückliegt (mit `--hud` Abstand im HUD, mit `--title --laps=1` in der Ghost-Auswahl). `--ccw` fährt
+gegen den Uhrzeigersinn (#34; `--shots` dann in Metern dieser Richtung, Torbögen z. B. `--shots=300,3150,6930`).
+
 ### Tasten
 
 | Taste | Wirkung |
 |---|---|
 | `P` oder Leertaste | Pause an/aus (jederzeit) |
-| `Esc` oder `F2` | Menü „Grafik und Fenster“ auf/zu (jederzeit, auch aus der Pause); **Beenden** über den Knopf „Beenden“ im Menü (nicht im Browser) |
+| `C` | Kameraperspektive wechseln: Nah → Verfolger → Weit (in der Fahrt, nicht bei offenem Menü; #59) |
+| `Esc` oder `F2` | Menü „Grafik und Fenster“ auf/zu (jederzeit, auch aus der Pause); **Beenden** über den Knopf „Beenden“ im Menü (nicht im Browser), in der Fahrt „Fahrt beenden“ zurück ins Startmenü |
+| `Enter` | im Ziel: zurück ins Startmenü |
 | `F3` | Debug-Anzeige an/aus |
 | `F11` | Vollbild an/aus (nicht im Browser) |
 
@@ -241,7 +418,8 @@ Physische Tastenposition (gleich auf QWERTZ/QWERTY); definiert in `scenes/main.g
 | `riding` – fahren | Bus verbunden, Quelle `connected` und seit dem letzten Abbruch Telemetrie empfangen | – |
 | `paused_manual` – pausiert (manuell) | `P`/Leertaste | „Pause“ |
 | `paused_connection` – pausiert (Verbindung) | Bridge nicht erreichbar, Quelle `stale`/`disconnected`, noch keine Daten oder Bridge schweigt bei offenem Bus | „Bridge nicht erreichbar … Bridge starten“ bzw. „Verbindung verloren (Rad: stale)“ / „(Bridge sendet seit 4 s nichts)“ |
-| `finished` – Ziel erreicht | Ziellinie überfahren (Endzustand, Pause-Taste wirkungslos) | „Ziel erreicht!“ mit Zeit, Ø Kadenz, Ø Tempo |
+| `finished` – Ziel erreicht | Ziellinie nach der letzten Runde überfahren oder „Fahrt beenden“ nach mindestens einer vollen Runde (Endzustand der Fahrt, Pause-Taste wirkungslos) | „Ziel erreicht!“ bzw. „Fahrt beendet“ mit Zeit, allen Rundenzeiten, Bestzeit, Ø Kadenz, Ø Tempo; `Enter` zurück ins Menü |
+| `menu` – Startmenü | nach dem Start und nach jeder Fahrt | Titelbild mit Menü und Radstatus (HUD aus) |
 
 In jeder Pause steht das Fahrmodell still: Position und Geschwindigkeit bleiben, wie sie waren. Ein
 Verbindungsabbruch ist **keine Kadenz 0** (ADR-0004) – der Fahrer rollt nicht aus. Sobald der Bus wieder
@@ -268,11 +446,17 @@ Schlicht, halbtransparente Panels, Standardschrift der Engine:
   Start/Ziel, Landmarken als gelbe Rauten, Fahrer als Pfeil in Fahrtrichtung.
 - **Unten – Runde und Höhenprofil** (`src/hud_profile.gd`): Fortschrittsbalken mit Prozent und Restdistanz, darunter
   das Höhenprofil des Rundkurses mit Abschnittsgrenzen und -namen (Name nur, wenn er in den Abschnitt passt),
-  höchstem Punkt und Marker an der Fahrerposition; der gefahrene Teil ist hinterlegt.
-- Über dem unteren Panel dezent der `set_grade`-Hinweis, in der Mitte groß Pause-/Verbindungs-/Ziel-Meldungen.
+  höchstem Punkt und Marker an der Fahrerposition; der gefahrene Teil ist hinterlegt. Mit Ghost rechts neben der
+  Restdistanz der **Abstand** zu ihm („Ghost +1.4 s“, siehe Ghost). Im Training darüber die **Trainingszeile**:
+  Phase, Zielkadenz, Restzeit der Phase und die nächste Phase, darunter der **Zonenbalken** (#58); die **Ansage** zum
+  Widerstandsknopf steht groß über dem unteren Panel (siehe Training).
+- Über dem unteren Panel dezent der `set_grade`-Hinweis, mittig zwischen oben und unten Pause-/Verbindungs-/Ziel-Meldungen.
 
 Layout nur über Anker und Container: passt im schmalen Halbbild-Fenster (960 × 1040) wie in 1920 × 1080 und
-1600 × 900, mit und ohne `display/window/stretch/mode="canvas_items"` (geprüft in `tests/test_hud.gd`). Profil und
+1600 × 900, mit und ohne `display/window/stretch/mode="canvas_items"` (geprüft in `tests/test_hud.gd`). In niedrigen
+Fenstern skalieren Ansage und Meldung mit der Fensterhöhe (Höhe/1080, mindestens 60 %), ein langes Ergebnis wird so
+weit verkleinert, dass es zwischen die Panels passt; unter 760 px Höhe (z. B. 1280 × 720, 1152 × 648) werden die Panels
+zu Leisten – oben die Werte in einer Zeile ohne Minikarte, unten ohne Höhenprofil. Nichts überdeckt dann ein Panel. Profil und
 Karte werden nur beim Start und bei Größenänderung gezeichnet (Inselbild einmal berechnet); pro Frame bewegen sich
 nur die Marker. `RideHud.readout()` liefert die sichtbaren Werte als Textzeilen („Kadenz: 90 rpm“, …) für Tests.
 Sichtprüfung mit HUD: `view_probe.gd -- --hud` (Beispielwerte: Kadenz 85, Tempo/Steigung/Abschnitt der Strecke,
@@ -291,8 +475,9 @@ Bridge ändern und schauen, wann „Kadenz roh“ und `t_ms` nachziehen.
 
 Das Menü wirkt sofort und speichert jede Änderung in `user://settings.cfg` – unter Windows
 `%APPDATA%\Godot\app_userdata\Inselfahrt\settings.cfg` (getrennt von `config.cfg`; Datei löschen = Standardwerte).
-Das Spiel läuft weiter, solange das Menü offen ist. Unten „Schließen“ und „Beenden“ (beendet das Spiel; im Browser
-ausgeblendet) – `Esc` beendet nicht mehr direkt (#19).
+Das Spiel läuft weiter, solange das Menü offen ist. Zwei Spalten (#42): links Grafik, rechts Tageszeit, Wetter,
+Jahreszeit, Ton und Fenster – so passt das Menü in 1280 × 720 und ins Halbbild. Unten „Schließen“, in der Fahrt „Fahrt beenden“ (zurück ins
+Startmenü) und „Beenden“ (beendet das Spiel; im Browser ausgeblendet) – `Esc` beendet nicht mehr direkt (#19).
 
 | Option | Auswahl | Standard |
 |---|---|---|
@@ -302,8 +487,14 @@ ausgeblendet) – `Esc` beendet nicht mehr direkt (#19).
 | VSync | An, Aus | An |
 | fps-Limit | Ohne, 30, 60, 120, 144 | Ohne |
 | Schatten | Niedrig/Mittel/Hoch (Schattenatlas 2048/4096/8192, Weichzeichnung) | Mittel (wie bisher) |
+| Tempo-Effekte | An, Aus – Geschwindigkeitslinien und Sichtfeld-Kick ab 35 km/h (#42) | An |
+| Panorama-Momente | An, Aus – Kameraschwenk mit Namen an Sehenswürdigkeiten (#43) | An |
+| Kamera | Nah, Verfolger, Weit – wie Taste `C`; steht im Spielstand, nicht in `settings.cfg` (#59) | Verfolger |
 | Tageszeit | Echtzeit (Mallorca), feste Uhrzeit 6:00/9:00/12:00/15:00/18:00/20:30/22:00/0:00, Zeitraffer 12/24/48 min je Tag (startet bei der aktuellen Uhrzeit des Spiels) | wie `config.cfg [sky]` (Echtzeit) |
 | Wetter | Wechselnd (meist sonnig), Klar, Leicht bewölkt, Bewölkt, Regen (fest) – sofort, ohne Überblendung | wie `config.cfg [sky]` (Wechselnd) |
+| Jahreszeit | Nach Datum (Mallorca), Mandelblüte, Frühling, Sommer, Herbst, Winter (fest) – sofort (#39) | Nach Datum |
+| Ton | An, Aus – alle Klänge des Spiels (#44) | An |
+| Lautstärke | 10, 20, 30, 50, 70, 100 % – eigener Audio-Bus „Spiel“, Musik nebenher bleibt hörbar | 30 % (leise) |
 | Fenstermodus | Fenster (mit Rahmen, frei skalierbar), Randloses Fenster, Vollbild | Fenster 1600 × 900, mittig |
 | Fenstergröße | 960 × 1040, 1280 × 720, 1600 × 900, 1920 × 1080, 2560 × 1440 (im Vollbild: Bildschirmauflösung) | 1600 × 900 |
 
@@ -318,20 +509,196 @@ geht es dabei zurück ins Fenster. Alternativ wie gewohnt Win+←/→. HUD, Meld
 schmalen Hochformat lesbar (die Mittelmeldung bricht um), die 3D-Sicht wird nicht verzerrt (vertikaler Blickwinkel
 fest, seitlich sieht man entsprechend weniger). Ohne Fokus läuft das Spiel mit voller Bildrate weiter.
 
-Tageszeit und Wetter landen erst nach einer Auswahl im Menü als Abschnitt `[sky]` in `settings.cfg`; beim Start
+Tageszeit, Wetter und Jahreszeit landen erst nach einer Auswahl im Menü als Abschnitt `[sky]` in `settings.cfg`; beim Start
 gilt zuerst `config.cfg [sky]`, ein gespeicherter `[sky]`-Abschnitt liegt darüber. Eine Uhrzeit aus `config.cfg`, die
 nicht in der Liste steht (z. B. 13:00), zeigt das Menü als zusätzlichen Eintrag.
 
 Im Browser (Web-Export) gibt es keine Fensteroptionen und kein VSync (steuert der Browser); der Compatibility-
 Renderer kann nur MSAA und bilineare Skalierung, das Menü bietet dort nur diese an.
 
-### Runde und Ziel
+### Runden, Ziel und Bestzeit (#31)
 
 Eine Runde startet an der Startposition (Standard: Start/Ziel-Linie) und endet beim nächsten Überfahren der
-Start/Ziel-Linie (bei Start mitten auf der Strecke, z. B. in Tests, also früher). Im Ziel steht der Fahrer,
-das Spiel zeigt „Ziel erreicht!“ mit Rundenzeit, Ø Kadenz (zeitgewichtet) und Ø Tempo (Strecke/Fahrzeit).
-Fahrzeit und Durchschnitte zählen nur Zeit im Zustand `riding` – Pausen nicht; der letzte Zeitschritt
-wird nur bis zur Ziellinie gezählt (`src/ride_stats.gd`).
+Start/Ziel-Linie (bei Start mitten auf der Strecke, z. B. in Tests, also früher). Die Fahrt hat die im Menü gewählte
+Rundenzahl; das Ziel liegt nach der letzten Runde, *Endlos* hat keins und endet nur über „Fahrt beenden“ oder Beenden.
+Das HUD zeigt unten die Runde („Runde 2 / 3“, endlos „Runde 2“, bei einer Runde nur „Runde“) und oben die
+**Rundenzeit** neben der Fahrzeit („Zeit“). Im Ziel steht der Fahrer, das Ergebnis zeigt Fahrzeit, alle Rundenzeiten,
+die Bestzeit, Ø Kadenz (zeitgewichtet) und Ø Tempo (Strecke/Fahrzeit). „Fahrt beenden“ nach mindestens einer vollen
+Runde zeigt erst dieses Ergebnis („Fahrt beendet“), `Enter` führt ins Menü.
+
+**Bestzeit:** schnellste volle Runde je Strecke und Richtung (`cw`/`ccw`); jede Runde zählt,
+eine angefangene nicht. Sie steht im Spielstand und im Menü „Rundfahrt“; eine neue Bestzeit blendet das HUD kurz ein
+(„Neue Bestzeit! 14:44.7“). Rundenzeiten und Bestzeit rechnet die Rundenwertung (`src/lap_timing.gd`) nur aus
+Streckenposition und Fahrzeit – also nur aus Kadenz und Steigung (ADR-0010).
+
+Fahrzeit, Rundenzeiten und Durchschnitte zählen nur Zeit im Zustand `riding` – Pausen nicht; ein Zeitschritt über die
+Start/Ziel-Linie wird anteilig aufgeteilt (`src/ride_stats.gd`, `src/lap_timing.gd`).
+
+### Segmente und Medaillen (#33)
+
+Drei **Segmente** je Richtung mit eigener Zeit, je mit blauem Torbogen am Start (Name auf dem Banner):
+
+| Segment | im Uhrzeigersinn (km) | gegen den Uhrzeigersinn (km) | in der Station |
+|---|---|---|---|
+| Küstenwelle | 0,48–2,24 | 6,97–8,73 | Küstenstraße (die drei Wellen) |
+| Bergwertung | 2,34–4,59 | 0,33–3,18 | cw: Serpentinen bis zur Kuppe am Aussichtspunkt; ccw: Osthang bis vor das Bergdorf |
+| Dorfsprint | 5,70–6,01 | 3,20–3,51 | Bergdorf |
+
+Segmente sind Daten (`IslandCourse.SEGMENTS`, Start- und Endmeter je Richtung in Fahrtrichtung). Namen und IDs sind
+in beiden Richtungen gleich, Bestzeiten und Medaillen stehen je Richtung im Spielstand. Im
+Segment steht über dem unteren Panel dessen Name mit Live-Zeit („Bergwertung 3:01.8“), beim Verlassen blendet das HUD das
+Ergebnis ein („Bergwertung 7:34.5 · Silber – neue Bestzeit!“). Gewertet wird nur ein ganz durchfahrenes Segment, jede
+Runde neu, Ein- und Ausfahrt anteilig wie bei den Runden (`src/segment_timing.gd`, von `LapTiming.advance` mitgeführt).
+
+**Medaillen** (Bronze/Silber/Gold) gibt es für jede Runde und jedes Segment. Die Schwellen sind nicht eingetragen,
+sondern aus dem Fahrmodell berechnet (`src/medals.gd`): die Zeit bei konstant **70 rpm** (Bronze), **85 rpm** (Silber)
+und **95 rpm** (Gold) – das echte Fahrmodell fährt dazu beim Start einmal eine Runde aus dem Stand über das
+Steigungsprofil (≈ 0,2 s, danach zwischengespeichert). Ändern sich Strecke, Segmente oder `[ride]`-Werte, ändern sich die
+Schwellen mit. Mit der Spiel-Konfiguration auf der Insel:
+
+| | Gold | Silber | Bronze |
+|---|---|---|---|
+| Runde | 20:20.2 | 22:43.6 | 27:35.5 |
+| Küstenwelle | 3:55.6 | 4:23.3 | 5:19.6 |
+| Bergwertung | 6:47.5 | 7:35.5 | 9:13.1 |
+| Dorfsprint | 0:37.2 | 0:41.5 | 0:50.4 |
+
+Eine verkürzte erste Runde (Start nicht an der Start/Ziel-Linie, nur in Tests) bekommt keine Medaille. Das Ergebnis zeigt
+die Medaille je Runde („Medaillen: Silber · Gold“, ab 6 Runden gezählt: „12× Gold · 8× Silber“) und je Segment die
+schnellste Zeit der Fahrt mit Medaille. Eine laufende Einblendung wird im Ziel ausgeblendet. Segment-
+Bestzeiten und beste Medaillen gehen wie die Bestzeit am Fahrtende in den Spielstand. Auch hier zählen nur Kadenz und
+Steigung (ADR-0010).
+
+### Ghost (#32)
+
+Auf der Seite „Rundfahrt“ lässt sich ein **Ghost** zuschalten: ein halbtransparenter, hellblau getönter Mitfahrer
+(Kopie des Fahrermodells, ohne Schatten), 1,3 m links neben der Fahrlinie, der eine frühere Runde nachfährt.
+
+- **Bestzeit** (Standard, sobald es sie gibt): die Runde der Bestzeit je Strecke und Richtung. Sie wird gespeichert,
+  wenn eine Fahrt die Bestzeit unterbietet; innerhalb einer Fahrt bleibt der gewählte Ghost derselbe.
+- **Letzte Fahrt:** die letzte volle Runde der zuletzt gespeicherten Fahrt, die mindestens eine volle Runde hatte
+  (eine abgebrochene Fahrt ohne volle Runde ändert ihn nicht).
+- Ohne Aufzeichnung ist der Eintrag ausgegraut und es bleibt bei „Aus“.
+
+Der Ghost fährt **jede Runde ab ihrem Start neu** mit, auch bei mehreren Runden und endlos; ist man langsamer als er,
+fährt er nach seinem Rundenende seine Runde von vorn weiter, bis man selbst die Linie überquert. In Pausen steht er.
+Er wirkt nicht auf die eigene Fahrt (ADR-0010).
+
+**Abstand im HUD:** in Sekunden mit einer Nachkommastelle, berechnet über die Zeit: an der eigenen Position die eigene
+Rundenzeit minus die Zeit, zu der der Ghost dieselbe Position erreichte. **Positiv = hinter dem Ghost** („+1.4 s“, rot),
+**negativ = vor ihm** („-0.8 s“, grün), gleichauf „0.0 s“. Im Ziel steht der Unterschied der Rundenzeiten.
+
+**Gespeichert** wird nur „Strecke über Zeit“ (ADR-0008 Nachtrag, keine Rohtelemetrie): die Position in der Runde
+jede Sekunde (`distance_m`, auf 1 cm), dazu Rundenlänge und Rundenzeit; abgespielt wird linear dazwischen. Eine Runde
+von ~15 min sind rund 900 Zahlen. Aufgezeichnet werden nur volle Runden (Beginn an der Start/Ziel-Linie); das macht
+die Rundenwertung (`LapTiming.best_ghost`/`last_ghost`), Logik in `src/ghost.gd`. Für spätere Pakete (Panorama-Momente
+nicht mit Ghost, #43) fragt man `ghost_active()` der Hauptszene ab.
+
+### Erfolge, Fahrerlevel und Fahrtenbuch (#35)
+
+**Erfolge** (`src/achievements.gd`): 27 einmalige Meilensteine in sechs Kategorien – Strecke (1/10/100/500/1000 km
+gesamt, 20/50 km in einer Fahrt), Rundenzahl (1/10/50 gesamt, 3/10 in einer Fahrt), Tageszeit (5–8, 12–15, 18–21,
+22–5 Uhr Ortszeit), Wetter (je Zustand), Jahreszeit und Training. Jeder Erfolg ist nur Daten (Name, Text, Ereignis,
+Bedingung); ausgewertet werden **Ereignisse der Fahrt**: je volle Runde `lap`, je voller Kilometer (gesamt) `distance`,
+`weather`, `time_of_day` und `season` (#39; die Mandelblüte zählt als Frühling); am Trainingsende
+`training_finished` (#37). Ein neuer Erfolg blendet im HUD ein („Erfolg: Regenfahrer – Im
+Regen gefahren“); mehrere Einblendungen (Bestzeit, Segment, Erfolg, Level) laufen nacheinander statt sich zu
+überschreiben. Am Fahrtende prüft das Spiel Strecke und Runden gesamt noch einmal – ein Spielstand von vor #35 holt so
+nach, was er schon erfüllt. Das Ergebnis nennt die neuen Erfolge und das neue Level in der Kopfzeile.
+
+**Fahrerlevel** (`src/driver_level.gd`): folgt allein aus den Kilometern aller Fahrten in jedem Modus (nicht
+gespeichert, aus den Fahrten abgeleitet). Level 2 ab 10 km, jeder weitere Schritt 5 km länger (3 ab 25 km, 5 ab 70 km,
+10 ab 270 km, 20 ab 1045 km), höchstens 50. Ein Aufstieg blendet ein („Fahrerlevel 3 erreicht!“). Es schaltet **nur
+Kosmetik** frei (`DriverLevel.unlock_level(teil)` für die Garderobe, #36) und wirkt nicht auf Fahrmodell, Rundenzeit,
+Bestzeit oder Medaille (ADR-0010).
+
+**Garderobe** (`scenes/wardrobe.gd`, Teile und Auswahl in `src/wardrobe.gd`, aus dem Startmenü): links eine Vorschau
+(der Fahrer dreht sich langsam auf dem Rad und tritt), rechts je **Trikot**, **Radfarbe** und **Helm** sechs Teile –
+Farbvarianten am vorhandenen Fahrermodell, keine neuen Dateien. Je Kategorie ist der bisherige Look ab Level 1 frei
+(Inselblau, Rennrot, weißer Helm), die übrigen kommen über die Levelkurve bis Level 20 dazu; gesperrte Teile sind
+ausgegraut und zeigen, ab welchem Level sie frei werden („Nachtschwarz · ab Level 15“). Ein Klick (oder Enter/Leertaste)
+wählt das Teil: der Fahrer trägt es sofort in der Vorschau und in der Fahrt, der Spielstand wird gleich gespeichert
+(`wardrobe`: Kategorie → Teil, Format weiter Version 1). Der Ghost-Mitfahrer bleibt im aufgehellten Standard-Look, damit
+er vom eigenen Fahrer unterscheidbar ist. Nur Kosmetik (ADR-0010, `tests/test_wardrobe.gd`). Bedienung: Pfeiltasten/Tab
+zwischen den Teilen, `Esc` oder „Zurück“ schließt; passt in 960 × 1040, 1920 × 1080 und 1152 × 648 (was nicht passt,
+scrollt). Sichtprüfung: `view_probe.gd -- --title --wardrobe=trikot_gelb,radfarbe_blau,helm_schwarz` speichert
+`wardrobe.png`; ohne `--title` trägt der Fahrer die Teile in `--shots`/`--close`.
+
+**Fahrtenbuch** (`scenes/logbook.gd`, aus dem Startmenü): drei Seiten – *Übersicht* (Strecke, Zeit, Fahrten, Runden,
+Fahrerlevel mit Rest bis zum nächsten; Bestzeiten je Strecke und Richtung; Segmentzeiten; beste Medaille je Runde und
+Segment), *Erfolge* (alle nach Kategorie, freigeschaltete mit Datum, gesperrte blass) und *Fahrten* (die letzten 20,
+neueste zuerst, darunter die Segmentzeiten je Fahrt). Bedienung: Seitenknöpfe mit Pfeil links/rechts oder Maus, Pfeil hoch/runter, Bild auf/ab, Pos1/Ende
+oder Mausrad scrollen, `Esc` oder „Zurück“ schließt. Passt in 960 × 1040, 1920 × 1080 und 1152 × 648
+(`tests/test_logbook.gd`).
+
+Sichtprüfung: `view_probe.gd -- --title --logbook` (Beispielstand nur im Speicher) speichert `logbook_overview.png`,
+`logbook_achievements.png` und `logbook_rides.png`; `--hud --rewards --shots=1200` die Einblendungen `achievement.png`
+und `level_up.png`.
+
+### Training (#37)
+
+**Fahren → Training** führt durch eine angeleitete **Einheit**. Die Einheiten sind Dateien in `trainings/` (JSON, je
+Datei eine; eigene Einheiten entstehen nur als Datei): Name, Beschreibung und Phasen mit Art (Aufwärmen, Hauptteil,
+Erholung, Ausrollen), Dauer, **Zielkadenz** (Bereich in rpm) und **Ansage** zum Widerstandsknopf; `repeat`
+wiederholt einen Block. Dabei sind:
+
+| Einheit | Aufbau | Dauer |
+|---|---|---|
+| **Intervalle kurz** | 8 min Aufwärmen, 10 × 30 s hart (95–105 rpm) / 30 s locker (80–90 rpm), 5 min Ausrollen | 23 min |
+| **Pyramide** | 8 min Aufwärmen, je 3 min bei 70 → 80 → 90 → 100 → 90 → 80 → 70 rpm (± 3), 5 min Ausrollen | 34 min |
+| **Tempo-Blöcke** | 6 min Aufwärmen, 3 × 8 min bei 85–90 rpm mit je 3 min Erholung, 4 min Ausrollen | 40 min |
+
+Die Insel läuft dabei **endlos**. Das HUD zeigt Phase, Zielkadenz, Restzeit und die nächste Phase. Der Widerstand ist
+manuell – das Spiel kennt die Knopfstellung nicht –, die Ansage ist eine Empfehlung: 10 s vor dem Wechsel als
+Vorankündigung („In 8 s: Widerstand 2 Stufen hoch, 100 rpm halten“), dann noch 5 s nach dem Wechsel. Bewertet wird
+allein, **wie lange die Kadenz im Zielbereich lag** (ADR-0010) – je Phase und gesamt (nach Zeit gewichtet). Nach dem
+Ausrollen endet die Fahrt mit dem Ergebnis („Zielkadenz getroffen: 87 %“ und je Phase, Wiederholungen
+zusammengefasst); „Fahrt beenden“ vorher zeigt die Teilbewertung der gefahrenen Phasen.
+
+Runden im Training zählen **nicht** für Bestzeit, Medaillen, Segmentzeiten und Ghost (die Vorgabe wechselt, die
+Runden wären nicht vergleichbar); die Kilometer zählen fürs Fahrerlevel. Ein zu Ende gefahrenes Training meldet
+`training_finished` an die Erfolge (*Erste Einheit*, *Trainingsfleiß*, *Punktlandung* ab 90 %). Im Spielstand steht
+die Fahrt im Modus `training` mit Name und Gesamtbewertung der Einheit (`training`, `training_score`); das
+Fahrtenbuch zeigt sie als „Training“. Logik in `src/training.gd` (Training, ohne Szene und Bus); spätere Pakete
+(keine Panorama-Momente im Training, #43) fragen `training_active()` der Hauptszene ab.
+
+**Zielkadenzbereich und Intervall-Tore (#58):** Unter der Trainingszeile zeigt der **Zonenbalken** den Zielbereich der
+Phase mit der Kadenz als Marke – in Farbe *und* Form: darunter blau mit Pfeil hoch, im Bereich grün mit Haken, darüber
+orange mit Pfeil runter, daneben in Worten („zu niedrig“, „im Bereich“, „zu hoch“) und der **Treffer** der laufenden
+Phase (die Bewertung oben). Vor jeder Belastung steht ein grünes **Starttor** („Start 95–105 rpm“) auf der Strecke, an
+ihrem Ende ein orange-weiß kariertes **Zieltor** („Ziel“); Aufwärmen, Erholung und Ausrollen allein bekommen keine.
+Das Training läuft nach Zeit: Das nächste Tor steht, wo der Fahrer beim aktuellen Tempo zum Phasenwechsel ankommt, und
+wird nachgeführt, bis es höchstens 40 m und 10 s voraus ist; dann steht es fest. So fallen Durchfahrt und Wechsel auf
+etwa eine Sekunde zusammen, solange sich das Tempo auf den letzten Metern nicht stark ändert. Im Stand oder beim
+Anfahren bleibt ein nahes, noch nicht festes Tor verborgen. Beides ist nur Anzeige (ADR-0010). Bausteine für Epic 4:
+`src/zone_bar.gd` (ZoneBar), `src/gate_placement.gd` (GatePlacement), `src/course_gate.gd` (CourseGate).
+
+Sichtprüfung: `view_probe.gd -- --title --training` speichert `title_training.png`, `--hud --training --shots=1200`
+die Trainingszeile mit Ansage (`training.png`), Starttor (`gate_start.png`), Zonenbalken unter, im und über dem Bereich
+(`zone_below.png`, `zone_inside.png`, `zone_above.png`), Zieltor (`gate_finish.png`) und das Ergebnis
+(`training_result.png`).
+
+### Ton (#44)
+
+Dezent und standardmäßig leise (Lautstärke 30 %, jeder Klang zusätzlich gedämpft), auf einem eigenen Audio-Bus
+„Spiel“ – Lautstärke und Aus-Schalter stehen im Einstellungsmenü und in `settings.cfg [sound]`. Alle Klänge entstehen
+**prozedural** im Spiel (`src/sound_synth.gd`, SoundSynth), es gibt keine Klangdateien; erzeugt wird einmal beim Start,
+ein Klang je Frame. Was wann wie laut klingt, rechnet `RideSound.levels()` (`src/ride_sound.gd`) aus Tempo, Kadenz, Ort,
+Wetter und Tageslicht; Hörer ist die Kamera. Ton ist nur Ausgabe (ADR-0010).
+
+| Klang | Wann und wo | Erzeugung |
+|---|---|---|
+| Fahrtwind | beim Fahren, ab 5 km/h, voll und heller (Abspieltempo 0,8 → 1,35) ab 45 km/h | Rauschen, Tiefpass, plus ein Band um ~600 Hz mit langsam schwankender Stärke (Böen); 3-s-Schleife, 11 kHz |
+| Freilauf | Kadenz 0 und Tempo ≥ 1 km/h; 12 Klicks je Radumdrehung | ein Klick (Rauschstoß 1,2 ms + 3,2 kHz, 2 ms) je 1/20 s; das Abspieltempo setzt die Klicks je Sekunde |
+| Meer | bis 25 m vom Wasser voll, ab 220 m still (Messringe um den Hörer im Höhenfeld) | braunes Rauschen (Brandung) und Zischen der auslaufenden Welle, zwei Wellen je 6-s-Schleife, 11 kHz |
+| Regen | nach der Regenstärke des Wetters, wie die sichtbaren Tropfen | hochpassgefiltertes Rauschen plus vereinzelte Tropfen (abklingende 3,2-kHz-Klicks); 2-s-Schleife |
+| Möwen | an den drei Möwenschwärmen (Hafen, Leuchtturm, Westküste), voll bis 40 m, still ab 260 m, Ruf alle 3–9 s; nicht nachts, nicht im Regen (dieselbe Regel wie die sichtbaren Vögel) | zwei Rufe „kjau“: Grundton gleitet 1150 → 1500 → 900 Hz, Obertöne 2–4, Vibrato 24 Hz |
+| Schafglocken | an jeder Schafherde (`World/Fauna/Glocken/Herde<n>`), voll bis 15 m, still ab 110 m, alle 1,5–5 s | Blechglocke: Teiltöne 1150 Hz × 1 · 2,31 · 3,89 · 5,6, Abklingen 0,35–0,1 s, Anschlag |
+| Dorfglocke | am Kirchturm im Bergdorf, voll bis 60 m, still ab 520 m; nach 6 s in Hörweite ein Geläut aus 5 Schlägen (zwei Glocken im Wechsel), dann alle 60–120 s | Glocke: Unterton 0,5, Prim 1, kleine Terz 1,19, Quinte 1,5, Oktave 2, 2,5, 3 × 220 Hz, Abklingen bis 3,5 s |
+| UI | Klick je Knopfdruck und beim Öffnen/Schließen der Einstellungen; Doppelton je sichtbarer Einblendung (Bestzeit, Segment, Erfolg, Level); weicher Ton, wenn im Training eine Ansage erscheint und beim Phasenwechsel | Klick: Sinus 1000 → 700 Hz, 30 ms; Doppelton E6 + A6; Ansage A5 mit Oktave |
+
+Im Browser startet der Ton erst nach der ersten Nutzergeste (Regel der Browser); ohne Audio-Gerät (oder wenn die
+Audio-Worklets nicht laden) läuft das Spiel gleich, nur still.
 
 ### Virtuelle Steigung (`set_grade`)
 
@@ -366,10 +733,10 @@ Kadenz; die Steigung steht in der Session-CSV der Bridge (Spalte `grade`).
 | `[ride] downhill_boost` | `2.0` | bergab: `v_ziel · (1 + downhill_boost · \|Gefälle\|)` |
 | `[ride] inertia_s` | `1.5` | Trägheit: Zeitkonstante (s) der Annäherung an `v_ziel`; 0 = sofort |
 | `[world] track` | `island` | Strecke: `island` = Insel-Rundkurs, `graybox` = kurze Graybox-Teststrecke (~900 m); Unbekanntes → `island` |
-| `[camera] behind_m` | `5.5` | Kamera: Abstand hinter dem Fahrer entlang der Strecke (m) – kleiner = Fahrer größer im Bild |
-| `[camera] height_m` | `2.4` | Kamerahöhe über der Strecke (m); mindestens 1,5 m über dem Gelände |
-| `[camera] look_ahead_m` | `10.0` | Blickpunkt so viele Meter voraus auf der Strecke |
-| `[camera] look_height_m` | `1.2` | Höhe des Blickpunkts über der Strecke (m) |
+| `[camera] behind_m` | `5.5` | Perspektive *Weit* (#59): Abstand hinter dem Fahrer entlang der Strecke (m) – kleiner = Fahrer größer im Bild; Nah und Verfolger sind fest (`src/camera_views.gd`) |
+| `[camera] height_m` | `2.4` | Perspektive *Weit*: Kamerahöhe über der Strecke (m); mindestens 1,5 m über dem Gelände |
+| `[camera] look_ahead_m` | `10.0` | alle Perspektiven: Blickpunkt so viele Meter voraus auf der Strecke |
+| `[camera] look_height_m` | `1.2` | alle Perspektiven: Höhe des Blickpunkts über der Strecke (m) |
 | `[sky] time_mode` | `realtime` | Tageszeit: `realtime` = echte Ortszeit Mallorca, `fixed` = feste Stunde, `timelapse` = Zeitraffer; Unbekanntes → `realtime` |
 | `[sky] fixed_hour` | `13.0` | Ortszeit (h, 0–24) für `fixed` (z. B. `21.5` = 21:30) |
 | `[sky] timelapse_day_min` | `24.0` | Zeitraffer: Minuten echter Zeit je Tag |
@@ -464,6 +831,15 @@ src/hud_profile.gd      HudProfile: Höhenprofil mit Marker (profile_point() als
 src/hud_minimap.gd      HudMinimap: Inselkarte mit Strecke, Landmarken, Fahrer-Pfeil (map_point() als reine Rechnung)
 src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeout), status/telemetry parsen, send_message
 src/ride_stats.gd       RideStats: Fahrzeit, Strecke, Ø Kadenz, Ø Tempo (ohne Pausen) – reine Logik
+src/lap_timing.gd       LapTiming: Rundenwertung – Rundenzeiten, Ziel nach n Runden oder endlos, Bestzeit, Ghost-Aufzeichnung – reine Logik
+src/segment_timing.gd   SegmentTiming: Segmentzeiten (Live-Zeit, gewertete Segmente, Segment-Bestzeit) – reine Logik
+src/ghost.gd            Ghost: Runde als Strecke über Zeit – aufzeichnen, abspielen, Abstand in s – reine Logik
+src/training.gd         Training: Einheit laden, Ablauf (Phase, Restzeit, Ansage), Bewertung der Zielkadenz – reine Logik
+src/zone_bar.gd         ZoneBar: Zonenbalken – Zielbereich, Wert als Marke, Zustand in Farbe und Form (#58)
+src/gate_placement.gd   GatePlacement: Lage eines zeitgebundenen Tors aus Restzeit und Tempo, Festsetzen – reine Logik (#58)
+src/course_gate.gd      CourseGate: Start- und Zieltor über der Straße, an einer Fahrtposition gestellt (#58)
+trainings/              Trainingseinheiten als Dateien (JSON): Intervalle kurz, Pyramide, Tempo-Blöcke
+src/medals.gd           Medals: Medaillen-Schwellen aus dem Fahrmodell (70/85/95 rpm), Medaille einer Zeit – reine Logik
 src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik
 src/ride_model.gd       RideModel: reine Logik (Kadenz, Steigung, Δt, Konfig → Geschwindigkeit, Position)
 src/rider_motion.gd     RiderMotion: Kurbel-/Radwinkel, Schräglage, Vorbeuge, Glieder-IK – reine Logik
@@ -471,17 +847,27 @@ src/rider_model.gd      RiderModel: Fahrer und Rennrad aus Grundkörpern, Pose a
 src/ride_config.gd      RideConfig: liest config.cfg
 src/graphics_settings.gd GraphicsSettings: Grafik-/Fenstereinstellungen, Tageszeit/Wetter (user://settings.cfg), Anwenden, Fensterhälften
 scenes/settings_menu.*  Menü „Grafik und Fenster“ (F2, F11), von der Hauptszene eingehängt
-src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz), stations, station_at(), road_mesh()
-src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil, Stationen (reine Daten/Logik)
+scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt- und Training-Auswahl, Radstatus (#30, #31, #37)
+scenes/wardrobe.gd      Garderobe: Trikot, Radfarbe, Helm mit Vorschau (SubViewport), gesperrte mit Level (#36)
+src/wardrobe.gd         Wardrobe: Teile und Farben, Auswahl prüfen und wählen, Standard je Kategorie – reine Logik
+src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Bestzeiten, Segment-Bestzeiten, Medaillen, Ghosts, Erfolge, Garderobe, Kamera, Hochstufung
+src/camera_views.gd     CameraViews: Kameraperspektiven Nah/Verfolger/Weit als Daten, Durchblättern, Auswahl im Spielstand (#59) – reine Logik
+src/track.gd            Track (Path3D): length_m(), grade_at(distanz), position_at(distanz), stations, station_at(), road_mesh(); Richtung (#34): set_direction(), path_distance(), ride_position_at(), ride_stations()
+src/island_course.gd    IslandCourse: Insel-Rundkurs – Grundriss, Höhenprofil, Stationen, Segmente (reine Daten/Logik)
 src/island_terrain.gd   IslandTerrain: Höhenfeld (prozedural oder Höhenkarte), unter die Straße geformt, Mesh
 src/island_world.gd     IslandWorld: Gelände, Meer, Fahrbahn, Stationsmarker, Deko aller Stationen mit Modellen (#15, #16)
 src/island_landmarks.gd IslandLandmarks: Sehenswürdigkeiten und Kleindetails (G2), Platzierungsdaten für Tests
+src/island_vegetation.gd IslandVegetation: Gras, Unterholz, Sträucher, Bodentexturen, Farbpalette (#38); Mohn, Mandelbäume, Felder (#39)
 src/world_motion.gd     WorldMotion: bewegte Szenen und Effekte (G3) – Mühlen, Leuchtturm, Boote, Vögel, Wolken, Brunnen
 src/day_night.gd        DayNight: Uhr (Mallorca-Ortszeit, Modi), Sonnenstand, Auf-/Untergang – reine Logik
+src/season.gd           Season: Jahreszeit aus dem Datum (Mallorca), Farben je Jahreszeit – reine Logik (#39)
 src/weather.gd          Weather: simuliertes Wetter, Zustände und Übergänge – reine Logik
-src/sky_controller.gd   SkyController: Sonne, Mond, Himmel, Environment, Regen, Sterne, Web-Lichtprofil (G6)
+src/sky_controller.gd   SkyController: Sonne, Mond, Himmel, Environment, Regen, Sterne, Web-Lichtprofil (G6); Farbstimmung, Höhennebel (#42)
 src/night_lights.gd     NightLights: Laternen, Leuchtfeuer, Fahrradlicht bei Nacht
-src/shaders/            Wind (Vegetation), Meer (Wellen, Flachwasser, Brandung), Lichtkegel, Leuchtpunkte
+src/speed_effects.gd    SpeedEffects: Geschwindigkeitslinien und Sichtfeld-Kick ab 35 km/h, abschaltbar (#42)
+src/ride_sound.gd       RideSound: Ton – Pegel aus Tempo, Ort, Wetter, Tageslicht (levels() als reine Rechnung), Bus „Spiel“, Auslöser (#44)
+src/sound_synth.gd      SoundSynth: alle Klänge prozedural als AudioStreamWAV (Rauschen, Filter, Teiltöne), keine Dateien (#44)
+src/shaders/            Wind (Vegetation), Meer (Wellen, Flachwasser, Brandung), Lichtkegel, Leuchtpunkte, Geschwindigkeitslinien
 src/graybox_track.gd    GrayboxTrack: Rundkurs ~900 m, flach → +6 % → Kuppe → −6 % → flach (`[world] track="graybox"`)
 tests/                  GUT-Tests, support/ (Fake-Bus, Basisklasse, Hook), fixtures/
 tools/                  E2E-Prüfhilfe gegen die echte Bridge, Sichtprüfung/fps (view_probe.gd), Fenstermodi (window_probe.gd)

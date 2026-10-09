@@ -31,6 +31,44 @@ func test_profile_point_maps_distance_and_height_into_area() -> void:
 	assert_eq(HudProfile.profile_point(12000.0, 500.0, 9000.0, 3.0, 223.0, area), Vector2(410, 20), "begrenzt")
 
 
+## Vor dem ersten Layout ist der Zeichenbereich 1×1 px; die Fläche ist dann entartet und darf nicht gezeichnet werden
+## („Invalid polygon data“ seit #34, beim Richtungswechsel direkt nach setup()). Mit Größe lässt sie sich zeichnen.
+func test_profile_fill_is_skipped_before_layout_and_drawable_after_in_both_directions() -> void:
+	for direction in [Track.DIRECTION_CW, Track.DIRECTION_CCW]:
+		var track := _island_track()
+		track.set_direction(direction)
+		var profile := HudProfile.new()
+		add_child_autofree(profile)
+		profile.setup(track)
+		for size in [Vector2(0, 0), Vector2(722, 112)]:
+			profile.size = size
+			var area := profile.plot_rect()
+			var line := PackedVector2Array()
+			for i in range(profile.heights.size()):
+				line.append(HudProfile.profile_point(profile.length_m * i / (profile.heights.size() - 1),
+						profile.heights[i], profile.length_m, profile.min_height_m, profile.max_height_m, area))
+			var fill := HudProfile.fill_polygon(line, area)
+			if size == Vector2.ZERO:
+				assert_true(fill.is_empty(), "%s: ohne Layout wird keine Fläche gezeichnet" % direction)
+			else:
+				assert_gt(Geometry2D.triangulate_polygon(fill).size(), 0, "%s: Profilfläche lässt sich zeichnen" % direction)
+	# Gegen den Uhrzeigersinn ist die Fläche ohne Layout tatsächlich entartet – das war die Meldung.
+	var track := _island_track()
+	track.set_direction(Track.DIRECTION_CCW)
+	var tiny := HudProfile.new()
+	add_child_autofree(tiny)
+	tiny.setup(track)
+	tiny.size = Vector2.ZERO
+	var area0 := tiny.plot_rect()
+	var naive := PackedVector2Array()
+	for i in range(tiny.heights.size()):
+		naive.append(HudProfile.profile_point(tiny.length_m * i / (tiny.heights.size() - 1), tiny.heights[i],
+				tiny.length_m, tiny.min_height_m, tiny.max_height_m, area0))
+	naive.append(Vector2(area0.end.x, area0.end.y))
+	naive.append(Vector2(area0.position.x, area0.end.y))
+	assert_eq(Geometry2D.triangulate_polygon(naive).size(), 0, "ccw ohne Layout: ungeprüfte Fläche wäre entartet")
+
+
 func test_profile_follows_track_heights_and_marker_moves() -> void:
 	var track := _island_track()
 	var hud := _hud()
@@ -124,6 +162,49 @@ func test_shows_values_with_signed_colored_grade_and_estimated_watts() -> void:
 	assert_eq(RideHud.grade_color(0.03), RideHud.COLOR_UP, "bergauf: warm")
 
 
+func test_segment_live_time_only_inside_a_segment() -> void:
+	var hud := _hud()
+	assert_false(hud.readout().contains("Bergwertung"), "außerhalb eines Segments keine Segmentzeit")
+	hud.show_segment("Bergwertung", "1:12.4")
+	assert_string_contains(hud.readout(), "Bergwertung: 1:12.4", "im Segment: Name und Live-Zeit")
+	hud.show_segment("", "")
+	assert_false(hud.readout().contains("Bergwertung"), "nach dem Segment ausgeblendet")
+	hud.celebrate("Bergwertung  7:35.2 · Silber – neue Bestzeit!")
+	assert_eq(hud.celebration(), "Bergwertung  7:35.2 · Silber – neue Bestzeit!", "Ergebnis beim Verlassen")
+
+
+func test_simultaneous_celebrations_queue_instead_of_overwriting() -> void:
+	var hud := _hud()
+	hud.celebrate("Neue Bestzeit!  14:44.7")
+	hud.celebrate("Dorfsprint  0:41.2 · Gold")
+	hud.celebrate("Erfolg: Erste Runde – Eine Runde zu Ende gefahren")
+	hud.celebrate("Fahrerlevel 2 erreicht!")
+	assert_eq(hud.celebration(), "Neue Bestzeit!  14:44.7", "die erste läuft")
+	assert_eq(hud.queued_celebrations(), ["Dorfsprint  0:41.2 · Gold",
+			"Erfolg: Erste Runde – Eine Runde zu Ende gefahren", "Fahrerlevel 2 erreicht!"], "die übrigen eingereiht")
+	await wait_seconds(RideHud.CELEBRATION_S + 0.2)
+	assert_eq(hud.celebration(), "Dorfsprint  0:41.2 · Gold", "nach CELEBRATION_S die nächste")
+	assert_eq(hud.queued_celebrations().size(), 2)
+	hud.end_celebration()
+	assert_eq(hud.celebration(), "", "im Ziel: alle aus")
+	assert_eq(hud.queued_celebrations(), [], "auch die eingereihten")
+	hud.celebrate("Fahrerlevel 3 erreicht!")
+	assert_eq(hud.celebration(), "Fahrerlevel 3 erreicht!", "danach sofort wieder sichtbar")
+
+
+func test_ghost_gap_with_sign_and_color() -> void:
+	var hud := _hud()
+	assert_false(hud.readout().contains("Ghost"), "ohne Ghost kein Abstand")
+	hud.show_ghost("+1.4", true)
+	assert_string_contains(hud.readout(), "Ghost: +1.4 s", "hinter dem Ghost")
+	assert_eq(hud.get_node("%GhostValue").get_theme_color("font_color"), RideHud.COLOR_BEHIND)
+	hud.show_ghost("-0.8", false)
+	assert_string_contains(hud.readout(), "Ghost: -0.8 s", "vor dem Ghost")
+	assert_eq(hud.get_node("%GhostValue").get_theme_color("font_color"), RideHud.COLOR_AHEAD)
+	hud.show_ghost("", false)
+	assert_false(hud.readout().contains("Ghost"), "Ghost aus: ausgeblendet")
+
+
 ## Alle sichtbaren HUD-Anzeigen in `viewport_size` (Pixel); `canvas_size` ≠ Null wie `stretch/mode="canvas_items"`
 ## (die Oberfläche wird in dieser Größe angelegt und skaliert). Liefert das HUD nach dem Layout.
 func _layout_in(viewport_size: Vector2i, canvas_size: Vector2i = Vector2i.ZERO) -> RideHud:
@@ -141,6 +222,10 @@ func _layout_in(viewport_size: Vector2i, canvas_size: Vector2i = Vector2i.ZERO) 
 	hud.setup(track)
 	hud.show_ride(118.0, 58.4, 9210.0, "1:02:33", -0.088, "-8.8 %", "Pinien-/Olivenhain", "~1042 W")
 	hud.show_lap(4000.0, 0.0, 9210.0, 4000.0)
+	hud.show_lap_count(12, 20, "1:02:33")
+	hud.show_segment("Küstenwelle", "12:34.5")
+	hud.show_ghost("+123.4", true)
+	hud.celebrate("Neue Bestzeit!  1:02:33.4")
 	(hud.get_node("Hint") as Label).text = "Widerstand: nicht unterstützt"
 	(hud.get_node("Debug") as Label).text = \
 			"DEBUG\nKadenz roh: 72.5\nt_ms: 123456\nLetzte Telemetrie vor: 120 ms\nBus: verbunden · Quelle: connected (sim)"
@@ -161,12 +246,35 @@ func _assert_inside(hud: RideHud, label: String) -> void:
 		checked += 1
 		assert_true(screen.grow(0.5).encloses(rect), "%s: %s liegt im Fenster %s (%s)" % [label, control.name, screen, rect])
 	assert_gt(checked, 30, "%s: alle Anzeigen geprüft" % label)
-	var stats: Rect2 = hud.get_node("%Stats").get_global_rect()
-	var map: Rect2 = hud.get_node("%Minimap").get_parent().get_global_rect()
 	var bottom: Rect2 = hud.get_node("%Bottom").get_global_rect()
-	assert_false(stats.intersects(map), "%s: Werte und Karte überlappen nicht" % label)
-	assert_false(stats.intersects(bottom) or map.intersects(bottom), "%s: oben und unten überlappen nicht" % label)
+	var panels := _panels(hud)
+	for i in panels.size():
+		for j in range(i + 1, panels.size()):
+			assert_false(panels[i].intersects(panels[j]), "%s: Panels %s und %s überlappen nicht" % [label, panels[i], panels[j]])
 	assert_false((hud.get_node("Hint") as Control).get_global_rect().intersects(bottom), "%s: Hinweis über dem Panel" % label)
+	var celebration: Control = hud.get_node("%Celebration")
+	assert_true(celebration.is_visible_in_tree(), "%s: Einblendung „Neue Bestzeit!“ sichtbar" % label)
+	for other in panels + [(hud.get_node("Hint") as Control).get_global_rect()]:
+		assert_false(celebration.get_global_rect().intersects(other), "%s: Einblendung frei von %s" % [label, other])
+	var message: Control = hud.get_node("Message")
+	if message.is_visible_in_tree():
+		_assert_free_of_panels(hud, message.get_global_rect(), "%s: Meldung" % label)
+	assert_eq(hud.compact, hud.get_viewport().get_visible_rect().size.y < RideHud.COMPACT_BELOW_PX, "%s: Leisten" % label)
+
+
+## Die sichtbaren Panels: Werte, Karte (nicht als Leiste) und unten.
+func _panels(hud: RideHud) -> Array[Rect2]:
+	var panels: Array[Rect2] = [hud.get_node("%Stats").get_global_rect(), hud.get_node("%Bottom").get_global_rect()]
+	var map: Control = hud.get_node("%Minimap").get_parent()
+	if map.is_visible_in_tree():
+		panels.append(map.get_global_rect())
+	return panels
+
+
+## `rect` überdeckt keines der sichtbaren Panels.
+func _assert_free_of_panels(hud: RideHud, rect: Rect2, label: String) -> void:
+	for panel in _panels(hud):
+		assert_false(rect.intersects(panel), "%s %s frei vom Panel %s" % [label, rect, panel])
 
 
 func test_layout_fits_half_screen_window() -> void:
@@ -181,9 +289,141 @@ func test_layout_fits_full_hd_and_1600x900() -> void:
 	_assert_inside(await _layout_in(Vector2i(1920, 1080)), "1920×1080")
 	_assert_inside(await _layout_in(Vector2i(1600, 900)), "1600×900")
 	_assert_inside(await _layout_in(Vector2i(1152, 648)), "1152×648 (Godot-Standardfenster)")
+	_assert_inside(await _layout_in(Vector2i(1280, 720)), "1280×720")
+
+
+## Niedrige Fenster (Nacharbeit #26): unter COMPACT_BELOW_PX Leisten ohne Karte und Profil, die Werte in
+## einer Zeile. Wird das Fenster wieder hoch, ist alles wieder da.
+func test_low_window_folds_panels_into_bars_and_back() -> void:
+	for size in [Vector2i(1152, 648), Vector2i(1280, 720)]:
+		var hud := await _layout_in(size)
+		assert_true(hud.compact, "%s: Leisten" % size)
+		assert_false(hud.get_node("%Minimap").is_visible_in_tree(), "%s: keine Karte" % size)
+		assert_false(hud.get_node("%Profile").is_visible_in_tree(), "%s: kein Profil" % size)
+		assert_string_contains(hud.readout(), "Abschnitt: Pinien-/Olivenhain")
+		assert_string_contains(hud.readout(), "Kadenz: 118 rpm")
+		var grid: GridContainer = hud.get_node("Layout/Rows/Top/Stats/Box/Main/Grid")
+		assert_eq(grid.columns, RideHud.GRID_COLUMNS_COMPACT, "%s: Werte in einer Zeile" % size)
+		var message: Label = hud.get_node("Message")
+		var lines := PackedStringArray()
+		for i in 16:
+			lines.append("Runde %d: 12:34.5 · Gold" % (i + 1))
+		message.text = "\n".join(lines)  # länger als der Streifen bei Grundschrift: wird verkleinert
+		await wait_process_frames(2)
+		_assert_free_of_panels(hud, message.get_global_rect(), "%s: lange Meldung" % size)
+		assert_lt(message.get_theme_font_size("font_size"), roundi(23 * RideHud.text_scale(size.y)), "%s: verkleinert" % size)
+		assert_gte(message.get_theme_font_size("font_size"), RideHud.MIN_MESSAGE_FONT_PX, "%s: lesbar" % size)
+		var viewport: SubViewport = hud.get_parent()
+		viewport.size = Vector2i(1920, 1080)
+		hud.show_ride(118.0, 58.4, 9210.0, "1:02:33", -0.088, "-8.8 %", "Pinien-/Olivenhain", "~1042 W")
+		await wait_process_frames(4)
+		assert_false(hud.compact, "%s → 1920×1080: keine Leisten" % size)
+		assert_true(hud.get_node("%Minimap").is_visible_in_tree() and hud.get_node("%Profile").is_visible_in_tree(),
+				"%s → 1920×1080: Karte und Profil" % size)
+		assert_eq(grid.columns, RideHud.GRID_COLUMNS)
+		assert_string_contains(hud.readout(), "Abschnitt: Pinien-/Olivenhain")
+		_assert_inside(hud, "%s → 1920×1080" % size)
+
+
+func test_text_scale_follows_window_height() -> void:
+	assert_eq(RideHud.text_scale(1080.0), 1.0)
+	assert_eq(RideHud.text_scale(2160.0), 1.0, "nie größer als vorgesehen")
+	assert_almost_eq(RideHud.text_scale(864.0), 0.8, 0.0001)
+	assert_eq(RideHud.text_scale(400.0), RideHud.MIN_TEXT_SCALE, "nie kleiner als lesbar")
 
 
 func test_layout_fits_with_canvas_items_stretch() -> void:
 	# canvas_items mit Basis 1920×1080: Halbbild 960×1040 mit aspect "expand" → Oberfläche 1920×2080, "keep" → 1920×1080.
 	_assert_inside(await _layout_in(Vector2i(960, 1040), Vector2i(1920, 2080)), "canvas_items expand")
 	_assert_inside(await _layout_in(Vector2i(960, 540), Vector2i(1920, 1080)), "canvas_items keep")
+
+
+func test_segment_live_time_fits_between_panels() -> void:
+	for size in [Vector2i(960, 1040), Vector2i(1920, 1080), Vector2i(1152, 648)]:
+		var hud := await _layout_in(size)
+		hud.get_node("%Celebration").hide()  # die Live-Zeit steht an der Stelle der Einblendung, die Vorrang hat
+		hud.show_segment("Küstenwelle", "12:34.5")
+		await wait_process_frames(2)
+		var segment: Control = hud.get_node("%Segment")
+		assert_true(segment.is_visible_in_tree(), "%s: Live-Zeit sichtbar" % size)
+		var rect := segment.get_global_rect()
+		assert_true(hud.get_node("Layout").get_viewport_rect().encloses(rect), "%s: im Fenster" % size)
+		for other in ["%Stats", "%Bottom", "Hint"]:
+			assert_false(rect.intersects((hud.get_node(other) as Control).get_global_rect()), "%s: frei von %s" % [size, other])
+		assert_false(rect.intersects(hud.get_node("%Minimap").get_parent().get_global_rect()), "%s: frei von der Karte" % size)
+
+
+## Training (#37): Zeile mit Phase, Zielkadenz, Restzeit und nächster Phase im unteren Panel, die Ansage groß darüber.
+func test_training_line_and_announcement_fit() -> void:
+	for size in [Vector2i(1366, 768), Vector2i(1280, 800), Vector2i(960, 1040), Vector2i(1920, 1080), Vector2i(1600, 900), Vector2i(1280, 720), Vector2i(1152, 648)]:
+		var hud := await _layout_in(size)
+		hud.get_node("Message").hide()
+		hud.show_segment("", "")  # im Training keine Segmente
+		hud.show_ghost("", false)
+		hud.show_training("Tempo-Block 3/3", "85–90 rpm", "12:34", "Erholung 2/2 · 75–85 rpm")
+		hud.show_announcement("In 10 s: Widerstand 2 Stufen hoch, 85–90 rpm halten")
+		await wait_process_frames(2)
+		var readout := hud.readout()
+		for line in ["Phase: Tempo-Block 3/3", "Zielkadenz: 85–90 rpm", "Restzeit: 12:34", "Danach: Erholung 2/2 · 75–85 rpm",
+				"Ansage: In 10 s: Widerstand 2 Stufen hoch, 85–90 rpm halten"]:
+			assert_string_contains(readout, line)
+		var screen: Rect2 = hud.get_node("Layout").get_viewport_rect()
+		var announcement: Rect2 = (hud.get_node("%Announcement") as Control).get_global_rect()
+		var training: Rect2 = (hud.get_node("%Training") as Control).get_global_rect()
+		assert_true(screen.encloses(announcement), "%s: Ansage im Fenster" % size)
+		assert_true(hud.get_node("%Bottom").get_global_rect().encloses(training), "%s: Zeile im unteren Panel" % size)
+		for label in ["%PhaseValue", "%TargetValue", "%RemainingValue", "%NextValue"]:
+			var rect: Rect2 = (hud.get_node(label) as Control).get_global_rect()
+			assert_true(training.grow(0.5).encloses(rect), "%s: %s in der Zeile" % [size, label])
+		_assert_inside(hud, "%s Training" % size)
+		_assert_free_of_panels(hud, announcement, "%s: Ansage" % size)
+		assert_false(announcement.intersects((hud.get_node("%Celebration") as Control).get_global_rect()),
+				"%s: Ansage frei von der Einblendung" % size)
+		hud.show_training("", "", "", "")
+		hud.show_announcement("")
+		await wait_process_frames(1)
+		assert_false(hud.readout().contains("Phase:") or hud.readout().contains("Ansage:"), "%s: ausgeblendet" % size)
+
+
+## Zonenbalken (#58): unter der Trainingszeile im unteren Panel, breit und hoch genug zum Lesen, mit Zustand und
+## Treffer daneben; mit Trainingszeile und Ansage im Halbbild und im Vollbild frei von den anderen Anzeigen (bei 1152×648
+## im Fenster, wie Ansage und Ergebnis). Zustand in Farbe und Wort je nach Kadenz.
+func test_zone_bar_fits_under_the_training_line() -> void:
+	for size in [Vector2i(1366, 768), Vector2i(1280, 800), Vector2i(960, 1040), Vector2i(1920, 1080), Vector2i(1600, 900), Vector2i(1280, 720), Vector2i(1152, 648)]:
+		var hud := await _layout_in(size)
+		hud.get_node("Message").hide()
+		hud.show_segment("", "")
+		hud.show_ghost("", false)
+		hud.show_training("Tempo-Block 3/3", "85–90 rpm", "12:34", "Erholung 2/2 · 75–85 rpm")
+		hud.show_zone(85.0, 90.0, 87.0, "87 %")
+		hud.show_announcement("In 10 s: Widerstand 2 Stufen hoch, 85–90 rpm halten")
+		await wait_process_frames(2)
+		assert_string_contains(hud.readout(), "Zone: im Bereich (85–90 rpm, 87 rpm)")
+		assert_string_contains(hud.readout(), "Treffer: 87 %")
+		var screen: Rect2 = hud.get_node("Layout").get_viewport_rect()
+		var bottom: Rect2 = hud.get_node("%Bottom").get_global_rect()
+		var zone: Rect2 = (hud.get_node("%Zone") as Control).get_global_rect()
+		var bar: Rect2 = (hud.get_node("%ZoneBar") as Control).get_global_rect()
+		var training: Rect2 = (hud.get_node("%Training") as Control).get_global_rect()
+		assert_true(bottom.encloses(zone), "%s: Zone im unteren Panel" % size)
+		assert_gte(zone.position.y, training.end.y, "%s: unter der Trainingszeile" % size)
+		assert_gte(bar.size.x, 400.0, "%s: Balken breit genug zum Lesen (%d px)" % [size, bar.size.x])
+		assert_gte(bar.size.y, 28.0, "%s: Balken hoch genug" % size)
+		for label in ["%ZoneBar", "%ZoneState", "%ZoneScore"]:
+			assert_true(zone.grow(0.5).encloses((hud.get_node(label) as Control).get_global_rect()), "%s: %s in der Zeile" % [size, label])
+		var announcement: Rect2 = (hud.get_node("%Announcement") as Control).get_global_rect()
+		assert_true(screen.encloses(announcement), "%s: Ansage im Fenster" % size)
+		_assert_inside(hud, "%s Zone" % size)
+		_assert_free_of_panels(hud, announcement, "%s: Ansage" % size)
+		assert_false(announcement.intersects((hud.get_node("%Celebration") as Control).get_global_rect()),
+				"%s: Ansage frei von der Einblendung" % size)
+		# Zustand in Farbe und Wort: darunter, im Bereich, darüber.
+		var state: Label = hud.get_node("%ZoneState")
+		for case in [[80.0, "zu niedrig", ZoneBar.BELOW], [90.0, "im Bereich", ZoneBar.INSIDE], [96.0, "zu hoch", ZoneBar.ABOVE]]:
+			hud.show_zone(85.0, 90.0, case[0], "87 %")
+			assert_eq(state.text, case[1], "%s: %s rpm" % [size, case[0]])
+			assert_eq(state.get_theme_color("font_color"), ZoneBar.state_color(case[2]))
+			assert_eq((hud.get_node("%ZoneBar") as ZoneBar).state(), case[2])
+		hud.hide_zone()
+		await wait_process_frames(1)
+		assert_false(hud.readout().contains("Zone:"), "%s: ausgeblendet" % size)

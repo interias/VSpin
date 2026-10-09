@@ -1,10 +1,11 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://src/ride_hud.gd" id="1_hud"]
 [ext_resource type="Script" path="res://src/hud_gauge.gd" id="2_gauge"]
 [ext_resource type="Script" path="res://src/hud_grade_icon.gd" id="3_grade_icon"]
 [ext_resource type="Script" path="res://src/hud_minimap.gd" id="4_minimap"]
 [ext_resource type="Script" path="res://src/hud_profile.gd" id="5_profile"]
+[ext_resource type="Script" path="res://src/zone_bar.gd" id="6_zone_bar"]
 
 [sub_resource type="StyleBoxFlat" id="Panel"]
 content_margin_left = 16.0
@@ -279,6 +280,25 @@ layout_mode = 2
 theme_type_variation = &"HudValue"
 text = "0:00"
 
+[node name="LapTime" type="VBoxContainer" parent="Layout/Rows/Top/Stats/Box/Main/Grid"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = -4
+
+[node name="Caption" type="Label" parent="Layout/Rows/Top/Stats/Box/Main/Grid/LapTime"]
+layout_mode = 2
+theme_type_variation = &"HudCaption"
+text = "Rundenzeit"
+
+[node name="Line" type="HBoxContainer" parent="Layout/Rows/Top/Stats/Box/Main/Grid/LapTime"]
+layout_mode = 2
+
+[node name="LapTimeValue" type="Label" parent="Layout/Rows/Top/Stats/Box/Main/Grid/LapTime/Line"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"HudValue"
+text = "0:00"
+
 [node name="Power" type="VBoxContainer" parent="Layout/Rows/Top/Stats/Box/Main/Grid"]
 unique_name_in_owner = true
 visible = false
@@ -320,6 +340,101 @@ layout_mode = 2
 size_flags_vertical = 3
 mouse_filter = 2
 
+[node name="Segment" type="Label" parent="Layout/Rows/Fill"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -92.0
+offset_bottom = -48.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.7)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 28
+text = "Segment  0:00.0"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Celebration" type="Label" parent="Layout/Rows/Fill"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -92.0
+offset_bottom = -48.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_colors/font_color = Color(1, 0.86, 0.45, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.7)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 30
+text = "Neue Bestzeit!"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Announcement" type="Label" parent="Layout/Rows/Fill"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -148.0
+offset_bottom = -100.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_colors/font_color = Color(0.62, 0.9, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.7)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 28
+text = "In 10 s: Widerstand 2 Stufen hoch, 100 rpm halten"
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 3
+
+[node name="Landmark" type="Label" parent="Layout/Rows/Fill"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 16.0
+offset_bottom = 64.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(1, 0.97, 0.9, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.6)
+theme_override_constants/outline_size = 6
+theme_override_font_sizes/font_size = 36
+text = "Aussichtspunkt"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="CameraView" type="Label" parent="Layout/Rows/Fill"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 68.0
+offset_bottom = 104.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.6)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 26
+text = "Kamera: Verfolger"
+horizontal_alignment = 1
+vertical_alignment = 1
+
 [node name="Bottom" type="PanelContainer" parent="Layout/Rows"]
 unique_name_in_owner = true
 layout_mode = 2
@@ -329,11 +444,101 @@ mouse_filter = 2
 layout_mode = 2
 theme_override_constants/separation = 4
 
+[node name="Training" type="HBoxContainer" parent="Layout/Rows/Bottom/Box"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="PhaseValue" type="Label" parent="Layout/Rows/Bottom/Box/Training"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"HudTitle"
+text = "Aufwärmen"
+
+[node name="TargetCaption" type="Label" parent="Layout/Rows/Bottom/Box/Training"]
+layout_mode = 2
+theme_type_variation = &"HudCaption"
+text = "Ziel"
+
+[node name="TargetValue" type="Label" parent="Layout/Rows/Bottom/Box/Training"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"HudTitle"
+theme_override_colors/font_color = Color(0.62, 0.9, 1, 1)
+text = "80–90 rpm"
+
+[node name="RemainingCaption" type="Label" parent="Layout/Rows/Bottom/Box/Training"]
+layout_mode = 2
+theme_type_variation = &"HudCaption"
+text = "noch"
+
+[node name="RemainingValue" type="Label" parent="Layout/Rows/Bottom/Box/Training"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(56, 0)
+layout_mode = 2
+theme_type_variation = &"HudTitle"
+text = "0:00"
+
+[node name="NextCaption" type="Label" parent="Layout/Rows/Bottom/Box/Training"]
+layout_mode = 2
+theme_type_variation = &"HudCaption"
+text = "danach"
+
+[node name="NextValue" type="Label" parent="Layout/Rows/Bottom/Box/Training"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Ende"
+text_overrun_behavior = 3
+
+[node name="Zone" type="HBoxContainer" parent="Layout/Rows/Bottom/Box"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="ZoneCaption" type="Label" parent="Layout/Rows/Bottom/Box/Zone"]
+layout_mode = 2
+theme_type_variation = &"HudCaption"
+text = "Zone"
+
+[node name="ZoneBar" type="Control" parent="Layout/Rows/Bottom/Box/Zone"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(160, 30)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+mouse_filter = 2
+script = ExtResource("6_zone_bar")
+
+[node name="ZoneState" type="Label" parent="Layout/Rows/Bottom/Box/Zone"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(124, 0)
+layout_mode = 2
+theme_type_variation = &"HudTitle"
+text = "im Bereich"
+
+[node name="ScoreCaption" type="Label" parent="Layout/Rows/Bottom/Box/Zone"]
+layout_mode = 2
+theme_type_variation = &"HudCaption"
+text = "Treffer"
+
+[node name="ZoneScore" type="Label" parent="Layout/Rows/Bottom/Box/Zone"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(64, 0)
+layout_mode = 2
+theme_type_variation = &"HudTitle"
+text = "–"
+horizontal_alignment = 2
+
 [node name="Lap" type="HBoxContainer" parent="Layout/Rows/Bottom/Box"]
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="Caption" type="Label" parent="Layout/Rows/Bottom/Box/Lap"]
+[node name="LapCaption" type="Label" parent="Layout/Rows/Bottom/Box/Lap"]
+unique_name_in_owner = true
 layout_mode = 2
 theme_type_variation = &"HudCaption"
 text = "Runde"
@@ -361,6 +566,30 @@ layout_mode = 2
 theme_type_variation = &"HudCaption"
 text = "noch 0.00 km"
 horizontal_alignment = 2
+
+[node name="Ghost" type="HBoxContainer" parent="Layout/Rows/Bottom/Box/Lap"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Caption" type="Label" parent="Layout/Rows/Bottom/Box/Lap/Ghost"]
+layout_mode = 2
+theme_type_variation = &"HudCaption"
+text = "Ghost"
+
+[node name="GhostValue" type="Label" parent="Layout/Rows/Bottom/Box/Lap/Ghost"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(64, 0)
+layout_mode = 2
+theme_type_variation = &"HudTitle"
+text = "+0.0"
+horizontal_alignment = 2
+
+[node name="Unit" type="Label" parent="Layout/Rows/Bottom/Box/Lap/Ghost"]
+layout_mode = 2
+theme_type_variation = &"HudUnit"
+text = "s"
 
 [node name="Profile" type="Control" parent="Layout/Rows/Bottom/Box"]
 unique_name_in_owner = true
@@ -406,7 +635,7 @@ grow_vertical = 2
 theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_colors/font_outline_color = Color(0, 0, 0, 0.8)
 theme_override_constants/outline_size = 6
-theme_override_font_sizes/font_size = 30
+theme_override_font_sizes/font_size = 23
 theme_override_styles/normal = SubResource("Message")
 horizontal_alignment = 1
 vertical_alignment = 1

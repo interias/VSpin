@@ -33,6 +33,15 @@ oder `godot --path games/island-ride`. Tasten: `P`/Leertaste Pause, `F3` Debug-A
 Beenden), `F11` Vollbild.
 Reihenfolge egal – das Spiel verbindet sich, sobald die Bridge läuft.
 
+**Ohne Schritt 2 (nur Windows):** Läuft beim Spielstart keine Bridge, startet das Spiel sie selbst – unsichtbar,
+ohne Konsolenfenster, mit dem Simulator – und beendet sie beim Schließen sauber (Session unter
+`bridge/sessions/`). Einstellungen in `games/island-ride/config.cfg`, Abschnitt `[bridge]`: `source="ble"` für das
+echte Rad (sobald es die Bridge kann, #9), `sim_cadence` die feste Kadenz des Simulators (Standard 80 rpm),
+`autostart=false` schaltet das ab. Fehlt das venv aus Schritt 1, zeigt das
+Menü „Bridge nicht erreichbar – Bridge-Programm fehlt“. Wer Kadenz per Pfeiltasten oder ein Profil braucht, startet
+die Bridge wie in Schritt 2 von Hand; das Spiel nutzt sie dann nur mit und beendet sie nicht. Stürzt das Spiel ab,
+beendet sich die selbst gestartete Bridge mit ihm.
+
 **4. Protokoll des Rads herausfinden** (sobald das JC312 da ist): siehe [`tools/README.md`](../tools/README.md).
 
 **Tests:**

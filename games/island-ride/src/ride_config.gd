@@ -1,4 +1,4 @@
-## Konfiguration der Inselfahrt: Bus-Adresse, Fahrmodell-Parameter, Strecke (ADR-0006) und Kamera.
+## Konfiguration der Inselfahrt: Bus-Adresse, Start der Bridge, Fahrmodell-Parameter, Strecke (ADR-0006) und Kamera.
 ## Wird aus einer ConfigFile-Datei (INI) gelesen, Standard `res://config.cfg`.
 class_name RideConfig
 extends RefCounted
@@ -38,6 +38,16 @@ var sky_timelapse_day_min := 24.0
 var sky_weather_mode := "changing"
 var sky_weather := "clear"
 
+## Bridge aus dem Spiel starten (#25, BridgeLauncher; nur Windows-Desktop): ein/aus, Programm (`pythonw.exe` des venv
+## der Bridge, ohne Konsolenfenster), Quelle (`sim`/`ble`) und Ablage der Session-Dateien. Relative Pfade gelten ab
+## dem Spielordner (`games/island-ride`, im Export der Ordner der .exe).
+var bridge_autostart := true
+var bridge_program := "../../bridge/.venv/Scripts/pythonw.exe"
+var bridge_source := "sim"
+## Start-Kadenz des Simulators beim Start aus dem Spiel (rpm, nur bei Quelle sim).
+var bridge_sim_cadence := 80.0
+var bridge_sessions_dir := "../../bridge/sessions"
+
 
 ## Liest `path`; fehlende Datei oder fehlende Schlüssel ergeben die Standardwerte.
 static func load_file(path: String = DEFAULT_PATH) -> RideConfig:
@@ -67,6 +77,11 @@ static func load_file(path: String = DEFAULT_PATH) -> RideConfig:
 	config.sky_timelapse_day_min = _sky_number(file, "timelapse_day_min", config.sky_timelapse_day_min)
 	config.sky_weather_mode = str(file.get_value("sky", "weather_mode", config.sky_weather_mode))
 	config.sky_weather = str(file.get_value("sky", "weather", config.sky_weather))
+	config.bridge_autostart = bool(file.get_value("bridge", "autostart", config.bridge_autostart))
+	config.bridge_program = str(file.get_value("bridge", "program", config.bridge_program))
+	config.bridge_source = str(file.get_value("bridge", "source", config.bridge_source))
+	config.bridge_sim_cadence = float(file.get_value("bridge", "sim_cadence", config.bridge_sim_cadence))
+	config.bridge_sessions_dir = str(file.get_value("bridge", "sessions_dir", config.bridge_sessions_dir))
 	return config
 
 

@@ -11,6 +11,7 @@ func _initialize() -> void:
 	var seconds := 6.0
 	var start_m := 0.0
 	var config := RideConfig.load_file()
+	config.bridge_autostart = false  # Prüfhilfe startet nie selbst eine Bridge (#25)
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--seconds="):
 			seconds = float(arg.get_slice("=", 1))
@@ -21,6 +22,8 @@ func _initialize() -> void:
 	var ride = load("res://scenes/main.tscn").instantiate()
 	ride.config = config
 	ride.start_distance_m = start_m
+	ride.start_in_menu = false
+	ride.save_path = ""
 	root.add_child(ride)
 	await create_timer(seconds).timeout
 	print("E2E url=%s track=%s bus_connected=%s status=%s state=%s source=%s cadence=%.1f speed_kmh=%.2f distance_m=%.1f grade=%.3f grade_sent=%.4f station=%s hint=%s" % [

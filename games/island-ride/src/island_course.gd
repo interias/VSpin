@@ -10,10 +10,14 @@
 ## Stationen in Fahrtrichtung: Hafen (Start/Ziel) → Küstenstraße → Serpentinen (mit Aussichtspunkt am Ende)
 ## → Pinien-/Olivenhain → Bergdorf → Abfahrt zurück zum Hafen.
 ##
-##   IslandCourse.apply_to(t) Kurve und Stationen auf einen Track (Path3D) setzen
+##   IslandCourse.apply_to(t) Kurve, Stationen und Segmente beider Richtungen auf einen Track (Path3D) setzen
 ##   IslandCourse.curve()     Curve3D des Rundkurses (gecacht, geschlossen: letzter Punkt = erster Punkt)
 ##   IslandCourse.stations()  [{id, name, start_m}] in Fahrtrichtung, start_m = Streckenposition auf der Kurve
 ##   IslandCourse.landmarks() [{id, name, distance_m}] besondere Punkte (Aussichtspunkt)
+##   IslandCourse.segments(richtung) [{id, name, start_m, end_m}] Segmente mit eigener Zeit (#33), je Richtung (#34)
+##
+## Gegenrichtung (#34): derselbe Pfad rückwärts (Track.set_direction) – Start/Ziel bleibt der Hafen, der lange Anstieg
+## führt über den Osthang hinauf zum Bergdorf, die Serpentinen werden zur Abfahrt.
 class_name IslandCourse
 extends RefCounted
 
@@ -31,7 +35,8 @@ const SERPENTINE_HAIRPIN_RADIUS := 27.5
 ## Abschnitte in Fahrtrichtung. Höhe am Abschnittsende: `to_height` (m über Meer), `rise` (m relativ) oder
 ## `grade` (feste mittlere Steigung, Höhe ergibt sich aus der Länge). `wave` = Amplitude einer Wellenbewegung
 ## (Anteil) mit `waves` vollen Perioden – summiert sich im Abschnitt zu 0. `runout_m`/`runout_grade` = flacherer
-## Auslauf am Abschnittsende (Abfahrt in den Hafen).
+## Auslauf am Abschnittsende (Abfahrt in den Hafen). `ccw_name` = Name gegen den Uhrzeigersinn (#34), wo der Name
+## rückwärts nicht passt: die Abfahrt ist dort der Anstieg über den Osthang.
 const START_HEIGHT := 3.0
 const SECTIONS := [
 	{"id": "hafen", "name": "Hafen", "to_height": 4.0},
@@ -39,7 +44,27 @@ const SECTIONS := [
 	{"id": "serpentinen", "name": "Serpentinen", "grade": 0.072, "wave": 0.012, "waves": 3},
 	{"id": "hain", "name": "Pinien-/Olivenhain", "rise": 10.0, "wave": 0.02, "waves": 2},
 	{"id": "bergdorf", "name": "Bergdorf", "rise": 2.0},
-	{"id": "abfahrt", "name": "Abfahrt", "to_height": START_HEIGHT, "wave": 0.012, "waves": 3, "runout_m": 320.0, "runout_grade": -0.015},
+	{"id": "abfahrt", "name": "Abfahrt", "ccw_name": "Osthang", "to_height": START_HEIGHT, "wave": 0.012, "waves": 3, "runout_m": 320.0, "runout_grade": -0.015},
+]
+
+## Segmente (#33): feste Abschnitte mit eigener Zeit, je Richtung Start- und Endmeter (Fahrtposition, Start < Ende in
+## Fahrtrichtung). Reine Daten. Im Uhrzeigersinn ("cw"):
+##   Küstenwelle  die drei Wellen der Küstenstraße (Kuppen bei ~0,6 / 1,2 / 1,8 km)
+##   Bergwertung  die Serpentinen von der ersten Rampe bis zur Kuppe am Aussichtspunkt
+##   Dorfsprint   durchs Bergdorf
+## Gegen den Uhrzeigersinn ("ccw", Rundenlänge ~9210 m, Fahrtposition = Rundenlänge − Pfadposition):
+##   Bergwertung  der lange Anstieg über den Osthang vom Ende der Hafeneinfahrt bis kurz vor das Bergdorf
+##                (~2,85 km, ~7 %) – wieder der Berg der Runde, daher derselbe Name
+##   Dorfsprint   durchs Bergdorf, dieselbe Strecke rückwärts
+##   Küstenwelle  die drei Wellen der Küstenstraße rückwärts
+## Ids und Namen bleiben je Richtung gleich; Bestzeiten und Medaillen trennt der Spielstand nach Richtung.
+const SEGMENTS := [
+	{"id": "kuestenwelle", "name": "Küstenwelle", "cw": {"start_m": 480.0, "end_m": 2240.0},
+		"ccw": {"start_m": 6970.0, "end_m": 8730.0}},
+	{"id": "bergwertung", "name": "Bergwertung", "cw": {"start_m": 2340.0, "end_m": 4590.0},
+		"ccw": {"start_m": 330.0, "end_m": 3180.0}},
+	{"id": "dorfsprint", "name": "Dorfsprint", "cw": {"start_m": 5700.0, "end_m": 6010.0},
+		"ccw": {"start_m": 3200.0, "end_m": 3510.0}},
 ]
 
 static var _cache: Dictionary = {}
@@ -99,10 +124,24 @@ static func _hairpin(at: Vector2, eastbound: bool) -> Array[Vector2]:
 	return points
 
 
-## Macht `track` zum Insel-Rundkurs: Kurve und Stationen.
-static func apply_to(track: Track) -> void:
+## Macht `track` zum Insel-Rundkurs: Kurve, Stationen und Segmente beider Richtungen; gefahren wird in `direction`.
+static func apply_to(track: Track, direction: String = Track.DIRECTION_CW) -> void:
 	track.curve = curve()
 	track.stations = stations().duplicate(true)
+	track.segments_by_direction = {Track.DIRECTION_CW: segments(Track.DIRECTION_CW),
+			Track.DIRECTION_CCW: segments(Track.DIRECTION_CCW)}
+	track.set_direction(direction)
+
+
+## Segmente in Richtung `direction` (Track.DIRECTION_*): [{id, name, start_m, end_m}], in Fahrtrichtung (nach start_m).
+static func segments(direction: String) -> Array:
+	var result := []
+	for segment in SEGMENTS:
+		if segment.has(direction):
+			result.append({"id": segment["id"], "name": segment["name"], "start_m": segment[direction]["start_m"],
+					"end_m": segment[direction]["end_m"]})
+	result.sort_custom(func(a, b): return a["start_m"] < b["start_m"])
+	return result
 
 
 ## Curve3D des Rundkurses (gecacht).
@@ -110,7 +149,7 @@ static func curve() -> Curve3D:
 	return _build()["curve"]
 
 
-## Stationen in Fahrtrichtung: [{id, name, start_m}] (start_m = Streckenposition auf der Kurve).
+## Stationen im Uhrzeigersinn: [{id, name, ccw_name, start_m}] (start_m = Pfadposition auf der Kurve).
 static func stations() -> Array:
 	return _build()["stations"]
 
@@ -144,6 +183,7 @@ static func _build() -> Dictionary:
 	var stations := []
 	for s in range(SECTIONS.size()):
 		stations.append({"id": SECTIONS[s]["id"], "name": SECTIONS[s]["name"],
+				"ccw_name": SECTIONS[s].get("ccw_name", SECTIONS[s]["name"]),
 				"start_m": 0.0 if s == 0 else result.get_closest_offset(samples[boundaries[s]])})
 	var landmarks := [{"id": "aussichtspunkt", "name": "Aussichtspunkt",
 			"distance_m": result.get_closest_offset(samples[plan["viewpoint"]])}]

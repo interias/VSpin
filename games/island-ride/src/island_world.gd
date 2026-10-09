@@ -10,9 +10,16 @@
 ##   Stations  je Station ein Node3D (Name = id) am Abschnittsbeginn mit Label3D; Metadaten `station_name`,
 ##             `distance_m`; dazu `aussichtspunkt` (Landmarke)
 ##   Props     je Station ein Node3D (Name = id) mit der Deko
-##   Landmarks Sehenswürdigkeiten (Leuchtturm, Talaia, Ermita, …), Details Kleindetails – siehe IslandLandmarks (G2)
+##   Segments  je Segment ein Torbogen am Start (Name = id, #33), im Uhrzeigersinn; SegmentsCcw dasselbe gegen den
+##             Uhrzeigersinn (#34). Sichtbar sind nur die Bögen der gewählten Richtung (`set_direction`).
+##   Landmarks Sehenswürdigkeiten (Leuchtturm, Talaia, Ermita, …), Details Kleindetails – siehe IslandLandmarks (G2);
+##             mit dem Aussichtspunkt die Orte der Panorama-Momente (`panorama_spots`, #43)
+##   Vegetation Gras, Unterholz und Sträucher je Station; Gelände und Fahrbahn mit Detailtextur – siehe
+##             IslandVegetation (#38)
+##   Fauna     Weide- und Dorftiere (Herden, Ziegen auf der Straße, Esel, Katzen) – siehe IslandFauna (#40)
 ##   Motion    bewegte Szenen und Effekte (Windmühlen, Leuchtturm, Boote, Vögel, Wolken) – siehe WorldMotion (G3);
 ##             Meer und Vegetation bekommen dort ihre Shader (Wellen/Brandung, Wind)
+## Jahreszeit (#39): `set_season(phase)` färbt Vegetation, Boden und Kenney-Vegetation um (`tint_nature`) – ohne Neubau.
 class_name IslandWorld
 extends Node3D
 
@@ -41,6 +48,8 @@ const CYPRESS := "tree_tall"
 ## Bergdorf: Kantenlänge eines Fantasy-Town-Moduls (Wand 1 × 1) in m für Häuser und Kirche.
 const HOUSE_MODULE_M := 3.2
 const CHURCH_MODULE_M := 4.2
+## Panorama am Aussichtspunkt (#43): Blickziel so weit links der Straße, über die Plattform hinaus aufs Meer (m).
+const VIEWPOINT_OUTLOOK_M := 80.0
 ## Nature-Kit-Materialfarben (Türkis/Orange) → mediterrane Töne, nach Materialname.
 const NATURE_COLORS := {
 	"leafsGreen": Color(0.22, 0.38, 0.18),
@@ -65,11 +74,21 @@ const CYPRESS_COLORS := {
 var terrain: IslandTerrain
 var track: Track
 var landmarks: IslandLandmarks
+## Gras, Unterholz und Sträucher entlang der Strecke (#38), Kind `Vegetation`.
+var vegetation: IslandVegetation
+## Weide- und Dorftiere (#40), Kind `Fauna`.
+var fauna: IslandFauna
 ## Bewegte Szenen und Effekte (G3), Kind `Motion`.
 var motion: WorldMotion
+## Compatibility-Renderer (Web)? Dann wird die Vegetation abgespeckt (#38); vor `build()` injizierbar (Tests).
+var compatibility := SkyController.is_compatibility_renderer()
 
 static var _terrain_mesh: ArrayMesh = null
 static var _models := {}
+## Jahreszeit (#39): Faktor je Materialname der Kenney-Modelle (`tint_nature`) und die umgefärbten Materialien
+## [Material, Materialname, Farbe vom Laden].
+static var nature_tint := {}
+static var _nature_materials := []
 
 
 ## Baut die Welt für `course_track` (Pfad mit Insel-Kurve). Die Pfad-Koordinaten sind Weltkoordinaten
@@ -79,15 +98,22 @@ func build(course_track: Track) -> void:
 	terrain = IslandTerrain.for_course()
 	if _terrain_mesh == null:
 		_terrain_mesh = terrain.build_mesh()
-	_add_mesh("Terrain", _terrain_mesh, _vertex_color_material())
+	var ground := _add_mesh("Terrain", _terrain_mesh, _vertex_color_material())
 	var sea := PlaneMesh.new()
 	sea.size = Vector2(SEA_SIZE_M, SEA_SIZE_M)
 	_add_mesh("Sea", sea, WorldMotion.sea_material(terrain))
-	_add_mesh("Road", track.road_mesh(), _vertex_color_material())
+	var road := _add_mesh("Road", track.road_mesh(), _vertex_color_material())
+	IslandVegetation.texture_ground(ground.material_override, road.material_override)
 	_build_stations()
 	_build_props()
+	_build_segment_gates()
 	landmarks = IslandLandmarks.new(self)
 	landmarks.build()
+	vegetation = IslandVegetation.new(self)
+	vegetation.build()
+	fauna = IslandFauna.new()
+	add_child(fauna)
+	fauna.setup(self)
 	motion = WorldMotion.new()
 	add_child(motion)
 	motion.setup(self)
@@ -159,11 +185,51 @@ func _side_offset(distance_m: float, meters: float) -> Vector3:
 	return Vector3(-dir.z, 0.0, dir.x) * meters
 
 
+## Sehenswürdigkeiten für die Panorama-Momente (#43): [{id, name, path_m (Pfadposition), at (Weltpunkt)}] – der
+## Aussichtspunkt (Blick über die Plattform hinaus aufs Meer) und jede Landmarke unter `Landmarks` (Gruppen wie die
+## Windmühlen über ihr mittleres Glied). Keine neuen Orte.
+func panorama_spots() -> Array:
+	var spots := []
+	for landmark in IslandCourse.landmarks():
+		var d: float = landmark["distance_m"]
+		spots.append({"id": landmark["id"], "name": landmark["name"], "path_m": d,
+				"at": track.to_global(track.position_at(d) + _side_offset(d, -VIEWPOINT_OUTLOOK_M))})
+	for node in get_node("Landmarks").get_children():
+		var part: Node3D = node if node.has_meta("distance_m") else node.get_child(node.get_child_count() / 2)
+		spots.append({"id": String(node.name), "name": node.get_meta("landmark_name"),
+				"path_m": part.get_meta("distance_m"), "at": part.global_position})
+	return spots
+
+
 ## Weltpunkt neben der Straße auf Geländehöhe.
 func _beside_road(distance_m: float, meters: float) -> Vector3:
 	var p := track.position_at(distance_m) + _side_offset(distance_m, meters)
 	p.y = terrain.height_at(p.x, p.z)
 	return p
+
+
+## Fahrtrichtung (#34, nach Track.set_direction): Torbögen und Kilometersteine der Richtung zeigen; die Stationsschilder
+## stehen am Beginn ihrer Station in Fahrtrichtung, mit dem Namen in dieser Richtung (Track.ride_stations), der Pfosten
+## rechts. Im Uhrzeigersinn steht alles wie beim Aufbau.
+func set_direction(direction: String) -> void:
+	var ccw := direction == Track.DIRECTION_CCW
+	get_node("Segments").visible = not ccw
+	get_node("SegmentsCcw").visible = ccw
+	var details := get_node_or_null("Details")
+	if details != null:
+		details.get_node("Kilometersteine").visible = not ccw
+		details.get_node("KilometersteineCcw").visible = ccw
+	var stations := get_node("Stations")
+	for station in track.ride_stations():
+		var marker := stations.get_node_or_null(NodePath(station["id"])) as Node3D
+		if marker == null:
+			continue
+		var path_m := track.path_distance(station["start_m"], direction)
+		marker.set_meta("station_name", station["name"])
+		marker.set_meta("distance_m", path_m)
+		marker.position = track.position_at(path_m)
+		(marker.get_node("Label") as Label3D).text = station["name"]
+		(marker.get_node("Post") as Node3D).position = _side_offset(path_m, -4.2 if ccw else 4.2) + Vector3(0.0, 3.5, 0.0)
 
 
 func _station_range(id: String) -> Vector2:
@@ -301,6 +367,48 @@ func _build_harbour() -> void:
 	_box(arch, "Banner", Vector3(8.5, 1.2, 0.3), Vector3(0.0, 5.0, 0.0), Color(0.95, 0.95, 0.95))
 
 
+## Torbögen am Start jedes Segments (#33, Track.segments) im Stil des Start/Ziel-Bogens, blau statt rot, mit dem Namen
+## des Segments auf dem Banner (zur anfahrenden Kamera hin). Knoten `Segments/<id>` (im Uhrzeigersinn) und
+## `SegmentsCcw/<id>` (gegen ihn, #34: am Start in dieser Richtung, Banner zur Gegenrichtung) mit Metadaten
+## `segment_name`, `distance_m` (Fahrtposition in ihrer Richtung).
+func _build_segment_gates() -> void:
+	for direction in [Track.DIRECTION_CW, Track.DIRECTION_CCW]:
+		var gates := Node3D.new()
+		gates.name = "Segments" if direction == Track.DIRECTION_CW else "SegmentsCcw"
+		gates.visible = direction == track.direction
+		add_child(gates)
+		var segments: Array = track.segments_by_direction.get(direction,
+				track.segments if direction == Track.DIRECTION_CW else [])
+		for segment in segments:
+			var path_m := track.path_distance(segment["start_m"], direction)
+			_segment_gate(gates, segment, track.position_at(path_m),
+					_yaw_at(path_m) + (PI if direction == Track.DIRECTION_CCW else 0.0))
+
+
+## Ein Torbogen für `segment` an `at` mit Drehung `yaw` (Banner-Name zur anfahrenden Kamera).
+func _segment_gate(gates: Node3D, segment: Dictionary, at: Vector3, yaw: float) -> void:
+	var blue := Color(0.12, 0.3, 0.62)
+	var arch := Node3D.new()
+	arch.name = segment["id"]
+	arch.set_meta("segment_name", segment["name"])
+	arch.set_meta("distance_m", segment["start_m"])
+	arch.position = at
+	arch.rotation.y = yaw
+	gates.add_child(arch)
+	_box(arch, "PfostenL", Vector3(0.5, 5.5, 0.5), Vector3(-4.0, 0.0, 0.0), blue)
+	_box(arch, "PfostenR", Vector3(0.5, 5.5, 0.5), Vector3(4.0, 0.0, 0.0), blue)
+	_box(arch, "Banner", Vector3(8.5, 1.2, 0.3), Vector3(0.0, 5.0, 0.0), Color(0.95, 0.95, 0.95))
+	var label := Label3D.new()
+	label.name = "Name"
+	label.text = segment["name"]
+	label.font_size = 72
+	label.pixel_size = 0.01
+	label.outline_size = 0
+	label.modulate = blue
+	label.position = Vector3(0.0, 5.6, 0.16)
+	arch.add_child(label)
+
+
 ## Küstenstraße (#15): seeseitig (links in Fahrtrichtung) eine niedrige Natursteinmauer am Straßenrand, Büsche und
 ## Felsen am Hang zum Meer und Klippen an der Wasserlinie; landseitig Pinien, Büsche und Felsen.
 ## Modelle: Kenney Nature Kit (CC0, siehe ASSETS.md).
@@ -424,6 +532,7 @@ static func _model_mesh(path: String, colors: Dictionary = NATURE_COLORS) -> Arr
 			placement = (node as Node3D).transform * placement
 			node = node.get_parent()
 		var mesh: Mesh = mesh_node.mesh.duplicate()
+		var names := {}
 		for s in range(mesh.get_surface_count()):
 			var material := mesh.surface_get_material(s) as BaseMaterial3D
 			if material != null and material.metallic > 0.0:
@@ -432,10 +541,41 @@ static func _model_mesh(path: String, colors: Dictionary = NATURE_COLORS) -> Arr
 				material.albedo_color = colors.get(material.resource_name,
 						NATURE_COLORS.get(material.resource_name, material.albedo_color))
 				mesh.surface_set_material(s, material)
+				names[s] = [material.resource_name, material.albedo_color]
 		WorldMotion.sway(mesh, path)
+		for s in names:
+			_nature_materials.append([mesh.surface_get_material(s), names[s][0], names[s][1]])
+			_set_nature_color(_nature_materials[-1])
 		_models[key] = [mesh, placement]
 		scene.free()
 	return _models[key]
+
+
+## Jahreszeit (#39, Season.LOOKS[phase]): Vegetation und Boden (IslandVegetation-Palette), Kenney-Vegetation
+## (`tint_nature`) und Mohn – ohne die Welt neu zu bauen.
+func set_season(phase: String) -> void:
+	var look: Dictionary = Season.LOOKS[phase]
+	IslandVegetation.set_palette(look["palette"])
+	tint_nature(look["nature"])
+	if vegetation != null:
+		vegetation.set_kind_visible("Mohn", look["poppies"])
+
+
+## Kenney-Modelle zentral umfärben (#39): Faktor je Materialname (z. B. "grass", "leafsGreen") auf die Farbe vom
+## Laden (NATURE_COLORS/OLIVE_COLORS/…); fehlende Namen zurück auf 1. Wirkt sofort auf alle geladenen Modelle.
+static func tint_nature(tints: Dictionary) -> void:
+	nature_tint = tints.duplicate()
+	for entry in _nature_materials:
+		_set_nature_color(entry)
+
+
+## Farbe eines Eintrags [Material, Materialname, Farbe vom Laden] mit dem aktuellen Faktor (Wind-Shader oder Standard).
+static func _set_nature_color(entry: Array) -> void:
+	var color: Color = entry[2] * nature_tint.get(entry[1], Color.WHITE)
+	if entry[0] is ShaderMaterial:
+		(entry[0] as ShaderMaterial).set_shader_parameter("albedo", color)
+	elif entry[0] is BaseMaterial3D:
+		(entry[0] as BaseMaterial3D).albedo_color = color
 
 
 func _scaled(at: Vector3, factor: float, yaw: float) -> Transform3D:
@@ -679,9 +819,16 @@ func _build_village() -> void:
 	var church_at := _beside_road(square, 27.0)
 	var to_road := track.position_at(square) - church_at
 	var church_parts := {}
-	_church(church_parts, church_at - Vector3(0.0, 0.3, 0.0), atan2(-to_road.x, -to_road.z))
+	var church_yaw := atan2(-to_road.x, -to_road.z)
+	_church(church_parts, church_at - Vector3(0.0, 0.3, 0.0), church_yaw)
 	for file in church_parts:
 		_scatter(church, file, "fantasy-town/%s.glb" % file, church_parts[file])
+	# Einhängepunkt der Dorfglocke (#44): Schallfenster im obersten Turmgeschoss
+	var belfry := Node3D.new()
+	belfry.name = "Glockenstuhl"
+	belfry.position = Transform3D(Basis(Vector3.UP, church_yaw).scaled(Vector3.ONE * CHURCH_MODULE_M),
+			church_at - Vector3(0.0, 0.3, 0.0)) * Vector3(1.5, 4.5, -1.5)
+	church.add_child(belfry)
 	_place_model(node, "fantasy-town/fountain-round.glb", _beside_road(square, 12.5), 0.0, 3.0)
 	_place_model(node, "fantasy-town/stall-red.glb", _beside_road(square - 12.0, 13.0), _yaw_at(square), 3.0)
 	_place_model(node, "fantasy-town/stall-red.glb", _beside_road(square + 12.0, 13.0), _yaw_at(square), 3.0)

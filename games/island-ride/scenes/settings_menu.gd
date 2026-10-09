@@ -1,9 +1,15 @@
 ## Menü „Grafik und Fenster“ (G4): `Esc` oder `F2` öffnet/schließt (auch aus der Pause), `F11` schaltet Vollbild um.
-## Beenden nur über den Knopf „Beenden“ (Signal `quit_requested`; nicht im Browser).
+## Beenden nur über den Knopf „Beenden“ (Signal `quit_requested`; nicht im Browser). Während einer Fahrt zusätzlich
+## „Fahrt beenden“ (Signal `ride_end_requested`): zurück ins Startmenü, ohne das Spiel zu schließen (#30).
 ## Jede Änderung wirkt sofort und wird in `settings_path` gespeichert (GraphicsSettings, `user://settings.cfg`).
 ## Beim Start wendet das Menü die gespeicherten Einstellungen an; die Fenstergeometrie (auch nach Ziehen oder
 ## Windows-Snap) wird beim Beenden gemerkt. Das Spiel läuft weiter, solange das Menü offen ist.
-## Tageszeit und Wetter (G8) stehen in denselben Einstellungen (`[sky]`); auf die Welt wirken sie über
+## Tempo-Effekte (#42, Geschwindigkeitslinien und Sichtfeld-Kick) und Panorama-Momente (#43) schaltet die Hauptszene über
+## `settings_changed` um.
+## Die Kameraperspektive (#59, CameraViews) steht nicht in den Einstellungen, sondern im Spielstand: Die Hauptszene setzt
+## `camera_view`, das Feld zeigt es, eine Auswahl meldet `settings_changed("camera_view")`, und die Hauptszene speichert.
+## Ton (#44): „Ton“ an/aus und „Lautstärke“ in der rechten Spalte; die Hauptszene stellt den Bus über `settings_changed`.
+## Tageszeit, Wetter (G8) und Jahreszeit (#39) stehen in denselben Einstellungen (`[sky]`); auf die Welt wirken sie über
 ## `settings_changed`, das die Hauptszene an den SkyController weitergibt.
 ## Im Browser (`web`) gibt es keine Fenstermodi/-größen und kein VSync; im Compatibility-Renderer nur MSAA und
 ## bilineare Skalierung.
@@ -13,6 +19,8 @@ extends CanvasLayer
 signal settings_changed(key: String)
 ## Knopf „Beenden“ gedrückt (die Hauptszene beendet das Spiel).
 signal quit_requested
+## Knopf „Fahrt beenden“ gedrückt (die Hauptszene kehrt ins Startmenü zurück).
+signal ride_end_requested
 
 const AA_LABELS := {"off": "Aus", "fxaa": "FXAA", "msaa_2x": "MSAA 2×", "msaa_4x": "MSAA 4×", "msaa_8x": "MSAA 8×",
 		"taa": "TAA"}
@@ -28,6 +36,8 @@ var web := OS.has_feature("web")
 ## Compatibility-Renderer (Web)? (Vor `_ready` überschreibbar, für Tests.)
 var compatibility := RenderingServer.get_current_rendering_method() == "gl_compatibility"
 var settings: GraphicsSettings
+## Kameraperspektive (CameraViews.IDS) aus dem Spielstand; setzt die Hauptszene.
+var camera_view := CameraViews.DEFAULT
 
 ## Auswahlfelder je Einstellung (Schlüssel wie in `_rows`).
 var options := {}
@@ -35,6 +45,7 @@ var options := {}
 var _rows := {}
 var _panel: PanelContainer
 var _window_buttons: HBoxContainer
+var _end_ride: Button
 ## Fenstermodus vor dem Vollbild (für `F11` zurück).
 var _windowed_mode := GraphicsSettings.WINDOW_WINDOWED
 
@@ -88,6 +99,31 @@ func close() -> void:
 	var focus := _panel.get_viewport().gui_get_focus_owner()
 	if focus != null:
 		focus.release_focus()
+
+
+## Läuft eine Fahrt? Nur dann gibt es „Fahrt beenden“.
+func set_ride_active(active: bool) -> void:
+	_end_ride.visible = active
+
+
+## Tageszeiten wie im Feld „Tageszeit“ (für das Rundfahrt-Menü, #31): [Beschriftungen, Index der aktuellen].
+func time_choices() -> Array:
+	_refresh()
+	var option: OptionButton = options["time"]
+	var labels := []
+	for i in range(option.item_count):
+		labels.append(option.get_item_text(i))
+	return [labels, option.selected]
+
+
+## Tageszeit wählen wie im Feld „Tageszeit“: wirkt sofort und wird gespeichert.
+func select_time(index: int) -> void:
+	_refresh()
+	var option: OptionButton = options["time"]
+	if index < 0 or index == option.selected:
+		return
+	option.select(index)
+	option.item_selected.emit(index)
 
 
 ## Kantenglättung, Auflösung, VSync, fps-Limit und Schatten anwenden (ohne Fenster).
@@ -166,11 +202,12 @@ func _build() -> void:
 	title.text = "Grafik und Fenster"
 	title.add_theme_font_size_override("font_size", 26)
 	box.add_child(title)
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 16)
-	grid.add_theme_constant_override("v_separation", 8)
-	box.add_child(grid)
+	# Zwei Spalten (#42): links Grafik (mit Panorama-Momenten, #43), rechts Tageszeit, Wetter, Jahreszeit, Ton (#44) und
+	# Fenster – so passt das Menü auch in 1280×720 und ins Halbbild.
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 32)
+	box.add_child(columns)
+	var grid := _add_grid(columns)
 	var aa_modes := GraphicsSettings.AA_MODES_COMPATIBILITY if compatibility else GraphicsSettings.AA_MODES
 	_add_row(grid, "aa", "Kantenglättung", aa_modes.map(func(m): return AA_LABELS[m]), aa_modes,
 			func(v): settings.aa = v)
@@ -185,6 +222,11 @@ func _build() -> void:
 			GraphicsSettings.MAX_FPS_CHOICES, func(v): settings.max_fps = v)
 	_add_row(grid, "shadows", "Schatten", GraphicsSettings.SHADOW_QUALITIES.map(func(s): return SHADOW_LABELS[s]),
 			GraphicsSettings.SHADOW_QUALITIES, func(v): settings.shadows = v)
+	_add_row(grid, "speed_effects", "Tempo-Effekte", ["An", "Aus"], [true, false], func(v): settings.speed_effects = v)
+	_add_row(grid, "panorama", "Panorama-Momente", ["An", "Aus"], [true, false], func(v): settings.panorama = v)
+	_add_row(grid, "camera_view", "Kamera", CameraViews.IDS.map(func(id): return CameraViews.NAMES[id]),
+			CameraViews.IDS, func(v): camera_view = v)
+	grid = _add_grid(columns)
 	var times: Array = [_time_value(DayNight.MODE_REALTIME, 0.0)]
 	times.append_array(GraphicsSettings.FIXED_HOURS.map(func(h): return _time_value(DayNight.MODE_FIXED, h)))
 	times.append_array(GraphicsSettings.TIMELAPSE_DAY_MINS.map(
@@ -193,6 +235,13 @@ func _build() -> void:
 	var weathers: Array = [_weather_value(Weather.MODE_CHANGING, "")]
 	weathers.append_array(Weather.STATES.keys().map(func(w): return _weather_value(Weather.MODE_FIXED, w)))
 	_add_row(grid, "weather", "Wetter", weathers.map(_weather_label), weathers, _on_weather)
+	var seasons: Array = [_season_value(Season.MODE_REAL, "")]
+	seasons.append_array(Season.PHASES.map(func(p): return _season_value(Season.MODE_FIXED, p)))
+	_add_row(grid, "season", "Jahreszeit", seasons.map(_season_label), seasons, _on_season)
+	_add_row(grid, "sound", "Ton", ["An", "Aus"], [true, false], func(v): settings.sound_enabled = v)
+	_add_row(grid, "sound_volume", "Lautstärke",
+			GraphicsSettings.SOUND_VOLUMES.map(func(v): return "%d %%" % roundi(v * 100.0)),
+			GraphicsSettings.SOUND_VOLUMES, func(v): settings.sound_volume = v)
 	_add_row(grid, "window_mode", "Fenstermodus", GraphicsSettings.WINDOW_MODES.map(func(m): return WINDOW_LABELS[m]),
 			GraphicsSettings.WINDOW_MODES, _on_window_mode)
 	_add_row(grid, "window_size", "Fenstergröße", [], [], _on_window_size)
@@ -210,6 +259,9 @@ func _build() -> void:
 	actions.add_theme_constant_override("separation", 8)
 	box.add_child(actions)
 	_add_button(actions, "Schließen", close)
+	_end_ride = _add_button(actions, "Fahrt beenden", _on_end_ride)
+	_end_ride.name = "EndRide"
+	_end_ride.visible = false
 	var quit := _add_button(actions, "Beenden", quit_requested.emit)
 	quit.name = "Quit"
 	quit.visible = not web  # im Browser lässt sich das Spiel nicht beenden
@@ -223,6 +275,20 @@ func _build() -> void:
 	if web:
 		hint.text = "Esc / F2: schließen"
 	_refresh()
+
+
+func _on_end_ride() -> void:
+	close()
+	ride_end_requested.emit()
+
+
+func _add_grid(parent: Container) -> GridContainer:
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 16)
+	grid.add_theme_constant_override("v_separation", 4)
+	parent.add_child(grid)
+	return grid
 
 
 func _add_row(grid: GridContainer, key: String, text: String, labels: Array, values: Array, setter: Callable) -> void:
@@ -249,10 +315,11 @@ func _add_button(parent: Container, text: String, action: Callable) -> Button:
 	return button
 
 
-## Auswahl in einem Feld: Wert setzen; Grafik sofort anwenden und speichern (Fenster über eigene Setter).
+## Auswahl in einem Feld: Wert setzen; Grafik sofort anwenden und speichern (Fenster über eigene Setter, die
+## Kameraperspektive speichert die Hauptszene im Spielstand).
 func _on_selected(index: int, option: OptionButton, key: String, setter: Callable) -> void:
 	setter.call(option.get_meta("values")[index])
-	if key not in ["window_mode", "window_size"]:
+	if key not in ["window_mode", "window_size", "camera_view"]:
 		apply()
 		_save()
 	settings_changed.emit(key)
@@ -297,6 +364,22 @@ func _on_weather(value: Array) -> void:
 		settings.weather = value[1]
 
 
+## Jahreszeit als Menüwert: [Modus, Phase] – nach dem Datum ohne Phase.
+static func _season_value(mode: String, phase: String) -> Array:
+	return [mode, phase]
+
+
+static func _season_label(value: Array) -> String:
+	return Season.NAMES.get(value[1], "") if value[0] == Season.MODE_FIXED else "Nach Datum (Mallorca)"
+
+
+func _on_season(value: Array) -> void:
+	settings.sky_saved = true
+	settings.season_mode = value[0]
+	if value[0] == Season.MODE_FIXED:
+		settings.season = value[1]
+
+
 func _on_window_mode(mode: String) -> void:
 	if mode != GraphicsSettings.WINDOW_FULLSCREEN:
 		_windowed_mode = mode
@@ -323,11 +406,18 @@ func _refresh() -> void:
 	_select("vsync", settings.vsync)
 	_select("max_fps", settings.max_fps)
 	_select("shadows", settings.shadows)
+	_select("speed_effects", settings.speed_effects)
+	_select("panorama", settings.panorama)
+	_select("sound", settings.sound_enabled)
+	_select_or_add("sound_volume", settings.sound_volume, func(v): return "%d %%" % roundi(v * 100.0))
+	_select("camera_view", camera_view)
 	_select("window_mode", settings.window_mode)
 	var number := settings.fixed_hour if settings.time_mode == DayNight.MODE_FIXED 			else settings.timelapse_day_min if settings.time_mode == DayNight.MODE_TIMELAPSE else 0.0
 	_select_or_add("time", _time_value(settings.time_mode, number), _time_label)
 	_select_or_add("weather", _weather_value(settings.weather_mode,
 			settings.weather if settings.weather_mode == Weather.MODE_FIXED else ""), _weather_label)
+	_select("season", _season_value(settings.season_mode,
+			settings.season if settings.season_mode == Season.MODE_FIXED else ""))
 	var sizes: Array = GraphicsSettings.WINDOW_SIZES.duplicate()
 	var size_option: OptionButton = options["window_size"]
 	size_option.clear()

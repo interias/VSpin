@@ -1,5 +1,6 @@
 ## Grafik- und Fenstereinstellungen der Inselfahrt (Menü `F2`, G4): Kantenglättung, Render-Auflösung, VSync,
-## fps-Limit, Schatten, Fenstermodus und -geometrie; dazu Tageszeit und Wetter (G8, Abschnitt `[sky]`, nur geschrieben,
+## fps-Limit, Schatten, Tempo-Effekte (#42), Panorama-Momente (#43), Ton an/aus und Lautstärke (#44, Abschnitt `[sound]`),
+## Fenstermodus und -geometrie; dazu Tageszeit, Wetter und Jahreszeit (G8, #39; Abschnitt `[sky]`, nur geschrieben,
 ## sobald im Menü gewählt – sonst gilt `config.cfg [sky]`). Gespeichert in `user://settings.cfg` (ConfigFile), getrennt von
 ## der Spiel-Konfiguration `config.cfg` (Bus, Fahrmodell). Fehlende Datei oder Schlüssel, ungültige Werte → Standard.
 ## Logik und Werte hier; das Menü (`scenes/settings_menu.gd`) zeigt sie an und wendet sie an.
@@ -54,6 +55,10 @@ const WINDOW_SIZES := [Vector2i(960, 1040), Vector2i(1280, 720), Vector2i(1600, 
 ## Position „mittig auf dem Bildschirm“.
 const POSITION_CENTERED := Vector2i(-1, -1)
 
+## Lautstärke des Tons (#44, Bus RideSound.BUS) im Menü: Anteil 0..1; Standard leise, damit Musik nebenher bleibt.
+const SOUND_VOLUMES := [0.1, 0.2, 0.3, 0.5, 0.7, 1.0]
+const DEFAULT_SOUND_VOLUME := 0.3
+
 ## Tageszeit im Menü: feste Ortszeiten (Stunden) und Zeitraffer (Minuten je Tag).
 const FIXED_HOURS := [6.0, 9.0, 12.0, 15.0, 18.0, 20.5, 22.0, 0.0]
 const TIMELAPSE_DAY_MINS := [12.0, 24.0, 48.0]
@@ -64,6 +69,13 @@ var upscaler := UPSCALER_BILINEAR
 var vsync := true
 var max_fps := 0
 var shadows := SHADOWS_MEDIUM
+## Geschwindigkeitslinien und Sichtfeld-Kick (#42, SpeedEffects).
+var speed_effects := true
+## Panorama-Momente an den Sehenswürdigkeiten (#43).
+var panorama := true
+## Ton (#44): an/aus und Lautstärke 0..1.
+var sound_enabled := true
+var sound_volume := DEFAULT_SOUND_VOLUME
 var window_mode := WINDOW_WINDOWED
 var window_size := Vector2i(1600, 900)
 ## Position der Client-Fläche (ohne Rahmen); POSITION_CENTERED = mittig.
@@ -75,6 +87,9 @@ var fixed_hour := 13.0
 var timelapse_day_min := 24.0
 var weather_mode := Weather.MODE_CHANGING
 var weather := Weather.CLEAR
+## Jahreszeit (#39, Season): nach dem Datum oder fest.
+var season_mode := Season.MODE_REAL
+var season := Season.SPRING
 
 
 ## Liest `path`; fehlende/kaputte Datei oder Schlüssel und ungültige Werte ergeben die Standardwerte.
@@ -94,6 +109,10 @@ static func load_file(path: String = DEFAULT_PATH) -> GraphicsSettings:
 	settings.max_fps = maxi(int(_number(file.get_value("graphics", "max_fps"), settings.max_fps)), 0)
 	settings.shadows = _choice(file.get_value("graphics", "shadows", settings.shadows), SHADOW_QUALITIES,
 			settings.shadows)
+	settings.speed_effects = bool(file.get_value("graphics", "speed_effects", settings.speed_effects))
+	settings.panorama = bool(file.get_value("graphics", "panorama", settings.panorama))
+	settings.sound_enabled = bool(file.get_value("sound", "enabled", settings.sound_enabled))
+	settings.sound_volume = clampf(_number(file.get_value("sound", "volume"), settings.sound_volume), 0.0, 1.0)
 	settings.window_mode = _choice(file.get_value("window", "mode", settings.window_mode), WINDOW_MODES,
 			settings.window_mode)
 	var size = file.get_value("window", "size", settings.window_size)
@@ -113,6 +132,9 @@ static func load_file(path: String = DEFAULT_PATH) -> GraphicsSettings:
 				settings.weather_mode)
 		settings.weather = _choice(file.get_value("sky", "weather", settings.weather), Weather.STATES.keys(),
 				settings.weather)
+		settings.season_mode = _choice(file.get_value("sky", "season_mode", settings.season_mode), Season.MODES,
+				settings.season_mode)
+		settings.season = _choice(file.get_value("sky", "season", settings.season), Season.PHASES, settings.season)
 	return settings
 
 
@@ -124,6 +146,10 @@ func save_file(path: String = DEFAULT_PATH) -> Error:
 	file.set_value("graphics", "vsync", vsync)
 	file.set_value("graphics", "max_fps", max_fps)
 	file.set_value("graphics", "shadows", shadows)
+	file.set_value("graphics", "speed_effects", speed_effects)
+	file.set_value("graphics", "panorama", panorama)
+	file.set_value("sound", "enabled", sound_enabled)
+	file.set_value("sound", "volume", sound_volume)
 	file.set_value("window", "mode", window_mode)
 	file.set_value("window", "size", window_size)
 	file.set_value("window", "position", window_position)
@@ -133,6 +159,8 @@ func save_file(path: String = DEFAULT_PATH) -> Error:
 		file.set_value("sky", "timelapse_day_min", timelapse_day_min)
 		file.set_value("sky", "weather_mode", weather_mode)
 		file.set_value("sky", "weather", weather)
+		file.set_value("sky", "season_mode", season_mode)
+		file.set_value("sky", "season", season)
 	var err := file.save(path)
 	if err != OK:
 		push_warning("GraphicsSettings: %s nicht schreibbar (Fehler %d)" % [path, err])
@@ -164,22 +192,24 @@ func apply_engine(window_vsync: bool = true) -> void:
 	RenderingServer.directional_soft_shadow_filter_set_quality(SHADOW_FILTER[shadows])
 
 
-## Tageszeit und Wetter von `sky` übernehmen (Anzeige im Menü, solange nichts gespeichert ist).
+## Tageszeit, Wetter und Jahreszeit von `sky` übernehmen (Anzeige im Menü, solange nichts gespeichert ist).
 func capture_sky(sky: SkyController) -> void:
 	time_mode = sky.clock.mode
 	fixed_hour = sky.clock.fixed_hour
 	timelapse_day_min = sky.clock.timelapse_day_min
 	weather_mode = sky.weather.mode
 	weather = sky.weather.state
+	season_mode = sky.season_mode
+	season = sky.fixed_season
 
 
-## Tageszeit und Wetter an `sky` setzen; Wetter ohne Überblendung (sofort sichtbar).
+## Tageszeit, Wetter und Jahreszeit an `sky` setzen; Wetter ohne Überblendung (sofort sichtbar).
 func apply_sky(sky: SkyController) -> void:
 	sky.clock.timelapse_day_min = timelapse_day_min
 	sky.set_time_mode(time_mode, fixed_hour if time_mode == DayNight.MODE_FIXED else NAN)
 	sky.set_weather_mode(weather_mode, weather if weather_mode == Weather.MODE_FIXED else "")
 	sky.weather.snap()
-	sky.apply_now()
+	sky.set_season_mode(season_mode, season)
 
 
 ## Fenstermodus, -größe und -position. Gespeicherte Position nur, wenn sie auf einem Bildschirm liegt, sonst mittig.

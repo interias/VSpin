@@ -2,6 +2,8 @@
 ## Die Bewegung rechnet RiderMotion (headless testbar); dieses Modul baut die Geometrie und setzt die Posen.
 ##
 ##   update(cadence, speed_mps, grade, curvature, paused, delta)   einmal pro Frame aus der Hauptszene
+##   make_ghost()   halbtransparente Kopie als Ghost (#32)
+##   wear(outfit)   Garderobe (#36): Farben je Material, z. B. Wardrobe.outfit(…); nur Kosmetik
 ##
 ## Koordinaten (Meter): Ursprung am Boden unter der Radmitte, Fahrtrichtung −Z (wie PathFollow3D), rechts +X.
 ## Knoten: `Lean` (Schräglage um die Aufstandslinie) → `Bike` (Rahmen, starr), `FrontWheel`/`RearWheel` (rollen),
@@ -43,6 +45,11 @@ const BIKE_ROCK_RAD := deg_to_rad(1.2)
 const FRAME_COLOR := Color(0.82, 0.12, 0.1)
 const JERSEY_COLOR := Color(0.05, 0.55, 0.78)
 const SKIN_COLOR := Color(0.93, 0.72, 0.58)
+## Materialien, die die Garderobe färbt (#36): Trikot mit Brustband, Rahmen, Helm mit Streifen.
+const OUTFIT_MATERIALS := ["jersey", "jersey_band", "frame", "helmet", "helmet_stripe"]
+## Ghost (#32): Deckkraft und Farbton, zu dem hin aufgehellt wird.
+const GHOST_ALPHA := 0.45
+const GHOST_TINT := Color(0.75, 0.9, 1.0)
 
 var motion := RiderMotion.new()
 
@@ -75,6 +82,35 @@ func _init() -> void:
 func update(cadence_rpm: float, speed_mps: float, grade: float, curvature: float, paused: bool, delta_s: float) -> void:
 	motion.step(cadence_rpm, speed_mps, grade, curvature, paused, delta_s)
 	_apply_pose()
+
+
+## Als Ghost (#32): alle Materialien halbtransparent (Deckkraft `alpha`) und zu einem hellen Blau hin aufgehellt,
+## kein Schattenwurf. Tiefe wird mitgeschrieben, damit innere Teile nicht durchscheinen; läuft auch im
+## Compatibility-Renderer.
+func make_ghost(alpha: float = GHOST_ALPHA) -> void:
+	for key in _materials:
+		var material: StandardMaterial3D = _materials[key]
+		var color := material.albedo_color.lerp(GHOST_TINT, 0.45)
+		color.a = alpha
+		material.albedo_color = color
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_ALWAYS
+		material.metallic = 0.0
+	for mesh in find_children("*", "MeshInstance3D", true, false):
+		(mesh as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+## Garderobe (#36): Farben `outfit` (Material-Schlüssel aus OUTFIT_MATERIALS → Farbe) übernehmen; andere Schlüssel
+## bleiben unberührt. Nur das Aussehen – Bewegung und Fahrt ändern sich nicht.
+func wear(outfit: Dictionary) -> void:
+	for key in outfit:
+		if key in OUTFIT_MATERIALS and _materials.has(key):
+			(_materials[key] as StandardMaterial3D).albedo_color = outfit[key]
+
+
+## Aktuelle Farbe des Materials `key` (z. B. „jersey“).
+func material_color(key: String) -> Color:
+	return (_materials[key] as StandardMaterial3D).albedo_color
 
 
 ## Pedalposition (Modellkoordinaten im Schräglage-Knoten) für Seite 0 = rechts, 1 = links beim aktuellen Kurbelwinkel.
@@ -195,7 +231,8 @@ func _build_rider() -> void:
 	_capsule(rider, Vector3(0, HIP.y - 0.02, HIP.z + 0.01), 0.1, 0.26, shorts, Vector3(0, 0, PI / 2.0), Vector3(1.0, 1.0, 1.1))
 	_torso = _node(rider, "Torso", Vector3(0, HIP.y, HIP.z))
 	_capsule(_torso, Vector3(0, TORSO_LENGTH * 0.5, 0), 0.14, TORSO_LENGTH + 0.06, jersey, Vector3.ZERO, Vector3(1.3, 1.0, 0.8))
-	_tube(_torso, Vector3(0, TORSO_LENGTH * 0.22, 0), Vector3(0, TORSO_LENGTH * 0.3, 0), 0.142, white, 12, Vector3(1.3, 1.0, 0.82))
+	var band := _material("jersey_band", white.albedo_color, 0.6)
+	_tube(_torso, Vector3(0, TORSO_LENGTH * 0.22, 0), Vector3(0, TORSO_LENGTH * 0.3, 0), 0.142, band, 12, Vector3(1.3, 1.0, 0.82))
 	_tube(_torso, Vector3(0, -0.02, 0), Vector3(0, 0.07, 0), 0.142, shorts, 12, Vector3(1.28, 1.0, 0.8))
 	for mirror in [-1.0, 1.0]:  # Schulterkugeln mit Ärmelansatz
 		_sphere(_torso, Vector3((SHOULDER_HALF_WIDTH - 0.01) * mirror, TORSO_LENGTH - 0.05, 0), 0.06, jersey)
@@ -206,7 +243,7 @@ func _build_rider() -> void:
 	var helmet := _material("helmet", Color(0.97, 0.97, 0.97), 0.35)
 	var shell := _sphere(_head, Vector3(0, 0.025, 0.015), 0.125, helmet, true)
 	shell.scale = Vector3(1.0, 1.0, 1.3)
-	var stripe := _sphere(_head, Vector3(0, 0.027, 0.015), 0.129, _materials["frame"], true)
+	var stripe := _sphere(_head, Vector3(0, 0.027, 0.015), 0.129, _material("helmet_stripe", FRAME_COLOR, 0.35, 0.3), true)
 	stripe.scale = Vector3(0.22, 1.0, 1.31)
 	for x in [-0.055, 0.055]:  # Lüftungsschlitze
 		var vent := _sphere(_head, Vector3(x, 0.03, 0.03), 0.124, _material("vent", Color(0.15, 0.15, 0.17), 0.6), true)

@@ -5,8 +5,9 @@
 ## Die Lichtwerte rechnet `look(sun_elevation, weather, compatibility)` als reine Funktion; `_apply` setzt sie:
 ##   Sonne `Sun`     Richtung aus Höhe/Azimut, Farbe (Abendrot) und Energie, unter dem Horizont aus
 ##   Mond `Moon`     schwaches bläuliches Gegenlicht nachts (ohne Schatten, Stand vereinfacht gegenüber der Sonne)
-##   Himmel/Env      Farben des ProceduralSky, Umgebungslicht, Nebel (Dunst/Regen), Belichtung, Sättigung
-##   Welt            Wolkenbedeckung und -tönung, Wind, Meer, Leuchtturm, Vögel, nasse Straße (WorldMotion-Setter)
+##   Himmel/Env      Farben des ProceduralSky, Umgebungslicht, Nebel (Dunst/Regen), Höhennebel, Belichtung, Sättigung
+##   Welt            Wolkenbedeckung und -tönung, Wind, Meer, Leuchtturm, Vögel, nasse Straße (WorldMotion-Setter),
+##                   Tiere an Meer, Himmel und Wegrand (IslandFauna.set_conditions, #41)
 ##   Lichter         Laternen, Leuchtfeuer, Fahrradlicht (NightLights) nachts und in der Dämmerung
 ##   Regen           Tropfen um die Kamera (GPU-Partikel; im Compatibility-Renderer CPU-Partikel), Sterne nachts
 ## Web-Export (Compatibility-Renderer): eigenes Lichtprofil (`COMPAT_*`) – dort wirkt `vertex_color_is_srgb` nicht
@@ -14,7 +15,13 @@
 ## (Vertex-Farben: Gelände, Straße, Landmarken; Einfarbig: Kai, Molen, Bogen) zu hell werden, Texturmodelle aber
 ## stimmen, tönt das Profil diese Materialien der Welt (`COMPAT_TINT`, Grundfarbe in Meta `profile_base`, Tönung in
 ## Meta `profile_tint`) und senkt das direkte Licht; Belichtung und Umgebungslicht bleiben fast gleich.
-## Schnittstelle für Menüs: `set_time_mode(mode, hour)`, `set_weather_mode(mode, state)`.
+## Jahreszeit (#39, Season): nach dem Datum derselben Uhr oder fest (`set_season_mode`); ein Wechsel färbt die Welt um
+## (`IslandWorld.set_season`), die Farbstimmung des Lichts je Jahreszeit steht an einer Stelle (`SEASON_MOOD`, in `look`).
+## Farbstimmung je Tageszeit und Wetter (#42, `MOOD_*`, in `look` vor der Jahreszeit): tiefe Sonne morgens (Sonne im
+## Osten) kühl und dunstig, abends golden; Wolken und Regen kühl und flau. Am klaren Mittag neutral (Stand G3). Dazu
+## Höhennebel (`fog_height`/`fog_height_density` des Environments): Morgendunst und Regen über Meer und Hafen, am klaren
+## Tag aus. Er wirkt in beiden Renderern; volumetrischen Nebel gibt es nicht (im Compatibility-Renderer fehlt er).
+## Schnittstelle für Menüs: `set_time_mode(mode, hour)`, `set_weather_mode(mode, state)`, `set_season_mode(mode, phase)`.
 class_name SkyController
 extends Node
 
@@ -56,6 +63,36 @@ const COMPAT_SUN := 0.8
 const COMPAT_SATURATION := 1.04
 const COMPAT_CONTRAST := 1.04
 const COMPAT_TINT := Color(0.78, 0.78, 0.78)
+## Farbstimmung je Jahreszeit (#39), dezent: Faktoren auf Sonnen- und Umgebungslichtfarbe und Sättigung – Mandelblüte
+## klar, Frühling frisch, Sommer warm-golden, Herbst warm und milder, Winter kühler und blasser.
+const SEASON_MOOD := {
+	"almond": {"sun": Color(1.0, 0.98, 0.98), "ambient": Color(0.99, 0.99, 1.01), "saturation": 1.0},
+	"spring": {"sun": Color(1.0, 1.0, 0.97), "ambient": Color(0.98, 1.02, 0.97), "saturation": 1.05},
+	"summer": {"sun": Color(1.0, 0.97, 0.9), "ambient": Color(1.03, 1.0, 0.93), "saturation": 1.0},
+	"autumn": {"sun": Color(1.0, 0.95, 0.88), "ambient": Color(1.02, 0.98, 0.93), "saturation": 0.97},
+	"winter": {"sun": Color(0.95, 0.98, 1.03), "ambient": Color(0.96, 0.99, 1.04), "saturation": 0.94},
+}
+## Nebelfarbe je Jahreszeit (#42, Faktor wie SEASON_MOOD): Sommer warmer Dunst, Winter kühler.
+const SEASON_FOG := {
+	"almond": Color(0.99, 0.99, 1.01),
+	"spring": Color(1.0, 1.0, 0.99),
+	"summer": Color(1.03, 1.0, 0.94),
+	"autumn": Color(1.02, 0.99, 0.95),
+	"winter": Color(0.96, 0.99, 1.04),
+}
+## Farbstimmung je Tageszeit und Wetter (#42): Faktoren auf Sonnen- und Umgebungslicht (`sun`, `ambient`), Zielfarbe des
+## Nebels (`fog`, Anteil `fog_mix`), Faktor auf die Nebeldichte (`haze`, zusätzlich) und die Sättigung, Anteil des
+## Höhennebels (`ground_fog`). Gewichtet mit tiefer Sonne (morgens/abends) bzw. Bewölkung und Regen.
+const MOOD_MORNING := {"sun": Color(1.0, 1.07, 1.22), "ambient": Color(0.95, 0.98, 1.06), "fog": Color(0.9, 0.86, 0.9),
+		"fog_mix": 0.5, "haze": 1.6, "saturation": 0.94, "ground_fog": 1.0}
+const MOOD_EVENING := {"sun": Color(1.0, 0.93, 0.8), "ambient": Color(1.08, 0.97, 0.87), "fog": Color(1.0, 0.72, 0.5),
+		"fog_mix": 0.3, "haze": 0.4, "saturation": 1.08, "ground_fog": 0.3}
+const MOOD_GREY := {"sun": Color(0.93, 0.97, 1.06), "ambient": Color(0.94, 0.98, 1.05), "fog": Color(0.6, 0.64, 0.68),
+		"fog_mix": 0.25, "haze": 0.0, "saturation": 0.95, "ground_fog": 0.0, "contrast": 0.95}
+## Höhennebel: Dichte je Meter unter der Nebelhöhe (voll) und Nebelhöhe (m über Meer) bei Dunst bzw. Regen.
+const HEIGHT_FOG_DENSITY := 0.25
+const HEIGHT_FOG_Y := 2.5
+const HEIGHT_FOG_Y_RAIN := 5.0
 
 var clock: DayNight
 var weather: Weather
@@ -64,6 +101,10 @@ var compatibility := false
 ## Zuletzt angewandte Werte (`look`) und Sonnenstand (Höhe, Azimut in Grad).
 var current: Dictionary = {}
 var sun_angles := Vector2.ZERO
+## Jahreszeit (#39): Modus (Season.MODE_REAL nach dem Datum der Uhr, MODE_FIXED) und feste Phase; zuletzt angewandte.
+var season_mode := Season.MODE_REAL
+var fixed_season := Season.SPRING
+var applied_season := ""
 
 var environment: Environment
 var sky_material: ProceduralSkyMaterial
@@ -134,6 +175,19 @@ func set_weather_mode(mode: String, state: String = "") -> void:
 	apply_now()
 
 
+## Jahreszeit: Season.MODE_REAL (nach dem Datum der Uhr) oder MODE_FIXED mit `phase` (Season.PHASES). Wirkt sofort.
+func set_season_mode(mode: String, phase: String = "") -> void:
+	season_mode = mode if mode in Season.MODES else Season.MODE_REAL
+	if phase in Season.PHASES:
+		fixed_season = phase
+	apply_now()
+
+
+## Aktuelle Jahreszeit (Season.PHASES).
+func season() -> String:
+	return fixed_season if season_mode == Season.MODE_FIXED else Season.at_unix(clock.unix_s)
+
+
 ## Lichtprofil umschalten (Tests, Fehlersuche).
 func set_compatibility(value: bool) -> void:
 	compatibility = value
@@ -158,8 +212,10 @@ func _process(delta: float) -> void:
 
 
 ## Werte für die Sonnenhöhe `elevation` (Grad) und die Wetter-Kennwerte `w` ({cloud, haze, rain, wind}, siehe Weather)
-## im Profil Forward+ oder Compatibility (`compat`). Reine Funktion.
-static func look(elevation: float, w: Dictionary, compat: bool = false) -> Dictionary:
+## im Profil Forward+ oder Compatibility (`compat`), mit der Farbstimmung der Jahreszeit `season` ("" = ohne). Der
+## Azimut der Sonne `azimuth` (Grad ab Norden) unterscheidet Morgen (Osten) und Abend (Westen). Reine Funktion.
+static func look(elevation: float, w: Dictionary, compat: bool = false, season: String = "",
+		azimuth: float = 180.0) -> Dictionary:
 	var cloud: float = w["cloud"]
 	var haze: float = w["haze"]
 	var wet: float = w["rain"]
@@ -212,6 +268,30 @@ static func look(elevation: float, w: Dictionary, compat: bool = false) -> Dicti
 	v["overcast"] = overcast
 	v["wind"] = w["wind"]
 	v["night"] = night
+	# Farbstimmung je Tageszeit und Wetter (#42): tiefe Sonne (auch kurz unter dem Horizont) morgens bzw. abends, dazu
+	# Wolken und Regen; alle Gewichte stetig. Am klaren Mittag und nachts neutral. Höhennebel nur mit Gewicht > 0.
+	var golden := (1.0 - smoothstep(4.0, 26.0, elevation)) * smoothstep(-10.0, -1.0, elevation)
+	var morning := golden * smoothstep(-0.5, 0.5, sin(deg_to_rad(azimuth)))  # Sonne im Osten
+	var ground_fog := 0.45 * haze + 0.6 * wet
+	for pair in [[MOOD_MORNING, morning], [MOOD_EVENING, golden - morning], [MOOD_GREY, maxf(overcast, wet)]]:
+		var mood: Dictionary = pair[0]
+		var weight: float = pair[1]
+		v["sun_color"] *= Color.WHITE.lerp(mood["sun"], weight)
+		v["ambient_color"] *= Color.WHITE.lerp(mood["ambient"], weight)
+		v["fog_color"] = (v["fog_color"] as Color).lerp(mood["fog"], mood["fog_mix"] * weight)
+		v["fog_density"] *= 1.0 + mood["haze"] * weight
+		v["saturation"] *= lerpf(1.0, mood["saturation"], weight)
+		v["contrast"] *= lerpf(1.0, mood.get("contrast", 1.0), weight)
+		ground_fog += mood["ground_fog"] * weight
+	v["fog_height"] = lerpf(HEIGHT_FOG_Y, HEIGHT_FOG_Y_RAIN, wet)
+	v["fog_height_density"] = HEIGHT_FOG_DENSITY * clampf(ground_fog, 0.0, 1.0) * lerpf(0.3, 1.0, dusk)
+	# Jahreszeit (#39): leichte Tönung obendrauf
+	var tone: Dictionary = SEASON_MOOD.get(season, {})
+	if not tone.is_empty():
+		v["sun_color"] *= tone["sun"]
+		v["ambient_color"] *= tone["ambient"]
+		v["saturation"] *= tone["saturation"]
+		v["fog_color"] *= SEASON_FOG[season]
 	return v
 
 
@@ -220,7 +300,11 @@ func apply_now() -> void:
 	_since_apply = 0.0
 	sun_angles = clock.sun()
 	_applied_sun = sun_angles
-	current = look(sun_angles.x, weather.params(), compatibility)
+	var phase := season()
+	current = look(sun_angles.x, weather.params(), compatibility, phase, sun_angles.y)
+	if phase != applied_season and world != null:
+		world.set_season(phase)
+	applied_season = phase
 	_apply(current)
 
 
@@ -249,6 +333,8 @@ func _apply(v: Dictionary) -> void:
 	environment.fog_light_color = v["fog_color"]
 	environment.fog_density = v["fog_density"]
 	environment.fog_sun_scatter = v["fog_sun_scatter"]
+	environment.fog_height = v["fog_height"]
+	environment.fog_height_density = v["fog_height_density"]
 	environment.tonemap_exposure = v["exposure"]
 	environment.adjustment_saturation = v["saturation"]
 	environment.adjustment_contrast = v["contrast"]
@@ -265,6 +351,8 @@ func _apply(v: Dictionary) -> void:
 		motion.set_beacon(v["beacon"])
 		motion.set_birds_visible(v["birds"])
 		motion.set_road_wetness(v["rain"])
+		if is_instance_valid(world.fauna):
+			world.fauna.set_conditions(sun_angles.x, weather.params(), applied_season)
 	rain.visible = v["rain"] > 0.05
 	_set_emitting(v["rain"] > 0.05)
 	var drops: Color = v["rain_color"]

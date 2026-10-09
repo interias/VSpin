@@ -12,8 +12,9 @@
 ## Animierbar (bewegt von WorldMotion, G3): `windmuehlen/Muehle<n>/Fluegel` (Drehachse lokal z, Pivot =
 ## Nabe), `leuchtturm/Lampe` (Drehachse lokal y, Pivot = Laternenmitte), Boote unter `Details/Boote`.
 ##
-## Kleindetails unter `World/Details`: Kilometersteine, Agaven (teils mit Blütenstand), Feigenkakteen, Schafe und
-## Ziegen, Blumen am Straßenrand, Boote und Bojen in den Buchten der Westküste, Bushaltestelle am Bergdorf.
+## Kleindetails unter `World/Details`: Kilometersteine, Agaven (teils mit Blütenstand), Feigenkakteen, Blumen am
+## Straßenrand, Boote und Bojen in den Buchten der Westküste, Bushaltestelle am Bergdorf. Die Herden (Schafe, Ziegen)
+## stehen nur als Lagen in `herds`; IslandFauna (#40) baut und bewegt sie.
 ##
 ## Gebäude aus Grundkörpern sind je Landmarke zu einem Mesh mit Vertex-Farben zusammengefasst (`Parts`, ein
 ## Draw-Call); Wiederholtes ist MultiMesh. Eigene Zufallsgeneratoren (Seeds 1507, 1508) – die Platzierungen der
@@ -38,6 +39,8 @@ const BUCKET_M := 25.0
 
 var world: IslandWorld
 var placements: Array[Dictionary] = []
+## Herden je {kind ("Schafe"/"Ziegen"), station, transforms: Array[Transform3D]} – für IslandFauna (#40).
+var herds: Array[Dictionary] = []
 ## Straßenpunkte (x, z) in Eimern zu BUCKET_M für den Fahrbahnabstand.
 var _road_buckets := {}
 
@@ -71,6 +74,7 @@ func build() -> void:
 	var detail_rng := RandomNumberGenerator.new()
 	detail_rng.seed = 1508
 	_kilometre_stones(details)
+	_kilometre_stones(details, Track.DIRECTION_CCW)
 	_plants_and_animals(details, detail_rng)
 	_cove_boats(details, detail_rng)
 	_bus_stop(details)
@@ -428,22 +432,27 @@ func _cala(parent: Node3D, rng: RandomNumberGenerator) -> void:
 	_mesh_node(node, "Strand", parts)
 
 
-## Kilometersteine rechts am Straßenrand (weiß, rote Kappe, Kilometerzahl zum Fahrer hin).
-func _kilometre_stones(parent: Node3D) -> void:
+## Kilometersteine rechts am Straßenrand (weiß, rote Kappe, Kilometerzahl zum Fahrer hin) je Richtung: `Kilometersteine`
+## im Uhrzeigersinn, `KilometersteineCcw` gegen ihn (#34, Kilometer in dieser Richtung, anfangs verborgen;
+## IslandWorld.set_direction schaltet um).
+func _kilometre_stones(parent: Node3D, direction: String = Track.DIRECTION_CW) -> void:
+	var ccw := direction == Track.DIRECTION_CCW
 	var node := Node3D.new()
-	node.name = "Kilometersteine"
+	node.name = "KilometersteineCcw" if ccw else "Kilometersteine"
+	node.visible = direction == world.track.direction
 	parent.add_child(node)
+	var right := -1.0 if ccw else 1.0
 	for km in range(1, 10):
-		var d := km * 1000.0
+		var d := world.track.path_distance(km * 1000.0, direction)
 		var side := 4.8
-		var at := world._beside_road(d, side)
+		var at := world._beside_road(d, side * right)
 		while not _clear_of_road(at, 0.4):
 			side += 0.5
-			at = world._beside_road(d, side)
+			at = world._beside_road(d, side * right)
 		var stone := Node3D.new()
 		stone.name = "Km%d" % km
 		stone.position = at
-		stone.rotation.y = world._yaw_at(d)
+		stone.rotation.y = world._yaw_at(d) + (PI if ccw else 0.0)
 		node.add_child(stone)
 		var parts := Parts.new()
 		parts.box(Vector3(0.5, 0.7, 0.25), Transform3D(Basis(), Vector3(0.0, 0.35, 0.0)), WHITEWASH)
@@ -462,11 +471,11 @@ func _kilometre_stones(parent: Node3D) -> void:
 		_register("km", at, 0.4)
 
 
-## Agaven (Rosette aus blaugrünen Blättern, jede vierte mit Blütenstand), Feigenkakteen, Schafe und Ziegen, Blumen am
-## Straßenrand – als MultiMesh über den ganzen Kurs, mit Abstand zur Straße.
+## Agaven (Rosette aus blaugrünen Blättern, jede vierte mit Blütenstand), Feigenkakteen, Blumen am Straßenrand – als
+## MultiMesh über den ganzen Kurs, mit Abstand zur Straße; dazu die Lagen der Herden (`herds`).
 func _plants_and_animals(parent: Node3D, rng: RandomNumberGenerator) -> void:
 	var lists := {"Agaven": [] as Array[Transform3D], "AgavenBluete": [] as Array[Transform3D],
-			"Feigenkakteen": [] as Array[Transform3D], "Schafe": [] as Array[Transform3D], "Ziegen": [] as Array[Transform3D]}
+			"Feigenkakteen": [] as Array[Transform3D]}
 	var flowers := world._model_lists(["flower_redA", "flower_purpleA", "flower_yellowA"])
 	var length := world.track.length_m()
 	var d := 30.0
@@ -495,17 +504,17 @@ func _plants_and_animals(parent: Node3D, rng: RandomNumberGenerator) -> void:
 			var goats := station == "serpentinen" or station == "kueste"
 			var side := 1.0 if rng.randf() < 0.5 else -1.0
 			var centre := world._beside_road(d, side * rng.randf_range(22.0, 45.0))
+			var herd := {"kind": "Ziegen" if goats else "Schafe", "station": station, "transforms": [] as Array[Transform3D]}
 			for k in range(rng.randi_range(4, 8)):
 				var at := centre + Vector3(rng.randf_range(-7.0, 7.0), 0.0, rng.randf_range(-7.0, 7.0))
 				at.y = world.terrain.height_at(at.x, at.z)
 				if at.y < 1.0 or not _clear_of_road(at, 1.0):
 					continue
-				lists["Ziegen" if goats else "Schafe"].append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU), at))
+				herd["transforms"].append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU), at))
 				_register("tier", at, 1.0)
+			herds.append(herd)
 		d += 20.0
-	var meshes := {"Agaven": _agave_mesh(false), "AgavenBluete": _agave_mesh(true), "Feigenkakteen": _prickly_pear_mesh(),
-			"Schafe": _animal_mesh(Color(0.9, 0.88, 0.82), Color(0.2, 0.18, 0.16)),
-			"Ziegen": _animal_mesh(Color(0.42, 0.3, 0.2), Color(0.2, 0.15, 0.1))}
+	var meshes := {"Agaven": _agave_mesh(false), "AgavenBluete": _agave_mesh(true), "Feigenkakteen": _prickly_pear_mesh()}
 	for key in lists:
 		var multimesh := MultiMesh.new()
 		multimesh.transform_format = MultiMesh.TRANSFORM_3D
@@ -554,17 +563,6 @@ func _prickly_pear_mesh() -> ArrayMesh:
 		parts.sphere(1.0, pad[0], green if pad[0].y < 1.5 else green.lightened(0.08), basis)
 	for fruit in [Vector3(0.2, 2.5, 0.0), Vector3(0.55, 1.75, 0.1), Vector3(-0.3, 1.85, -0.1)]:
 		parts.sphere(0.1, fruit, Color(0.75, 0.2, 0.25))
-	return parts.commit()
-
-
-## Schaf/Ziege: Rumpf, Kopf, vier Beine (Blick lokal −z).
-func _animal_mesh(body: Color, legs: Color) -> ArrayMesh:
-	var parts := Parts.new()
-	parts.box(Vector3(0.55, 0.5, 1.0), Transform3D(Basis(), Vector3(0.0, 0.75, 0.0)), body)
-	parts.box(Vector3(0.3, 0.32, 0.4), Transform3D(Basis(Vector3.RIGHT, 0.4), Vector3(0.0, 1.05, -0.6)), body.darkened(0.25))
-	for x in [-0.18, 0.18]:
-		for z in [-0.35, 0.35]:
-			parts.box(Vector3(0.1, 0.5, 0.1), Transform3D(Basis(), Vector3(x, 0.25, z)), legs)
 	return parts.commit()
 
 
