@@ -78,6 +78,10 @@ unter [`profiles/`](profiles/):
 | `arcade/zone_perfekt.toml` | Arcade-Szenario (#46) „perfekt in der Zone“: 45 s 90 rpm, dann Ende |
 | `arcade/zone_knapp_daneben.toml` | Arcade-Szenario „knapp daneben“: 50 s 102 rpm (2 rpm über der Zone), dann Ende |
 | `arcade/zone_abbruch.toml` | Arcade-Szenario „Abbruch“: 15 s 90 rpm → 4 s keine Daten → 30 s `disconnected` → 30 s 90 rpm, dann Ende |
+| `arcade/durchbruch_geschafft.toml` | Arcade-Szenario (#47) „Durchbruch geschafft“: 12 s 90 rpm, 8 s 114 rpm (über der Schwelle 108 rpm), 10 s 90 rpm, dann Ende |
+| `arcade/durchbruch_zu_schwach.toml` | Arcade-Szenario „Durchbruch zu schwach“: 12 s 90 rpm, 22 s 104 rpm (unter der Schwelle), 10 s 90 rpm, dann Ende |
+| `arcade/jagd_entkommen.toml` | Arcade-Szenario „Jagd entkommen“: 12 s 90 rpm, 14 s 100 rpm (über der Schwelle 93 rpm), 10 s 90 rpm, dann Ende |
+| `arcade/jagd_eingeholt.toml` | Arcade-Szenario „Jagd eingeholt“: 12 s 90 rpm, 14 s 80 rpm (unter der Schwelle), 10 s 90 rpm, dann Ende |
 | `arcade/antritt.toml` | Messprofil Kadenzmuster (#45): drei Antritte aus 80 rpm (+30 in 0,5 s, +30 in 1,5 s, +26 in 2 s), dann Ende |
 | `arcade/innehalten.toml` | Messprofil Kadenzmuster (#45): zweimal 3 s Kadenz 0 (aus 80 und 110 rpm), am Ende 1,5 s (kein Innehalten), dann Ende |
 
@@ -262,7 +266,7 @@ Session-Dateien und Terminal.
 Struktur (teils noch geplant):
 
 ```
-profiles/        Beispielprofile für den Simulator (--profile); arcade/: Arcade-Szenarien des Spiels (#46), Messprofile Kadenzmuster (#45)
+profiles/        Beispielprofile für den Simulator (--profile); arcade/: Arcade-Szenarien des Spiels (#46, #47), Messprofile Kadenzmuster (#45)
 src/vspin_bridge/
   sources/      sim (+ profile), replay, später ble  – alle implementieren DeviceSource
   parsers/      rohe Notification → TelemetrySample (CSC, FTMS Indoor Bike Data)

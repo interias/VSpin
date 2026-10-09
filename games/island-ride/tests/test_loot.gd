@@ -289,7 +289,7 @@ func test_widened_zone_stays_inside_the_cadence_range() -> void:
 			var range_ := CadenceRange.new(lower, upper)
 			for definition in Encounters.CHALLENGES:
 				for tier in [1, 2, 3]:
-					var zone := (Encounters.build(definition, tier, range_, cap) as ZoneHold).zone()
+					var zone := (Encounters.build(definition, tier, range_, cap) as ChallengeBlock).zone()
 					assert_true(range_.contains_zone(zone.x, zone.y), "%s Stufe %d in %s" % [definition["id"], tier,
 							range_.text()])
 

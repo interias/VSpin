@@ -237,6 +237,9 @@ var arcade_pool: Array = Encounters.CHALLENGES
 var arcade_start_gate: CourseGate
 var arcade_finish_gate: CourseGate
 var arcade_gate_placement := GatePlacement.new()
+## Zugbrücke des Durchbruchs und Verfolger der Jagd (#47, Kinder von `Track`) und der Baustein, dem sie gerade gelten.
+var arcade_bridge: Drawbridge
+var arcade_pursuer: Pursuer
 ## Lichtsäule des letzten Fundes (#49, Kind von `Track`).
 var loot_beam: LootBeam
 ## Mitfahrer des Ghosts auf der Strecke und sein halbtransparentes Fahrermodell.
@@ -296,6 +299,7 @@ var _gate_index := -1
 var _ride_saved := false
 ## Baustein, dem das Arcade-Zieltor gerade gilt; neue beste Punktzahl der Stufe in diesem Lauf?
 var _arcade_gate_block: ChallengeBlock = null
+var _arcade_prop_block: ChallengeBlock = null
 var _arcade_new_best := false
 ## Streckenposition des Kameraflugs im Titelbild.
 var _flight_m := 0.0
@@ -358,6 +362,11 @@ func _ready() -> void:
 	gate_passed = _new_gate("IntervalGatePassed")
 	arcade_start_gate = _new_gate("ArcadeStartGate")
 	arcade_finish_gate = _new_gate("ArcadeFinishGate")
+	arcade_bridge = Drawbridge.new()
+	arcade_bridge.visible = false
+	track.add_child(arcade_bridge)
+	arcade_pursuer = Pursuer.new()
+	track.add_child(arcade_pursuer)
 	loot_beam = LootBeam.new()
 	loot_beam.visible = false
 	track.add_child(loot_beam)
@@ -683,9 +692,13 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 	loot_beam.ride_m = NAN
 	hud.clear_popups()
 	_arcade_gate_block = null
+	_arcade_prop_block = null
 	_arcade_new_best = false
 	arcade_start_gate.ride_m = NAN
 	arcade_finish_gate.ride_m = NAN
+	arcade_bridge.ride_m = NAN
+	arcade_bridge.visible = false
+	arcade_pursuer.reset(0.0)
 	ghost = save_game.ghost(config.track, track.direction, ghost_kind) if not ghost_kind.is_empty() else null
 	model = RideModel.new(config, start_distance_m)
 	stats = RideStats.new()
@@ -1416,16 +1429,16 @@ func _show_arcade() -> void:
 	if not arcade.active.is_empty():
 		var block: ChallengeBlock = arcade.active["block"]
 		var zone := block.zone()
-		hud.show_arcade(arcade.active["definition"]["name"], RideHud.zone_range_text(zone.x, zone.y),
+		hud.show_arcade(arcade.active["definition"]["name"], Encounters.target_text(arcade.active["definition"], zone),
 				format_time(ceilf(block.remaining_s())), points)
-		hud.show_zone(zone.x, zone.y, bus.cadence, Training.percent_text(block.progress()), "Fortschritt")
+		hud.show_zone(zone.x, zone.y, bus.cadence, Training.percent_text(block.progress()), block.score_caption())
 		return
 	var next := arcade.next_challenge()
 	if next.is_empty():
 		hud.show_arcade("Arcade", "–", "–", points)
 		return
 	var zone := arcade.zone_of(next)
-	hud.show_arcade("Nächste: %s" % next["definition"]["name"], RideHud.zone_range_text(zone.x, zone.y),
+	hud.show_arcade("Nächste: %s" % next["definition"]["name"], Encounters.target_text(next["definition"], zone),
 			"%d m" % maxi(ceili(next["at_m"] - model.distance_m), 0), points)
 
 
@@ -1458,6 +1471,8 @@ func _update_arcade_gates() -> void:
 	if arcade == null or state == STATE_MENU:
 		arcade_start_gate.visible = false
 		arcade_finish_gate.visible = false
+		arcade_bridge.visible = false
+		arcade_pursuer.reset(0.0)
 		return
 	var d := model.distance_m
 	var start := arcade.active if not arcade.active.is_empty() else arcade.next_challenge()
@@ -1466,13 +1481,15 @@ func _update_arcade_gates() -> void:
 	else:
 		if arcade_start_gate.ride_m != start["at_m"]:
 			var zone := arcade.zone_of(start)
-			arcade_start_gate.configure(CourseGate.KIND_START, "Start  %s" % RideHud.zone_range_text(zone.x, zone.y))
+			arcade_start_gate.configure(CourseGate.KIND_START,
+					"Start  %s" % Encounters.target_text(start["definition"], zone))
 			arcade_start_gate.place(track, start["at_m"])
 		arcade_start_gate.visible = start["at_m"] > d - GATE_KEEP_BEHIND_M \
 				and start["at_m"] - d < track.length_m() - GATE_KEEP_BEHIND_M
 	if arcade.active.is_empty():
 		var at := arcade_finish_gate.ride_m
 		arcade_finish_gate.visible = not is_nan(at) and at <= d + 1.0 and at > d - GATE_KEEP_BEHIND_M
+		_end_arcade_props(arcade_finish_gate.visible)
 		return
 	var block: ChallengeBlock = arcade.active["block"]
 	if block != _arcade_gate_block:
@@ -1482,6 +1499,56 @@ func _update_arcade_gates() -> void:
 	var at := arcade_gate_placement.update(d, block.remaining_s(), model.speed_mps)
 	arcade_finish_gate.place(track, at)
 	arcade_finish_gate.visible = arcade_gate_placement.shown(d)
+	_update_arcade_props(block, at)
+
+
+## Darstellung der Bausteine Durchbruch und Jagd (#47) während der Herausforderung: die Zugbrücke steht statt des
+## Zieltors dort, wo das Zeitfenster endet, und senkt sich mit dem Balken; der Verfolger läuft hinter dem Fahrer, je
+## weiter hinten, desto größer der Abstand. Nur Anzeige (ADR-0010).
+func _update_arcade_props(block: ChallengeBlock, finish_at: float) -> void:
+	if block != _arcade_prop_block:
+		_release_arcade_props()  # die vorige Herausforderung kann im selben Schritt geendet haben, in dem diese begann
+		_arcade_prop_block = block
+		if block is Breakthrough:
+			arcade_bridge.reset()
+		if block is Chase:
+			arcade_pursuer.reset(block.progress())
+	if block is Breakthrough:
+		arcade_finish_gate.visible = false  # die Brücke ist das Ziel
+		arcade_bridge.place(track, finish_at)
+		arcade_bridge.follow(block.progress())
+		arcade_bridge.visible = arcade_gate_placement.shown(model.distance_m)
+	else:
+		arcade_bridge.visible = _opened_bridge_shown()  # eine frühere Brücke bleibt, bis sie hinter dem Fahrer liegt
+	if block is Chase:
+		arcade_pursuer.follow(track, model.distance_m, block.progress())
+
+
+## Nach dem Ende der Herausforderung: die Brücke öffnet sich ganz (nach Scheitern langsam), der Verfolger zieht ab. Die
+## Brücke bleibt wie ein durchfahrenes Zieltor kurz stehen (`keep`).
+func _end_arcade_props(keep: bool) -> void:
+	_release_arcade_props()
+	arcade_bridge.visible = _opened_bridge_shown()
+	arcade_finish_gate.visible = keep and arcade_finish_gate.visible and not arcade_bridge.visible
+
+
+func _release_arcade_props() -> void:
+	if _arcade_prop_block == null:
+		return
+	var ended := _arcade_prop_block
+	_arcade_prop_block = null
+	if ended is Breakthrough:
+		arcade_bridge.release(ended.state == ChallengeBlock.SUCCEEDED)
+	if ended is Chase:
+		arcade_pursuer.dismiss()
+
+
+## Steht eine geöffnete Brücke noch im Bild? Sie liegt voraus (nach einem Erfolg öffnet sie sich schon vor dem Fahrer)
+## oder höchstens GATE_KEEP_BEHIND_M hinter ihm.
+func _opened_bridge_shown() -> bool:
+	var at := arcade_bridge.ride_m
+	return not is_nan(at) and arcade_bridge.target >= 1.0 and at > model.distance_m - GATE_KEEP_BEHIND_M \
+			and at - model.distance_m < track.length_m() - GATE_KEEP_BEHIND_M
 
 
 func _new_gate(node_name: String) -> CourseGate:

@@ -133,7 +133,7 @@ func test_zone_follows_personal_range_and_build_applies_the_guard() -> void:
 			var personal := CadenceRange.new(lower, upper)
 			for definition in Encounters.CHALLENGES:
 				for tier in [1, 2, 3]:
-					var zone := (Encounters.build(definition, tier, personal) as ZoneHold).zone()
+					var zone := (Encounters.build(definition, tier, personal) as ChallengeBlock).zone()
 					assert_true(personal.contains_zone(zone.x, zone.y), "%s Stufe %d in %s" % [definition["id"], tier,
 							personal.text()])
 

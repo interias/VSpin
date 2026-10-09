@@ -164,7 +164,7 @@ func _finish(entry: Dictionary) -> Dictionary:
 		gained = roundi(Encounters.points_for(entry["definition"], tier) * bonus)
 	points += gained
 	var loot := {}
-	var chance := Loot.drop_chance(won, block.progress())
+	var chance := Loot.drop_chance(won, block.loot_progress())
 	if chance > 0.0 and _loot_rng.randf() <= chance:
 		loot = Loot.roll(_loot_rng, Loot.quality_for(gear, loot_quality))
 		found.append(loot)

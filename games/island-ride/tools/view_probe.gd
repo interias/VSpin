@@ -7,7 +7,7 @@
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
 ##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4] [--logbook] [--rewards]
 ##         [--training] [--ccw] [--wardrobe=trikot_gelb,radfarbe_blau,helm_schwarz] [--fauna] [--effects-kmh=55] [--intro]
-##         [--panorama=aussichtspunkt,burg] [--view=nah|verfolger|weit] [--arcade] [--gear]
+##         [--panorama=aussichtspunkt,burg] [--view=nah|verfolger|weit] [--arcade] [--gear] [--props]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -63,6 +63,10 @@
 ## legt weitere ins Inventar. Mit `--title` öffnet die Probe „Fahren → Arcade → Ausrüstung“ und speichert `gear.png`
 ## statt der Titelbilder; mit `--hud --arcade` trägt der Fahrer die Ausrüstung im Arcade-Lauf, dazu vorher die
 ## Nahaufnahmen `close_5_side.png` und `close_5_rear.png`.
+## Durchbruch und Jagd (#47): `--hud --arcade --props` zeigt statt des Zone-halten-Laufs die Zugbrücke des Durchbruchs
+## zu, halb und offen (`bridge_closed.png`, `bridge_half.png`, `bridge_open.png`, dazu `bridge_close_*.png` aus der
+## Nähe) und den Verfolger der Jagd (`pursuer_close.png` von hinten, `pursuer_front.png` und `pursuer_side.png` aus der
+## Nähe, `pursuer_gone.png` nach dem Abhängen). Balken und Abstand setzt die Probe direkt.
 ## Gegenrichtung (#34): `--ccw` fährt gegen den Uhrzeigersinn – `--shots`, `--segments`, `--laps` und `--ghost` dann in
 ## Fahrtposition dieser Richtung, mit `--title` ist die Richtung auf der Seite „Rundfahrt“ gewählt.
 ## Garderobe (#36): `--wardrobe=TEIL,…` gibt dem Spielstand (nur im Speicher) Kilometer bis Level 12 und wählt die Teile
@@ -114,6 +118,8 @@ var _rewards := false
 var _training := false
 ## Arcade-Seite bzw. Arcade-Lauf im HUD (`--arcade`).
 var _arcade := false
+## Zugbrücke und Verfolger statt Zone halten (`--props`, #47).
+var _props := false
 ## Beispiel-Ausrüstung angelegt (`--gear`, #49).
 var _gear := false
 ## Garderobe: gewählte Teile (`--wardrobe`; null = ohne).
@@ -203,6 +209,8 @@ func _initialize() -> void:
 			_arcade = true
 		elif arg == "--gear":
 			_gear = true
+		elif arg == "--props":
+			_props = true
 		elif arg.begins_with("--wardrobe"):
 			_outfit = Array(value.split(",", false)) if arg.contains("=") else []
 		elif arg == "--fauna":
@@ -328,7 +336,9 @@ func _initialize() -> void:
 		await _reward_shots(out_dir)
 	if _training and _hud:
 		await _training_shots(out_dir)
-	if _arcade and _hud:
+	if _arcade and _hud and _props:
+		await _prop_shots(out_dir)
+	elif _arcade and _hud:
 		await _arcade_shots(out_dir)
 	if fps_to > fps_from:
 		await _measure(fps_from, fps_to, speed_kmh / 3.6)
@@ -621,6 +631,100 @@ func _arcade_shots(out_dir: String) -> void:
 	_ride._update_view()
 	await _frames(8)
 	_save_image(out_dir.path_join("arcade_result.png"))
+
+
+## Durchbruch und Jagd (#47): Arcade-Lauf mit nur dieser Herausforderung, Fahrer kurz hinter dem Start/Ziel. Die Zugbrücke
+## zu (Balken leer), halb und offen; der Verfolger auf den Fersen, aus der Nähe von vorn und der Seite, abgehängt.
+func _prop_shots(out_dir: String) -> void:
+	var length: float = _ride.track.length_m()
+	_place(5.0)
+	_ride.ride_mode = SaveGame.MODE_ARCADE
+	_ride.laps = 0
+	_ride.lap_timing = LapTiming.new(length, 0.0, 0)
+	_ride.stats = RideStats.new()
+	var sections := ArcadeRun.sections_from_stations(_ride.track.ride_stations(), length)
+	_ride.arcade = ArcadeRun.new(1, CadenceRange.new(), sections, length, 0.0, 3, [Encounters.find("durchbruch_bruecke")])
+	_ride.hud.end_celebration()
+	_ride._update_view()
+	_ride._update_camera(0.0, true)
+	while _ride.arcade.active.is_empty():
+		await _ride_arcade(0.5, false)
+	var block: Breakthrough = _ride.arcade.active["block"]
+	_ride.bus.cadence = 90.0
+	# Weiterfahren, bis die Brücke fest steht und etwa 22 m voraus liegt.
+	while _ride.arcade_bridge.ride_m - _ride.model.distance_m > 22.0 or not _ride.arcade_gate_placement.locked:
+		await _ride_arcade(0.25, false)
+	await _ride_arcade(0.1)
+	_save_image(out_dir.path_join("bridge_closed.png"))
+	await _bridge_close(out_dir, "closed")
+	block.level = 0.5
+	await _ride_arcade(0.1, false)
+	await _wait_bridge()
+	_save_image(out_dir.path_join("bridge_half.png"))
+	await _bridge_close(out_dir, "half")
+	block.level = 0.999
+	_ride.bus.cadence = 114.0
+	await _ride_arcade(0.5, false)
+	await _wait_bridge()
+	_save_image(out_dir.path_join("bridge_open.png"))
+	await _bridge_close(out_dir, "open")
+	# Jagd.
+	_ride.arcade = ArcadeRun.new(1, CadenceRange.new(), sections, length, _ride.model.distance_m, 3,
+			[Encounters.find("jagd_verfolger")])
+	_ride.bus.cadence = 90.0
+	while _ride.arcade.active.is_empty():
+		await _ride_arcade(0.5, false)
+	var chase: Chase = _ride.arcade.active["block"]
+	chase.gap = 0.04
+	await _ride_arcade(0.3, true)
+	for i in range(40):
+		await _ride_arcade(0.05, false)
+		chase.gap = 0.04
+		await _frames(3)
+	_save_image(out_dir.path_join("pursuer_close.png"))
+	_ride.set_process(false)
+	var pursuer: Pursuer = _ride.arcade_pursuer
+	var at: Transform3D = pursuer.global_transform
+	var camera: Camera3D = _ride.camera
+	var views := {"front": at.origin - at.basis.z * 5.0 + at.basis.x * 2.0 + Vector3.UP * 1.8,
+			"side": at.origin + at.basis.x * 5.0 + Vector3.UP * 1.4}
+	for view in views:
+		camera.global_position = views[view]
+		camera.look_at(at.origin + Vector3.UP * 1.0, Vector3.UP)
+		await _frames(4)
+		_save(out_dir.path_join("pursuer_%s.png" % view))
+	_ride.set_process(true)
+	# Abgehängt: Abstand 1, er fällt zurück und verschwindet.
+	chase.gap = 0.999
+	_ride.bus.cadence = 100.0
+	await _ride_arcade(0.5, false)
+	for i in range(80):
+		await _ride_arcade(0.05, false)
+		await _frames(3)
+	_save_image(out_dir.path_join("pursuer_gone.png"))
+
+
+## Wartet, bis die Zugbrücke ihren Öffnungsgrad erreicht hat.
+func _wait_bridge() -> void:
+	for i in range(240):
+		if is_equal_approx(_ride.arcade_bridge.open, _ride.arcade_bridge.target):
+			break
+		await _frames(2)
+	await _frames(4)
+
+
+## Nahaufnahme der Zugbrücke von vorn und schräg (Kamera nur hier versetzt).
+func _bridge_close(out_dir: String, tag: String) -> void:
+	_ride.set_process(false)
+	var at: Transform3D = _ride.arcade_bridge.global_transform
+	var camera: Camera3D = _ride.camera
+	camera.global_position = at.origin + at.basis.z * 14.0 + at.basis.x * 5.0 + Vector3.UP * 2.8
+	camera.look_at(at.origin + Vector3.UP * 3.0, Vector3.UP)
+	await _frames(4)
+	_save(out_dir.path_join("bridge_close_%s.png" % tag))
+	_ride.set_process(true)
+	_ride._update_camera(0.0, true)
+	await _frames(4)
 
 
 ## Arcade `seconds` lang mit `_cadence` (Kadenz des Bus-Clients) und dem Tempo des Fahrmodells fahren – Strecke,

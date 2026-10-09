@@ -34,6 +34,17 @@ func progress() -> float:
 	return 0.0
 
 
+## Fortschritt, der für die Beute zählt (#47): standardmäßig der Fortschritt; Bausteine mit geschenktem Anfangswert
+## (Jagd: Vorsprung) melden hier nur das Erarbeitete – ohne Treten über der Schwelle nie Beute.
+func loot_progress() -> float:
+	return progress()
+
+
+## Beschriftung des Fortschritts im HUD („Fortschritt“, „Balken“, „Abstand“).
+func score_caption() -> String:
+	return "Fortschritt"
+
+
 ## Restzeit bis zum Verfallen (s); INF ohne Zeitgrenze.
 func remaining_s() -> float:
 	return INF
