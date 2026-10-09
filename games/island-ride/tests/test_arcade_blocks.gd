@@ -245,7 +245,10 @@ func test_the_dice_draw_the_new_types_too() -> void:
 		var run := ArcadeRun.new(1, CadenceRange.new(), [], 1000.0, 0.0, seed_value)
 		for entry in run.planned:
 			seen[entry["definition"]["block"]] = true
-	assert_eq(seen.keys().size(), EncounterRegistry.TYPES.size(), "alle angemeldeten Typen im Pool (Zone halten, Durchbruch, Jagd, …)")
+	# Typen ohne gewürfelte Einträge (Bosse #51: `CHALLENGES` leer, feste Orte) gehören nicht in den Pool.
+	var rolled := EncounterRegistry.TYPES.values().filter(func(type): return not type.CHALLENGES.is_empty())
+	assert_eq(seen.keys().size(), rolled.size(), "alle gewürfelten Typen im Pool (Zone halten, Durchbruch, Jagd, …)")
+	assert_false(seen.has("boss"), "Bosse werden nicht gewürfelt")
 
 
 func test_run_breakthrough_success_gives_points_and_failure_none() -> void:

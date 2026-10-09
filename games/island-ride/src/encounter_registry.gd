@@ -15,6 +15,8 @@
 ##  3. Diese Liste: `"<name>": preload("res://src/challenges/<name>_challenges.gd"),` (Schlüssel = `ID` des Typs).
 ## Sollen Einträge des Typs **nicht** gewürfelt werden (feste Gegner, Bosse #51): `CHALLENGES` des Typs leer lassen und die
 ## Einträge in einer eigenen Konstante führen – `Encounters.build` baut jede Definition nach ihrem `block`, ohne Pool.
+## So die Bosse (#51, `src/challenges/boss_challenges.gd`): `CHALLENGES` leer, die Bosse in `FIXED` mit ihrem Abschnitt –
+## `ArcadeRun` plant jede Konstante `FIXED` eines Typs je Runde an ihrem festen Ort ein (nicht im Würfel-Pool).
 ## Die Darstellung (Requisiten) hängt sich getrennt ein: `ArcadeStage.PROPS`; Hooks, Signale: `ArcadeStage.EXTENSIONS`.
 class_name EncounterRegistry
 extends RefCounted
@@ -25,6 +27,7 @@ const TYPES := {
 	"chase": preload("res://src/challenges/chase_challenges.gd"),
 	"rhythm_gates": preload("res://src/challenges/rhythm_gates_challenges.gd"),
 	"collect": preload("res://src/challenges/collect_challenges.gd"),
+	"boss": preload("res://src/challenges/boss_challenges.gd"),
 }
 
 

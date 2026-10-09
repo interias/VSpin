@@ -15,6 +15,10 @@
 ##               decay  Sinkrate unter der Schwelle (Anteil der Füllrate)
 ##   Jagd:       escape_s  Zeit über der Schwelle, bis der Verfolger abgehängt ist (× Dauer-Faktor), catch_s  Zeit unter
 ##               der Schwelle, bis er einholt, window_s  Zeitfenster (× Dauer-Faktor), start_gap  Vorsprung am Anfang
+## Bosse (#51) kombinieren Bausteine: `phases` ist eine Liste von Herausforderungen (je ein Baustein mit seinen
+## Parametern). `build` baut jede Phase wie jede Herausforderung (Wächter, Stufe, Ausrüstung) und gibt sie dem Typ
+## (`build_phases(definition, phases)`, src/challenges/boss_challenges.gd); Ziel und Zieltext vor dem Start sind die der
+## ersten Phase.
 ##
 ## `build` ist die einzige Stelle, an der aus Daten ein Baustein wird; dort wird jede Zielzone auf den persönlichen
 ## Kadenzbereich begrenzt (CadenceRange.limit_zone) – nach allem, was Stufe, Ausrüstung (#49) (und später
@@ -60,8 +64,16 @@ static func build(definition: Dictionary, tier: int, cadence_range: CadenceRange
 	if type == null:
 		push_warning("Encounters: unbekannter Baustein %s" % definition.get("block"))
 		return null
-	var block: ChallengeBlock = type.build(definition, ArcadeTiers.get_tier(tier),
-			zone_for(definition, tier, cadence_range, gear))
+	var block: ChallengeBlock
+	if definition.get("phases") is Array:  # Boss (#51): Phasen aus Bausteinen, jede hier gebaut (Wächter, Stufe, Ausrüstung)
+		var phases := []
+		for phase in definition["phases"]:
+			phases.append(build(phase, tier, cadence_range, gear))
+		block = type.build_phases(definition, phases)
+	else:
+		block = type.build(definition, ArcadeTiers.get_tier(tier), zone_for(definition, tier, cadence_range, gear))
+	if block == null:
+		return null
 	block.progress_factor = 1.0 + maxf(float(gear.get("progress_pct", 0)), 0.0) / 100.0
 	return block
 
@@ -73,6 +85,8 @@ static func build(definition: Dictionary, tier: int, cadence_range: CadenceRange
 ## halbe Zonenbreite.
 static func zone_for(definition: Dictionary, tier: int, cadence_range: CadenceRange,
 		gear: Dictionary = {}) -> Vector2:
+	if definition.get("phases") is Array and not definition["phases"].is_empty():  # Boss (#51): Ziel der ersten Phase
+		return zone_for(definition["phases"][0], tier, cadence_range, gear)
 	var zone: Vector2
 	if definition.has("threshold_at"):
 		var lift: float = (float(ArcadeTiers.LIST[0]["zone_width_rpm"]) - ArcadeTiers.get_tier(tier)["zone_width_rpm"]) / 2.0
@@ -91,6 +105,8 @@ static func zone_for(definition: Dictionary, tier: int, cadence_range: CadenceRa
 
 ## Ziel der Herausforderung für Anzeige und Starttor: „80–100 rpm“, bei einer Schwelle „ab 111 rpm“ (#47).
 static func target_text(definition: Dictionary, zone: Vector2) -> String:
+	if definition.get("phases") is Array and not definition["phases"].is_empty():  # Boss (#51): Format der ersten Phase
+		return target_text(definition["phases"][0], zone)
 	if definition.has("threshold_at"):
 		return "ab %d rpm" % roundi(zone.x)
 	return RideHud.zone_range_text(zone.x, zone.y)
