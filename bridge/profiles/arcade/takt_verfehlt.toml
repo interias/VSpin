@@ -1,0 +1,10 @@
+# Arcade-Szenario „Takt verfehlt“ (#48): durchgehend 100 rpm – über der Zone 74–94 rpm der ruhigen Takt-Tore (Stufe 1,
+# Kadenzbereich 60–120 rpm), der Fahrer bleibt nie in der Zone und trifft keinen Taktschlag. Erwartet im Spiel: die
+# Herausforderung scheitert weich (keine Punkte, keine Beute, schon nach dem zweiten verpassten Tor nicht mehr zu schaffen),
+# die Fahrt geht weiter. Endet danach.
+# Im Spiel nachgespielt von games/island-ride/tests/test_arcade_rhythm_collect_ride.gd.
+name = "Arcade: Takt verfehlt"
+
+[[steps]]
+duration_s = 45
+cadence = 100

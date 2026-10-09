@@ -7,7 +7,7 @@
 ##         [--aa=msaa_4x] [--scale=1.0] [--upscaler=bilinear] [--vsync=off] [--hud] [--debug] [--menu] [--crop=x,y,w,h]
 ##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4] [--logbook] [--rewards]
 ##         [--training] [--ccw] [--wardrobe=trikot_gelb,radfarbe_blau,helm_schwarz] [--fauna] [--effects-kmh=55] [--intro]
-##         [--panorama=aussichtspunkt,burg] [--view=nah|verfolger|weit] [--arcade] [--gear] [--props]
+##         [--panorama=aussichtspunkt,burg] [--view=nah|verfolger|weit] [--arcade] [--gear] [--props] [--rhythm]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -67,6 +67,10 @@
 ## zu, halb und offen (`bridge_closed.png`, `bridge_half.png`, `bridge_open.png`, dazu `bridge_close_*.png` aus der
 ## Nähe) und den Verfolger der Jagd (`pursuer_close.png` von hinten, `pursuer_front.png` und `pursuer_side.png` aus der
 ## Nähe, `pursuer_gone.png` nach dem Abhängen). Balken und Abstand setzt die Probe direkt.
+## Takt-Tore und Sammeln (#48): `--hud --arcade --rhythm` zeigt die Takt-Tore vor dem ersten Schlag (`rhythm_ahead.png`), nach
+## einem Treffer (`rhythm_hit.png`, Tor „Treffer“ hinter dem Fahrer, nächstes voraus) und nach einem verpassten Tor mit zu
+## hoher Kadenz (`rhythm_missed.png`), dann das Sammeln: Objekte voraus mit großem Magnetring bei hoher Kadenz
+## (`collect_high.png`), mit kleinem Ring bei niedriger (`collect_low.png`) und die Objekte aus der Nähe (`collect_close.png`).
 ## Gegenrichtung (#34): `--ccw` fährt gegen den Uhrzeigersinn – `--shots`, `--segments`, `--laps` und `--ghost` dann in
 ## Fahrtposition dieser Richtung, mit `--title` ist die Richtung auf der Seite „Rundfahrt“ gewählt.
 ## Garderobe (#36): `--wardrobe=TEIL,…` gibt dem Spielstand (nur im Speicher) Kilometer bis Level 12 und wählt die Teile
@@ -120,6 +124,8 @@ var _training := false
 var _arcade := false
 ## Zugbrücke und Verfolger statt Zone halten (`--props`, #47).
 var _props := false
+## Takt-Tore und Sammeln statt Zone halten (`--rhythm`, #48).
+var _rhythm := false
 ## Beispiel-Ausrüstung angelegt (`--gear`, #49).
 var _gear := false
 ## Garderobe: gewählte Teile (`--wardrobe`; null = ohne).
@@ -211,6 +217,8 @@ func _initialize() -> void:
 			_gear = true
 		elif arg == "--props":
 			_props = true
+		elif arg == "--rhythm":
+			_rhythm = true
 		elif arg.begins_with("--wardrobe"):
 			_outfit = Array(value.split(",", false)) if arg.contains("=") else []
 		elif arg == "--fauna":
@@ -338,6 +346,8 @@ func _initialize() -> void:
 		await _training_shots(out_dir)
 	if _arcade and _hud and _props:
 		await _prop_shots(out_dir)
+	elif _arcade and _hud and _rhythm:
+		await _rhythm_shots(out_dir)
 	elif _arcade and _hud:
 		await _arcade_shots(out_dir)
 	if fps_to > fps_from:
@@ -702,6 +712,64 @@ func _prop_shots(out_dir: String) -> void:
 		await _ride_arcade(0.05, false)
 		await _frames(3)
 	_save_image(out_dir.path_join("pursuer_gone.png"))
+
+
+## Takt-Tore und Sammeln (#48): Arcade-Lauf mit nur dieser Herausforderung, Fahrer kurz hinter dem Start/Ziel. Die Tore
+## voraus, getroffen (grün „Treffer“) und verpasst (orange „Verpasst“); die Sammelobjekte mit Magnetring bei hoher und
+## niedriger Kadenz und aus der Nähe.
+func _rhythm_shots(out_dir: String) -> void:
+	var length: float = _ride.track.length_m()
+	_place(5.0)
+	_ride.ride_mode = SaveGame.MODE_ARCADE
+	_ride.laps = 0
+	_ride.lap_timing = LapTiming.new(length, 0.0, 0)
+	_ride.stats = RideStats.new()
+	var sections := ArcadeRun.sections_from_stations(_ride.track.ride_stations(), length)
+	_ride.arcade = ArcadeRun.new(1, CadenceRange.new(), sections, length, 0.0, 3, [Encounters.find("takt_ruhig")])
+	_ride.hud.end_celebration()
+	_ride.bus.cadence = 84.0  # in der Zone 74–94
+	_ride._update_view()
+	_ride._update_camera(0.0, true)
+	while _ride.arcade.active.is_empty():
+		await _ride_arcade(0.5, false)
+	var gates: RhythmGates = _ride.arcade.active["block"]
+	await _ride_arcade(3.0)
+	_save_image(out_dir.path_join("rhythm_ahead.png"))
+	while gates.state_of(0) == RhythmGates.PENDING:
+		await _ride_arcade(0.25, false)
+	await _ride_arcade(3.0)
+	_save_image(out_dir.path_join("rhythm_hit.png"))
+	_ride.bus.cadence = 105.0  # über der Zone: das nächste Tor wird verpasst
+	while gates.state_of(1) == RhythmGates.PENDING and not gates.finished():
+		await _ride_arcade(0.25, false)
+	await _ride_arcade(2.5)
+	_save_image(out_dir.path_join("rhythm_missed.png"))
+	# Sammeln: hohe Kadenz, großer Ring.
+	_ride.arcade = ArcadeRun.new(1, CadenceRange.new(), sections, length, _ride.model.distance_m, 3,
+			[Encounters.find("sammeln_wiese")])
+	_ride.bus.cadence = 108.0
+	while _ride.arcade.active.is_empty():
+		await _ride_arcade(0.5, false)
+	var collect: Collect = _ride.arcade.active["block"]
+	while collect.state_of(1) == Collect.PENDING:
+		await _ride_arcade(0.25, false)
+	await _ride_arcade(0.6)
+	_save_image(out_dir.path_join("collect_high.png"))
+	_ride.bus.cadence = 80.0
+	await _ride_arcade(1.0)
+	_save_image(out_dir.path_join("collect_low.png"))
+	# Aus der Nähe: die Kamera seitlich über dem Fahrer, Objekte voraus (Kamera nur hier versetzt).
+	_ride.bus.cadence = 108.0
+	await _ride_arcade(1.0, false)
+	_ride.set_process(false)
+	var at: Transform3D = _ride.rider.global_transform
+	var camera: Camera3D = _ride.camera
+	camera.global_position = at.origin + at.basis.x * 5.0 + at.basis.z * 3.0 + Vector3.UP * 2.6
+	camera.look_at(at.origin - at.basis.z * 6.0 + Vector3.UP * 0.8, Vector3.UP)
+	await _frames(4)
+	_save_image(out_dir.path_join("collect_close.png"))
+	_ride.set_process(true)
+	_ride._update_camera(0.0, true)
 
 
 ## Wartet, bis die Zugbrücke ihren Öffnungsgrad erreicht hat.
