@@ -15,6 +15,10 @@
 ## blendet den Namen ein – je Sehenswürdigkeit höchstens einmal je Runde, nicht mit Ghost, nicht im Training, nicht
 ## während des Intros oder eines anderen Panoramas, im Einstellungsmenü abschaltbar. Auch das ist nur Kamera: Fahrmodell
 ## und Zeitmessung laufen unverändert (ADR-0010).
+## Kameraperspektiven (#59, CameraViews): Nah, Verfolger (Standard) und Weit – mit `C` während der Fahrt der Reihe nach
+## durchzublättern (das HUD blendet den Namen kurz ein) oder im Einstellungsmenü zu wählen. Die Wahl steht im Spielstand
+## und gilt in Rundfahrt und Training, in beiden Richtungen; Intro und Panorama laufen in sie zurück, der Sichtfeld-Kick
+## wirkt in allen. Nur Kamera (ADR-0010).
 ## HUD (`Hud`, RideHud, Szene `scenes/hud.tscn`): bekommt pro Frame die Werte, Rundenfortschritt und Position.
 ##
 ## Szenenfluss (#30): Titel → Modus-Auswahl → Fahrt → Ergebnis → Menü. Nach dem Start (`start_in_menu`) steht das
@@ -114,6 +118,7 @@ const KEY_BINDINGS := {
 	"ride_settings": [KEY_ESCAPE, KEY_F2],
 	"ride_fullscreen": [KEY_F11],
 	"ride_menu": [KEY_ENTER, KEY_KP_ENTER],
+	"ride_camera": [KEY_C],
 }
 ## Menü „Grafik und Fenster“ (Esc/F2, F11, Beenden; siehe `scenes/settings_menu.gd`).
 const SETTINGS_MENU := preload("res://scenes/settings_menu.tscn")
@@ -123,8 +128,8 @@ const START_MENU := preload("res://scenes/start_menu.tscn")
 const LOGBOOK := preload("res://scenes/logbook.gd")
 ## Garderobe (Trikot, Radfarbe, Helm mit Vorschau; #36).
 const WARDROBE := preload("res://scenes/wardrobe.gd")
-## Kamera: Abstand hinter dem Fahrer, Höhe und Blickpunkt voraus aus der Konfiguration (`[camera]`, RideConfig);
-## Glättung (Zeitkonstante).
+## Kamera: Abstand hinter dem Fahrer, Höhe und Blickpunkt voraus je Perspektive (CameraViews, „Weit“ und Blickpunkt
+## aus `config.cfg [camera]`); Glättung (Zeitkonstante).
 const CAMERA_SMOOTHING_S := 0.45
 ## Mindesthöhe der Kamera über dem Gelände (Insel).
 const CAMERA_TERRAIN_CLEARANCE_M := 1.5
@@ -228,6 +233,8 @@ var speed_effects: SpeedEffects
 ## Kamera-Modus (CAMERA_*) und Zeit seit seinem Beginn (s).
 var camera_mode := CAMERA_FOLLOW
 var camera_shot_s := 0.0
+## Kameraperspektive (CameraViews.IDS, #59); gewählt mit `C` oder im Einstellungsmenü, gespeichert im Spielstand.
+var camera_view := CameraViews.DEFAULT
 ## Panorama-Momente (#43): Sehenswürdigkeiten der Strecke (IslandWorld.panorama_spots; leer bei der Graybox), an/aus
 ## laut Einstellungsmenü und die laufende ({} = keine).
 var panorama_spots: Array = []
@@ -275,6 +282,8 @@ func _ready() -> void:
 	settings_menu.ride_end_requested.connect(return_to_menu)
 	add_child(settings_menu)
 	save_game = SaveGame.load_file(save_path) if not save_path.is_empty() else SaveGame.new()
+	camera_view = CameraViews.selection(save_game)
+	settings_menu.camera_view = camera_view
 	start_menu = START_MENU.instantiate()
 	start_menu.ride_requested.connect(_on_ride_requested)
 	start_menu.settings_requested.connect(settings_menu.open)
@@ -360,6 +369,8 @@ func _on_settings_changed(key: String) -> void:
 		speed_effects.enabled = settings_menu.settings.speed_effects
 	if key == "panorama":
 		panorama_enabled = settings_menu.settings.panorama
+	if key == "camera_view":
+		set_camera_view(settings_menu.camera_view, false)
 	if key in ["time", "weather", "season"]:
 		settings_menu.settings.apply_sky(sky)
 	if key == "time" and state == STATE_MENU:
@@ -423,11 +434,9 @@ func current_station() -> String:
 ## (CAMERA_PANORAMA, #43), den das Vorbeifahren an einer Sehenswürdigkeit auslöst.
 func _update_camera(delta: float, snap: bool = false) -> void:
 	var d := model.distance_m
-	var up := Vector3.UP
-	var target := track.to_global(track.ride_position_at(d - config.camera_behind_m)) + up * config.camera_height_m
-	var look := track.to_global(track.ride_position_at(d + config.camera_look_ahead_m)) + up * config.camera_look_height_m
-	if world != null:
-		target.y = maxf(target.y, world.terrain.height_at(target.x, target.z) + CAMERA_TERRAIN_CLEARANCE_M)
+	var follow_view := camera_follow_view(d)
+	var target: Vector3 = follow_view[0]
+	var look: Vector3 = follow_view[1]
 	_check_panorama(d, snap)
 	if camera_mode == CAMERA_INTRO:
 		camera_shot_s += delta
@@ -447,6 +456,35 @@ func _update_camera(delta: float, snap: bool = false) -> void:
 	_aim_camera(target, look, follow)
 
 
+## Folgekamera der gewählten Perspektive (`camera_view`) an Fahrtposition `d`: [Position, Blickpunkt]. Die Position
+## liegt hinter dem Fahrer auf der Strecke, mindestens CAMERA_TERRAIN_CLEARANCE_M über dem Gelände.
+func camera_follow_view(d: float) -> Array:
+	var view := CameraViews.values(camera_view, config)
+	var up := Vector3.UP
+	var target: Vector3 = track.to_global(track.ride_position_at(d - view["behind_m"])) + up * view["height_m"]
+	var look: Vector3 = track.to_global(track.ride_position_at(d + view["look_ahead_m"])) + up * view["look_height_m"]
+	if world != null:
+		target.y = maxf(target.y, world.terrain.height_at(target.x, target.z) + CAMERA_TERRAIN_CLEARANCE_M)
+	return [target, look]
+
+
+## Kameraperspektive `id` (CameraViews.IDS) wählen und im Spielstand speichern; das Einstellungsmenü zeigt sie. Mit
+## `announce` blendet das HUD ihren Namen kurz ein. Die Kamera gleitet über ihre Glättung in die neue Lage.
+func set_camera_view(id: String, announce: bool = true) -> void:
+	camera_view = CameraViews.valid(id)
+	settings_menu.camera_view = camera_view
+	CameraViews.choose(save_game, camera_view)
+	if not save_path.is_empty():
+		save_game.save_file(save_path)
+	if announce:
+		hud.show_camera_view(CameraViews.NAMES[camera_view])
+
+
+## Taste `C`: nächste Perspektive (Nah → Verfolger → Weit → Nah).
+func cycle_camera_view() -> void:
+	set_camera_view(CameraViews.next(camera_view))
+
+
 ## Kamera-Modus wechseln (CAMERA_*); die Zeit im Modus beginnt bei 0.
 func _set_camera_mode(mode: String) -> void:
 	camera_mode = mode
@@ -464,8 +502,9 @@ func _intro_shot(d: float, target: Vector3, look: Vector3, t: float) -> Array:
 	var right := forward.cross(Vector3.UP)
 	var ease := smoothstep(0.0, 1.0, t)
 	var angle := deg_to_rad(CAMERA_INTRO_ANGLE_DEG) * (1.0 - ease)
-	var radius := lerpf(CAMERA_INTRO_DISTANCE_M, config.camera_behind_m, ease)
-	var height := lerpf(CAMERA_INTRO_HEIGHT_M, config.camera_height_m, ease)
+	var view := CameraViews.values(camera_view, config)
+	var radius := lerpf(CAMERA_INTRO_DISTANCE_M, view["behind_m"], ease)
+	var height := lerpf(CAMERA_INTRO_HEIGHT_M, view["height_m"], ease)
 	var orbit := at - forward * cos(angle) * radius + right * sin(angle) * CAMERA_INTRO_SIDE_M + Vector3.UP * height
 	if world != null:
 		orbit.y = maxf(orbit.y, world.terrain.height_at(orbit.x, orbit.z) + CAMERA_TERRAIN_CLEARANCE_M)
@@ -822,6 +861,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("ride_menu") and state == STATE_FINISHED:
 		return_to_menu()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("ride_camera") and state != STATE_MENU and not settings_menu.visible:
+		cycle_camera_view()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("ride_pause") and state != STATE_MENU:
 		if state != STATE_FINISHED:
