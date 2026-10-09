@@ -7,7 +7,7 @@ const CHALLENGES := [
 	# Durchbruch: kurze harte Anstrengung hoch im Bereich (Zugbrücke).
 	{"id": "durchbruch_bruecke", "block": ID, "name": "Durchbruch", "threshold_at": 0.8, "fill_s": 6.0,
 		"window_s": 18.0, "decay": 0.5, "points": 140},
-	{"id": "durchbruch_spurt", "block": ID, "name": "Durchbruch", "threshold_at": 0.9, "fill_s": 4.0,
+	{"id": "durchbruch_spurt", "block": ID, "name": "Durchbruch", "threshold_at": 0.85, "fill_s": 4.0,
 		"window_s": 14.0, "decay": 0.5, "points": 160},
 ]
 
