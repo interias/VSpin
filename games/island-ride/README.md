@@ -1431,6 +1431,12 @@ zeigt ihn nur an und wertet ihn aus; er verändert die Fahrt nicht.
   nicht neu berechnet; Fahrten ohne Puls tragen keine Pulsfelder. Die Übersicht am Ende jeder Fahrt (Rundfahrt, Training,
   Arcade) und das Fahrtenbuch (Seite „Fahrten“, Block „Puls je Fahrt“) zeigen „Ø Puls 142 · Max 171 bpm“ und
   „Zonen: Z2 18:30 · Z3 4:10“; Pausen zählen nicht.
+- **HUD:** Das Werte-Panel zeigt den Puls in bpm in der Farbe seiner Zone mit Zonennummer (Z1–Z5); ohne LTHR und
+  Maximalpuls nur die Zahl in Weiß; bei Ausfall „--“, die Fahrt läuft weiter. Ohne jedes Pulsgerät und ohne Pulswert fehlt
+  die Anzeige ganz (kein dauerndes „--“ ohne Gurt). Im vollen Layout zeigt eine kleine Kurve (`src/hud_pulse.gd`) die letzten
+  3 Minuten Fahrzeit auf Zonenbändern, Lücken bleiben Lücken; in der kompakten Leiste (unter 760 px) stehen Zahl und Zone in
+  Zonenfarbe. Die Kurve ist nur Anzeige. Die Zonen sind die der Fahrt (dieselben wie in der Pulsstatistik). Sichtprüfung:
+  `tools/view_probe.gd -- --hud --pulse=148 --lthr=165` (`--pulse=--` zeigt den Ausfall, ohne `--lthr` keine Zonen).
 
 ## Konfiguration
 
@@ -1577,6 +1583,7 @@ src/ride_stats.gd       RideStats: Fahrzeit, Strecke, Ø Kadenz, Ø Tempo (ohne 
 src/heart_rate_zones.gd HeartRateZones: Pulszonen aus LTHR oder Maximalpuls, Grenzen und Farben je Zone – reine Logik (#64)
 src/heart_rate_stats.gd HeartRateStats: Ø-Puls, Max-Puls, Sekunden je Zone einer Fahrt – reine Logik (#64)
 src/heart_rate_devices.gd HeartRateDevices: gemerkter Brustgurt und Uhr in user://settings.cfg [heart_rate], Liste für die Bridge (#64)
+src/hud_pulse.gd        HudPulse: Pulskurve der letzten 3 min auf Zonenbändern (curve_points/band_rects als reine Rechnung) (#64)
 src/lap_timing.gd       LapTiming: Rundenwertung – Rundenzeiten, Ziel nach n Runden oder endlos, Bestzeit, Ghost-Aufzeichnung – reine Logik
 src/segment_timing.gd   SegmentTiming: Segmentzeiten (Live-Zeit, gewertete Segmente, Segment-Bestzeit) – reine Logik
 src/ghost.gd            Ghost: Runde als Strecke über Zeit – aufzeichnen, abspielen, Abstand in s – reine Logik
