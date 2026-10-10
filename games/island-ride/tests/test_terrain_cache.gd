@@ -2,7 +2,7 @@
 ## (geänderte Quellen/Parameter) erzeugt neu, ein kaputter Cache stört nicht.
 extends GutTest
 
-const PATH := "user://test_terrain_cache.bin"
+var PATH := TestIsolation.path("test_terrain_cache.bin")
 
 
 func after_each() -> void:

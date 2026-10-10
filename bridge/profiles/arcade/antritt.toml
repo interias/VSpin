@@ -1,0 +1,54 @@
+# Arcade-Messprofil „Antritt“ (#45): drei Antritte aus 80 rpm – explosiv (+30 rpm in 0,5 s), zügig (+30 rpm in
+# 1,5 s) und knapp (+26 rpm in 2 s, gerade über der Schwelle +25 rpm in 2 s). Dazwischen ruhig 80 rpm, damit jedes
+# 2-s-Fenster vor einem Antritt nur die Grundkadenz sieht. Endet danach.
+# Gemessen von tests/cadence_latency.py (Erkennungsverzögerung geglättet gegen ungeglättet, ADR-0004 Nachtrag #45).
+name = "Arcade: Antritt"
+
+[[steps]]
+duration_s = 6
+cadence = 80
+
+[[steps]]
+duration_s = 0.5
+cadence = 80
+cadence_to = 110
+
+[[steps]]
+duration_s = 4
+cadence = 110
+
+[[steps]]
+duration_s = 2
+cadence = 110
+cadence_to = 80
+
+[[steps]]
+duration_s = 4
+cadence = 80
+
+[[steps]]
+duration_s = 1.5
+cadence = 80
+cadence_to = 110
+
+[[steps]]
+duration_s = 4
+cadence = 110
+
+[[steps]]
+duration_s = 2
+cadence = 110
+cadence_to = 80
+
+[[steps]]
+duration_s = 4
+cadence = 80
+
+[[steps]]
+duration_s = 2
+cadence = 80
+cadence_to = 106
+
+[[steps]]
+duration_s = 4
+cadence = 106

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from bridge_harness import PROFILES_DIR, port_open, receive_json, run_bridge
+from vspin_bridge.sources.profile import Ride, load_profile
 
 RAMP_PROFILE = """
 name = "Test-Rampe"
@@ -165,6 +166,59 @@ def test_example_profile_starts(bridge_process, bus_client, name):
     assert telemetry["type"] == "telemetry" and 0 <= telemetry["cadence"] <= 200
     assert bridge.stop() == 0
     assert "Profil: " in bridge.log()
+
+
+# Arcade-Szenarien (#46, #47, #48): dieselben Profile `zone_*`, `durchbruch_*` und `jagd_*` spielt
+# games/island-ride/tests/test_arcade_ride.gd, `takt_*` und `sammeln_*` test_arcade_rhythm_collect_ride.gd über den
+# Fake-Bus durch das Spiel und prüft dort das Ergebnis (geschafft, weich verfehlt, Pause bei Abbruch). Die
+# Messprofile `antritt`/`innehalten` (#45) wertet tests/cadence_latency.py aus; im Spiel spielt sie
+# test_abilities_ride.gd (#50) zusammen mit `gleichmass` und `rhythmus` nach: Muster erkannt, Fähigkeit ausgelöst.
+# Die Boss-Szenarien `boss_*` (#51) spielt test_bosses_ride.gd: besiegt, entkommen, Pause beim Abbruch im Bosskampf.
+# Die Elite-Szenarien `elite_*` (#52) spielt test_elite_groups_ride.gd: Champions abgehängt, Seltene mit Gefolge verfehlt.
+ARCADE_DIR = PROFILES_DIR / "arcade"
+ARCADE_PROFILES = sorted(p.name for p in ARCADE_DIR.glob("*.toml"))
+
+
+def test_arcade_profiles_exist():
+    assert {
+        "zone_perfekt.toml",
+        "zone_knapp_daneben.toml",
+        "zone_abbruch.toml",
+        "durchbruch_geschafft.toml",
+        "durchbruch_zu_schwach.toml",
+        "jagd_entkommen.toml",
+        "jagd_eingeholt.toml",
+        "takt_getroffen.toml",
+        "takt_verfehlt.toml",
+        "sammeln_viel.toml",
+        "sammeln_wenig.toml",
+        "antritt.toml",
+        "innehalten.toml",
+        "gleichmass.toml",
+        "rhythmus.toml",
+        "boss_abbruch.toml",
+        "boss_tramuntana.toml",
+        "boss_drac.toml",
+        "boss_dimonis_besiegt.toml",
+        "boss_dimonis_entkommen.toml",
+        "elite_champion.toml",
+        "elite_selten.toml",
+    } <= set(ARCADE_PROFILES)
+
+
+@pytest.mark.parametrize("name", ARCADE_PROFILES)
+def test_arcade_profile_loads_and_starts(bridge_process, bus_client, name):
+    profile = load_profile(ARCADE_DIR / name)
+    assert profile.name.startswith("Arcade: ")
+    assert not profile.repeat  # endet nach dem Szenario (Quelle beendet)
+    first = next(step for step in profile.steps if isinstance(step, Ride))
+    bridge = bridge_process("--source", "sim", "--profile", str(ARCADE_DIR / name))
+    client = bus_client()
+    assert receive_json(client)["state"] == "connected"
+    telemetry = receive_json(client)
+    assert telemetry["type"] == "telemetry" and telemetry["cadence"] == first.cadence
+    assert bridge.stop() == 0
+    assert f"Profil: {profile.name}" in bridge.log()
 
 
 BAD_PROFILES = [

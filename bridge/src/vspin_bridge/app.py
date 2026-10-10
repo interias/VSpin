@@ -63,6 +63,7 @@ class Bridge:
         sessions_dir: Path = DEFAULT_SESSIONS_DIR,
         wait_for_client: bool = False,
         host: str = HOST,
+        port: int = PORT,
         heart_rate: HeartRateFactory = bleak_heart_rate,
     ) -> None:
         self._source = source
@@ -82,6 +83,7 @@ class Bridge:
             on_clients_changed=self._on_clients_changed,
             on_message=self._on_client_message,
             host=host,
+            port=port,
             on_client_left=self._on_client_left,
         )
         # Pulsquelle (Spec #64): Zustand in `status`, Wert in `telemetry`, Rohdaten in die Session.
@@ -100,7 +102,7 @@ class Bridge:
         await self._bus.start()
         keyboard: Keyboard | None = None
         try:
-            self._console.info(f"vspin-bridge: Bus auf ws://{self._bus.host}:{PORT}")
+            self._console.info(f"vspin-bridge: Bus auf ws://{self._bus.host}:{self._bus.port}")
             # Session = ein Bridge-Lauf (ADR-0008); erst nach erfolgreichem Bus-Start.
             try:
                 self._session = open_session(self._sessions_dir)

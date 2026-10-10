@@ -8,7 +8,7 @@ Bridge-Zeit in Millisekunden. Wird finalisiert, sobald das JC312-Protokoll bekan
 
 ```json
 {"v": 0, "type": "telemetry", "t_ms": 123456,
- "cadence": 84.2, "speed_kmh": 27.9,
+ "cadence": 84.2, "cadence_raw": 86.5, "speed_kmh": 27.9,
  "power_w": 142, "power_estimated": true,
  "heart_rate": null}
 ```
@@ -21,10 +21,14 @@ Datenaufbereitung (ADR-0004, für alle Quellen gleich):
 | Feld | Bedeutung |
 |---|---|
 | `cadence` | rpm, geglättet (EMA, Zeitkonstante 0,3 s, auf 0,1 gerundet). `null`, solange die Quelle noch keinen Wert hatte (CSC: erst ab dem zweiten Kurbel-Event). `0`, wenn 2,5 s lang kein neuer Wert kam, obwohl Daten kommen (CSC: kein neues Kurbel-Event; FTMS: kein Kadenzfeld). Meldet die Quelle ausdrücklich 0, ist sie `0`, sobald der geglättete Wert unter 1 rpm fällt. Liefert die Quelle gar keine Kadenz, bleibt sie `null`. Werte außerhalb 0–200 rpm verwirft die Bridge (sie werden nicht begrenzt). |
+| `cadence_raw` | rpm, **ungeglättet** (auf 0,1 gerundet) – nur für die Kadenzmuster (Antritt, Innehalten …); Anzeige und Fahrmodell nutzen `cadence` (Nachtrag #45 in ADR-0004). Dieselben Regeln wie `cadence`, nur ohne EMA: Werte außerhalb 0–200 rpm verworfen, `0` nach 2,5 s ohne neuen Wert, `null` bis zum ersten Wert. Zwischen zwei neuen Werten (CSC: wiederholtes Kurbel-Event) und nach einem verworfenen Ausreißer gilt der letzte angenommene Wert weiter. Nicht zu verwechseln mit der CSV-Spalte `cadence_raw` (Rohwert je Sample der Quelle, leer ohne neuen Wert, auch Ausreißer). Seit #45 – additiv, `v` bleibt `0`; Clients ohne das Feld ignorieren es. |
 | `speed_kmh` | km/h, ungeglättet; `null`, wenn die Quelle keine liefert (Simulator, CSC – Radumfang unbekannt). |
 | `power_w` | Watt, ungeglättet; `null` ohne Wert. |
 | `power_estimated` | `true` = geschätzt, `false` = gemessen, `null` ohne `power_w`. Watt vom JC312 (FTMS) sind immer geschätzt. |
 | `heart_rate` | bpm. Ist ein Pulsgerät verbunden (`status.heart_rate.state` `connected` oder `stale`) oder hat die Pulsquelle einen Wert jünger als 5 s, ist es der Wert der Pulsquelle (`null`, wenn er älter als 5 s ist). Sonst der Puls, den das Rad selbst liefert (FTMS Indoor Bike Data; der Simulator liefert einen, außer ein Profil schaltet ihn ab), falls es einen liefert, sonst `null`. Den Takt der `telemetry` bestimmt weiter die Radquelle. |
+
+Clients ignorieren unbekannte Felder; neue Felder kommen additiv dazu, ohne `v` zu ändern (zuletzt `cadence_raw`, #45).
+Ein Client, der `cadence_raw` nutzt, nimmt bei einer älteren Bridge ohne das Feld `cadence`.
 
 Kommen gar keine Daten, gibt es keine erfundene Kadenz 0 – dann greift `stale` (unten).
 

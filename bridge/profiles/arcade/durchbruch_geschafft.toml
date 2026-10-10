@@ -1,0 +1,18 @@
+# Arcade-Szenario „Durchbruch geschafft“ (#47): erst 90 rpm bis zum Startpunkt, dann 8 s mit 114 rpm – über der
+# Schwelle des Durchbruchs (Stufe 1, Kadenzbereich 60–120 rpm: Schwelle 108 rpm, 6 s bis der Balken voll ist, 18 s
+# Zeitfenster). Erwartet im Spiel: der Balken füllt sich, die Zugbrücke öffnet sich, Erfolg mit Punkten, die Fahrt geht
+# weiter. Endet danach (Quelle beendet → disconnected).
+# Im Spiel nachgespielt von games/island-ride/tests/test_arcade_ride.gd.
+name = "Arcade: Durchbruch geschafft"
+
+[[steps]]
+duration_s = 12
+cadence = 90
+
+[[steps]]
+duration_s = 8
+cadence = 114
+
+[[steps]]
+duration_s = 10
+cadence = 90

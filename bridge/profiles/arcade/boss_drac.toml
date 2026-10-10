@@ -1,0 +1,26 @@
+# Arcade-Szenario „Drac de na Coca besiegt“ (#51): Stufe 1, Kadenzbereich 60–120 rpm, der große Kampf in vier Phasen:
+# Feueratem (77–97 rpm, 12 s) mit 90 rpm, Flügelschlag (ab 108 rpm, Balken in 6 s) mit 114 rpm, Schuppenpanzer
+# (86–106 rpm, 12 s) mit 96 rpm, Letzter Ansturm (ab 111 rpm, Balken in 5 s) mit 116 rpm. Erwartet im Spiel: besiegt,
+# +600 Punkte und Boss-Beute, die Fahrt geht weiter. Endet danach (Quelle beendet → disconnected).
+# Im Spiel nachgespielt von games/island-ride/tests/test_bosses_ride.gd.
+name = "Arcade: Drac de na Coca besiegt"
+
+[[steps]]
+duration_s = 22
+cadence = 90
+
+[[steps]]
+duration_s = 8
+cadence = 114
+
+[[steps]]
+duration_s = 15
+cadence = 96
+
+[[steps]]
+duration_s = 7
+cadence = 116
+
+[[steps]]
+duration_s = 5
+cadence = 90

@@ -1,0 +1,17 @@
+# Arcade-Szenario „Jagd eingeholt“ (#47): 90 rpm bis zum Startpunkt, dann 14 s mit 80 rpm – unter der Schwelle der
+# Jagd (93 rpm bei Stufe 1 und Kadenzbereich 60–120 rpm). Erwartet im Spiel: der Verfolger holt auf und ein (weich:
+# keine Punkte, keine Beute, er zieht ab), die Fahrt geht weiter. Endet danach.
+# Im Spiel nachgespielt von games/island-ride/tests/test_arcade_ride.gd.
+name = "Arcade: Jagd eingeholt"
+
+[[steps]]
+duration_s = 12
+cadence = 90
+
+[[steps]]
+duration_s = 14
+cadence = 80
+
+[[steps]]
+duration_s = 10
+cadence = 90

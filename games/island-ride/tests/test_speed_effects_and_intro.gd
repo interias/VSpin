@@ -3,7 +3,7 @@
 ## in beiden Richtungen und im Training, und lässt Fahrmodell und Rundenzeit unberührt (ADR-0010).
 extends "res://tests/support/bus_test.gd"
 
-const SETTINGS_PATH := "user://test_speed_effects_settings.cfg"
+var SETTINGS_PATH := TestIsolation.path("test_speed_effects_settings.cfg")
 const DT := 1.0 / 60.0
 
 

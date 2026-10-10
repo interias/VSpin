@@ -1,0 +1,18 @@
+# Arcade-Szenario „Durchbruch zu schwach“ (#47): 90 rpm bis zum Startpunkt, dann 22 s mit 104 rpm – knapp unter der
+# Schwelle des Durchbruchs (108 rpm bei Stufe 1 und Kadenzbereich 60–120 rpm), länger als das Zeitfenster (18 s).
+# Erwartet im Spiel: der Balken füllt sich nicht, der Durchbruch wird weich verfehlt (keine Punkte, keine Beute), die
+# Zugbrücke öffnet sich trotzdem langsam, die Fahrt geht weiter. Endet danach.
+# Im Spiel nachgespielt von games/island-ride/tests/test_arcade_ride.gd.
+name = "Arcade: Durchbruch zu schwach"
+
+[[steps]]
+duration_s = 12
+cadence = 90
+
+[[steps]]
+duration_s = 22
+cadence = 104
+
+[[steps]]
+duration_s = 10
+cadence = 90

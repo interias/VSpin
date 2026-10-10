@@ -5,7 +5,7 @@ extends "res://tests/support/bus_test.gd"
 
 const START_MENU_SCENE := preload("res://scenes/start_menu.tscn")
 const START_MENU := preload("res://scenes/start_menu.gd")
-const SAVE_PATH := "user://test_start_menu_savegame.json"
+var SAVE_PATH := TestIsolation.path("test_start_menu_savegame.json")
 ## Abstand zur Ziellinie (letzter flacher Abschnitt der Graybox-Strecke).
 const BEFORE_FINISH_M := 12.0
 
@@ -113,13 +113,11 @@ func test_menu_items_and_disabled_entries() -> void:
 	assert_eq(texts["round_trip"], "Rundfahrt")
 	assert_eq(texts["settings"], "Einstellungen")
 	assert_eq(texts["quit"], "Beenden")
-	assert_string_contains(texts["arcade"], "Arcade")
-	assert_string_contains(texts["arcade"], "bald")
+	assert_eq(texts["arcade"], "Arcade", "Arcade wählbar (#46)")
 	assert_eq(texts["logbook"], "Fahrtenbuch")
 	assert_eq(texts["wardrobe"], "Garderobe", "Garderobe wählbar (#36)")
 	assert_eq(texts["training"], "Training", "Training wählbar (#37)")
-	assert_true(buttons["arcade"].disabled, "arcade ausgegraut")
-	for key in ["drive", "round_trip", "training", "logbook", "wardrobe", "settings", "quit", "back"]:
+	for key in ["drive", "round_trip", "training", "arcade", "logbook", "wardrobe", "settings", "quit", "back"]:
 		assert_false(buttons[key].disabled, "%s wählbar" % key)
 	assert_true(buttons["quit"].is_visible_in_tree(), "Beenden auf dem Desktop")
 	var web_menu := START_MENU_SCENE.instantiate()
@@ -146,7 +144,7 @@ func test_keyboard_drives_menu_into_ride() -> void:
 	assert_eq(_focused(game), game.start_menu.buttons["round_trip"], "Fahren → Modus-Auswahl")
 	await _press(KEY_DOWN)
 	await _press(KEY_DOWN)
-	assert_eq(_focused(game), game.start_menu.buttons["back"], "ausgegraute Punkte (Arcade) werden übersprungen")
+	assert_eq(_focused(game), game.start_menu.buttons["arcade"], "Arcade wählbar (#46)")
 	await _press(KEY_UP)
 	await _press(KEY_UP)
 	await _press(KEY_ENTER)
@@ -177,7 +175,10 @@ func test_mouse_selects_menu_items() -> void:
 	await _click(menu.buttons["drive"])
 	assert_true(menu.buttons["round_trip"].is_visible_in_tree(), "Fahren → Modus-Auswahl")
 	await _click(menu.buttons["arcade"])
-	assert_signal_emit_count(menu, "ride_requested", 0, "Arcade ausgegraut: nichts passiert")
+	assert_signal_emit_count(menu, "ride_requested", 0, "Arcade öffnet erst die Auswahl (#46)")
+	assert_true(menu.buttons["arcade_start"].is_visible_in_tree(), "Seite „Arcade“")
+	await _click(menu.buttons["arcade_back"])
+	assert_true(menu.buttons["round_trip"].is_visible_in_tree(), "zurück zur Modus-Auswahl")
 	await _click(menu.buttons["back"])
 	assert_true(menu.buttons["drive"].is_visible_in_tree(), "Zurück zur Hauptseite")
 	await _click(menu.buttons["quit"])
@@ -342,6 +343,11 @@ func _check_both_pages(menu: CanvasLayer, label: String) -> void:
 	menu.show_training()
 	await wait_process_frames(2)
 	_assert_menu_inside(menu, label + " (Training)")
+	menu.show_arcade()
+	await wait_process_frames(2)
+	for key in ["tier", "cadence_min", "cadence_max"]:
+		assert_true((menu.options[key] as Control).is_visible_in_tree(), "%s: Feld %s auf der Seite „Arcade“" % [label, key])
+	_assert_menu_inside(menu, label + " (Arcade)")
 
 
 func test_layout_fits_half_screen_window() -> void:

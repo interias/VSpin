@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .app import DEFAULT_SESSIONS_DIR, Bridge, SessionStartError
-from .bus import HOST, BusStartError
+from .bus import HOST, PORT, BusStartError
 from .console import Console
 from .heart_rate_relay import HeartRateFactory, bleak_heart_rate
 from .sources.base import DeviceSource, RawNotification
@@ -121,6 +121,14 @@ def build_parser() -> argparse.ArgumentParser:
         "dessen Port nur auf 127.0.0.1 des Hosts veröffentlicht ist (docker-compose.yml)",
     )
     parser.add_argument(
+        "--port",
+        type=int,
+        default=PORT,
+        metavar="PORT",
+        help=f"Port des Busses (Standard: {PORT}); ein anderer nur für parallele Test- und Prüfläufe "
+        "(VSPIN_PORT_BASE) – das Spiel verbindet sich mit config.cfg [bus] url",
+    )
+    parser.add_argument(
         "--stop-file",
         type=Path,
         default=None,
@@ -160,7 +168,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return asyncio.run(
             _run(
-                source, console, args.sessions_dir, args.wait_client, args.host, args.stop_file, args.parent_pid,
+                source,
+                console,
+                args.sessions_dir,
+                args.wait_client,
+                args.host,
+                args.stop_file,
+                args.parent_pid,
+                args.port,
                 heart_rate=heart_rate or bleak_heart_rate,
             )
         )
@@ -181,6 +196,7 @@ async def _run(
     host: str,
     stop_file: Path | None = None,
     parent_pid: int | None = None,
+    port: int = PORT,
     heart_rate: HeartRateFactory = bleak_heart_rate,
 ) -> int:
     stop = asyncio.Event()
@@ -193,7 +209,7 @@ async def _run(
     if parent_pid is not None:
         parent_watcher = asyncio.create_task(_watch_parent(parent_pid, stop, console))
     try:
-        await Bridge(source, console, sessions_dir, wait_for_client, host, heart_rate=heart_rate).run(stop)
+        await Bridge(source, console, sessions_dir, wait_for_client, host, port, heart_rate=heart_rate).run(stop)
     except BusStartError as exc:
         console.info(f"vspin-bridge: Bus konnte nicht starten: {exc}")
         return 1

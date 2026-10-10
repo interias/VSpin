@@ -1,0 +1,36 @@
+# Arcade-Szenario „Abbruch mitten im Bosskampf“ (#51): Tramuntana (Stufe 1, Kadenzbereich 60–120 rpm; Phasen Gegenwind
+# 80–100 rpm 10 s, Böe ab 105 rpm 5 s, Sturmfront 86–106 rpm 12 s). Mitten im Gegenwind (90 rpm) bleiben die Daten aus
+# (nach 3 s `stale`), dann reißt die Verbindung ab (`disconnected`, 30 s – länger als das Zeitfenster der Phase). Danach
+# geht der Kampf weiter: 90 rpm, die Böe mit 112 rpm, die Sturmfront mit 96 rpm. Erwartet im Spiel: Pause wie überall
+# (ADR-0004); in der Pause bleiben Lebensbalken und Phase stehen, nichts scheitert; danach Weiterfahrt, der Boss wird
+# besiegt. Endet danach (Quelle beendet → disconnected).
+# Im Spiel nachgespielt von games/island-ride/tests/test_bosses_ride.gd.
+name = "Arcade: Abbruch im Bosskampf"
+
+[[steps]]
+duration_s = 12
+cadence = 90
+
+[[steps]]
+duration_s = 4
+action = "pause"
+
+[[steps]]
+duration_s = 30
+action = "disconnect"
+
+[[steps]]
+duration_s = 8
+cadence = 90
+
+[[steps]]
+duration_s = 7
+cadence = 112
+
+[[steps]]
+duration_s = 15
+cadence = 96
+
+[[steps]]
+duration_s = 5
+cadence = 90

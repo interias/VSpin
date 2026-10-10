@@ -15,7 +15,7 @@ _SENDER: ContextVar[ServerConnection | None] = ContextVar("bus_sender", default=
 
 
 class BusStartError(Exception):
-    """Der Bus konnte nicht auf Host:8765 lauschen (z. B. Port belegt)."""
+    """Der Bus konnte nicht auf Host:Port lauschen (z. B. Port belegt)."""
 
 
 class BusServer:
@@ -31,9 +31,11 @@ class BusServer:
         on_clients_changed: Callable[[int], None] = lambda n: None,
         on_message: Callable[[str | bytes], Awaitable[str | None]] | None = None,
         host: str = HOST,
+        port: int = PORT,
         on_client_left: Callable[[ServerConnection], None] = lambda client: None,
     ) -> None:
         self.host = host  # 0.0.0.0 nur im Container (Port dort nur auf 127.0.0.1 veröffentlicht)
+        self.port = port  # anderer als 8765 nur für parallele Testläufe (VSPIN_PORT_BASE, Test-Harness)
         self._status = status
         self._on_clients_changed = on_clients_changed
         self._on_message = on_message
@@ -47,9 +49,9 @@ class BusServer:
 
     async def start(self) -> None:
         try:
-            self._server = await serve(self._handle, self.host, PORT)
+            self._server = await serve(self._handle, self.host, self.port)
         except OSError as exc:
-            raise BusStartError(f"ws://{self.host}:{PORT} nicht verfügbar: {exc}") from exc
+            raise BusStartError(f"ws://{self.host}:{self.port} nicht verfügbar: {exc}") from exc
 
     async def stop(self) -> None:
         if self._server is not None:

@@ -26,6 +26,7 @@ def telemetry_message(sample: TelemetrySample) -> str:
             "type": "telemetry",
             "t_ms": sample.t_ms,
             "cadence": sample.cadence,
+            "cadence_raw": sample.cadence_raw,
             "speed_kmh": sample.speed_kmh,
             "power_w": sample.power_w,
             "power_estimated": sample.power_estimated,

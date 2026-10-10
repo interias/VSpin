@@ -4,7 +4,7 @@
 ## `season` fällt beim Fahren und ergibt den richtigen Erfolg.
 extends "res://tests/support/bus_test.gd"
 
-const TEMP_PATH := "user://test_seasons.cfg"
+var TEMP_PATH := TestIsolation.path("test_seasons.cfg")
 
 
 func after_each() -> void:
