@@ -1,4 +1,5 @@
-## Startmenü der Inselfahrt (#30): Titel über dem Kameraflug, Menüpunkte und unten dauerhaft der Status des Rads.
+## Startmenü der Inselfahrt (#30): Titel über dem Kameraflug, Menüpunkte und unten dauerhaft der Status des Rads
+## und darunter der des Pulses (Spec #64).
 ##   Fahren        → Modus-Auswahl: Rundfahrt, Training, Arcade
 ##   Rundfahrt     → Rundenzahl (1–n oder endlos), Richtung (im / gegen den Uhrzeigersinn, #34), Tageszeit (wie im
 ##                   Einstellungsmenü), Ghost (aus, Bestzeit, letzte Fahrt; ohne Aufzeichnung ausgegraut, #32), Bestzeit
@@ -49,6 +50,8 @@ const COLOR_WARN := Color(1.0, 0.78, 0.35)
 const COLOR_ERROR := Color(1.0, 0.45, 0.4)
 ## Hinweis im Radstatus ohne Bus: Bridge von Hand starten.
 const BRIDGE_START_HINT := "Bridge starten: vspin-bridge --source sim"
+## Schrift der Pulszeile: etwas kleiner als der Radstatus, damit beide Zeilen im Fenster 1152×648 noch passen.
+const PULSE_FONT_SIZE := 18
 ## Rundenzahlen zur Auswahl; 0 = endlos.
 const LAP_CHOICES := [1, 2, 3, 4, 5, 6, 8, 10, 15, 20, 0]
 ## Richtungen zur Auswahl (#34): im Uhrzeigersinn (Standard), gegen den Uhrzeigersinn.
@@ -87,6 +90,8 @@ var _center: CenterContainer
 var _panel: PanelContainer
 var _status_dot: Label
 var _status_label: Label
+var _pulse_dot: Label
+var _pulse_label: Label
 
 
 func _ready() -> void:
@@ -365,6 +370,45 @@ static func wheel_status(bus_connected: bool, status: String, source: String, br
 	return ["Rad verbunden", COLOR_OK]
 
 
+## Pulsstatus unter dem Radstatus aus dem Zustand des Bus-Clients.
+func show_heart_rate_status(bus: BusClient) -> void:
+	var status := heart_rate_status(bus.bus_connected, bus.heart_rate_state, bus.heart_rate_device, bus.heart_rate_bpm,
+			bus.source)
+	_pulse_label.text = status[0]
+	_pulse_dot.add_theme_color_override("font_color", status[1])
+
+
+## Pulsstatus als [Text, Farbe] (Story 11):
+##   verbunden       „Puls: HRM 600 · 62 bpm“ (ohne Wert „-- bpm“, wie das HUD), grün
+##   stale           „Puls: HRM 600 · keine Daten“, gelb – das Gerät ist bekannt, sendet aber gerade nicht
+##   disconnected    „Puls: nicht verbunden“, gelb – es ist ein Gerät gemerkt, die Bridge findet es nicht
+##   off mit Wert    „Puls: 62 bpm (vom Rad)“ bzw. „(Simulator)“, grün – kein Gerät gemerkt, aber die Quelle liefert Puls
+##   off ohne Wert   „Puls: kein Gerät eingerichtet“, gelb – kein Fehler, aber der Hinweis, dass hier etwas fehlt
+##   ohne Bus        „Puls: nicht verbunden“, rot wie der Radpunkt; die Radzeile nennt den Grund
+## `device`: {address, name, role} wie BusClient.heart_rate_device; `bpm`: NAN = kein Wert.
+static func heart_rate_status(bus_connected: bool, state: String, device: Dictionary, bpm: float, source: String) -> Array:
+	if not bus_connected:
+		return ["Puls: nicht verbunden", COLOR_ERROR]
+	var value := "-- bpm" if is_nan(bpm) else "%d bpm" % roundi(bpm)
+	match state:
+		BusClient.HEART_RATE_CONNECTED:
+			return ["Puls: %s · %s" % [_heart_rate_device_name(device), value], COLOR_OK]
+		BusClient.HEART_RATE_STALE:
+			return ["Puls: %s · keine Daten" % _heart_rate_device_name(device), COLOR_WARN]
+		BusClient.HEART_RATE_DISCONNECTED:
+			return ["Puls: nicht verbunden", COLOR_WARN]
+	if not is_nan(bpm):
+		return ["Puls: %s (%s)" % [value, "Simulator" if source == "sim" else "vom Rad"], COLOR_OK]
+	return ["Puls: kein Gerät eingerichtet", COLOR_WARN]
+
+
+static func _heart_rate_device_name(device: Dictionary) -> String:
+	var device_name := str(device.get("name", "")).strip_edges()
+	if not device_name.is_empty():
+		return device_name
+	return "Uhr" if device.get("role") == HeartRateDevices.ROLE_WATCH else "Brustgurt"
+
+
 func _build() -> void:
 	var theme := Theme.new()
 	theme.default_font_size = 22
@@ -552,9 +596,12 @@ func _build() -> void:
 	status.add_theme_stylebox_override("panel", _panel_style(0.6, 12))
 	status.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	column.add_child(status)
+	var rows := VBoxContainer.new()
+	rows.add_theme_constant_override("separation", 0)  # zwei Zeilen kosten Höhe: im 648-px-Fenster ist sie knapp
+	status.add_child(rows)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
-	status.add_child(row)
+	rows.add_child(row)
 	_status_dot = Label.new()
 	_status_dot.text = "●"
 	row.add_child(_status_dot)
@@ -567,6 +614,20 @@ func _build() -> void:
 	var status_text := wheel_status(false, BusClient.STATE_DISCONNECTED, "")
 	_status_label.text = status_text[0]
 	_status_dot.add_theme_color_override("font_color", status_text[1])
+	var pulse_row := HBoxContainer.new()
+	pulse_row.add_theme_constant_override("separation", 10)
+	rows.add_child(pulse_row)
+	_pulse_dot = Label.new()
+	_pulse_dot.text = "●"
+	_pulse_dot.add_theme_font_size_override("font_size", PULSE_FONT_SIZE)
+	pulse_row.add_child(_pulse_dot)
+	_pulse_label = Label.new()
+	_pulse_label.name = "HeartRateStatus"
+	_pulse_label.add_theme_font_size_override("font_size", PULSE_FONT_SIZE)
+	pulse_row.add_child(_pulse_label)
+	var pulse_text := heart_rate_status(false, BusClient.HEART_RATE_OFF, {}, NAN, "")
+	_pulse_label.text = pulse_text[0]
+	_pulse_dot.add_theme_color_override("font_color", pulse_text[1])
 
 
 func _page(parent: Container, page_name: String) -> VBoxContainer:

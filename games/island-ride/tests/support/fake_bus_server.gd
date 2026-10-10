@@ -121,11 +121,37 @@ static func ack(for_type: String, ok: bool, reason = null) -> Dictionary:
 	return {"v": 0, "type": "ack", "for": for_type, "ok": ok, "reason": reason}
 
 
-## Baustein: `status`-Nachricht wie von der Bridge (docs/bus-protocol.md).
+## Baustein: `status`-Nachricht wie von der Bridge (docs/bus-protocol.md). Mit `heart_rate` (Baustein
+## `heart_rate_block`) steht der Pulsblock als letzter Schlüssel dabei; ohne ist es eine ältere Bridge.
 static func status(state: String = "connected", source: String = "sim",
-		capabilities: Array = ["CADENCE"], at: float = 0.0) -> Dictionary:
-	return {"at": at, "send": {"v": 0, "type": "status", "t_ms": int(at * 1000.0),
-			"state": state, "source": source, "capabilities": capabilities}}
+		capabilities: Array = ["CADENCE"], at: float = 0.0, heart_rate: Dictionary = {}) -> Dictionary:
+	var message := {"v": 0, "type": "status", "t_ms": int(at * 1000.0),
+			"state": state, "source": source, "capabilities": capabilities}
+	if not heart_rate.is_empty():
+		message["heart_rate"] = heart_rate
+	return {"at": at, "send": message}
+
+
+## Baustein: Block `heart_rate` einer `status`-Nachricht. `device` = {address, name, role}, nur bei connected/stale.
+static func heart_rate_block(state: String = "off", device = null) -> Dictionary:
+	return {"state": state, "device": device}
+
+
+## Baustein: Pulsgerät für `heart_rate_block`, Standard ein Brustgurt „HRM 600“.
+static func heart_rate_device(address: String = "F1:2A:33:44:55:66", device_name: String = "HRM 600",
+		role: String = "strap") -> Dictionary:
+	return {"address": address, "name": device_name, "role": role}
+
+
+## Baustein: Suchergebnis `heart_rate_found` (nur an den Anfrager). `device_name` null = Gerät ohne Namen.
+static func heart_rate_found(address: String, device_name, rssi: int = -58, at: float = 0.0) -> Dictionary:
+	return {"at": at, "send": {"v": 0, "type": "heart_rate_found", "t_ms": int(at * 1000.0),
+			"address": address, "name": device_name, "rssi": rssi}}
+
+
+## Baustein: Suchende `heart_rate_search_ended` (reason: timeout | taken_over).
+static func heart_rate_search_ended(reason: String = "timeout", at: float = 0.0) -> Dictionary:
+	return {"at": at, "send": {"v": 0, "type": "heart_rate_search_ended", "t_ms": int(at * 1000.0), "reason": reason}}
 
 
 ## Baustein: eine `telemetry`-Nachricht mit Kadenz (übrige Werte null wie beim Simulator).
