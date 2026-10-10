@@ -155,6 +155,11 @@ var _view := ""
 
 
 func _initialize() -> void:
+	var port_error := TestIsolation.port_base_error()
+	if not port_error.is_empty():  # laut statt still auf 8765 (#62)
+		push_error(port_error)
+		quit(1)
+		return
 	var out_dir := OS.get_user_data_dir()
 	var shots: Array[float] = []
 	var fps_from := -1.0

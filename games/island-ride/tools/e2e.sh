@@ -11,7 +11,12 @@ set -euo pipefail
 GODOT="${GODOT:-godot}"
 PYTHON="${PYTHON:-python}"
 SECONDS_PER_RUN="${SECONDS_PER_RUN:-6}"
-port=$((8765 + ${VSPIN_PORT_BASE:-0}))
+base="${VSPIN_PORT_BASE:-0}"
+if ! [[ "$base" =~ ^[0-9]+$ ]] || [ "$base" -gt 466 ]; then
+  echo "VSPIN_PORT_BASE=$base: erwartet eine ganze Zahl 0–466" >&2  # laut statt still auf 8765 (#62)
+  exit 1
+fi
+port=$((8765 + base))
 project="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bridge="$(cd "$project/../../bridge" && pwd)"
 cadences=("$@")

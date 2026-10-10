@@ -74,9 +74,11 @@ static func apply(changes: Array, run: ArcadeRun, abilities: Abilities, patterns
 
 ## Rückstoß auf den laufenden Baustein `block` (die Windböe hat ausgelöst, `cadence_rpm` ist die Kadenz dieses Schritts): die
 ## Jagd bekommt `chase_gap` mehr Abstand, der Durchbruch `breakthrough_fill` mehr Balken – nur bei Kadenz über der Schwelle
-## und höchstens bis KNOCK_CEILING (der Erfolg bleibt dem Treten vorbehalten). Alle anderen Bausteine: nichts. Liefert, ob
-## etwas geschoben wurde.
+## und höchstens bis KNOCK_CEILING (der Erfolg bleibt dem Treten vorbehalten). Alle anderen Bausteine: nichts. In einem
+## Bosskampf (#51) oder einer Elite-Gruppe (#52) trifft der Rückstoß die laufende Phase. Liefert, ob etwas geschoben wurde.
 static func knock_back(block: ChallengeBlock, cadence_rpm: float, knockback: Dictionary) -> bool:
+	if block is BossFight and block.state == ChallengeBlock.RUNNING:
+		block = (block as BossFight).current_phase()
 	if block == null or block.state != ChallengeBlock.RUNNING:
 		return false
 	if block is Chase and block.above(cadence_rpm) and knockback.get("chase_gap", 0.0) > 0.0:

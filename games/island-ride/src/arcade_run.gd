@@ -25,9 +25,9 @@
 ##
 ## Beute (#49): Jede beendete Herausforderung würfelt Beute (Loot) – geschafft sicher, verfehlt nur mit einer Chance nach
 ## dem erreichten Fortschritt (Loot.drop_chance; ohne Kadenz in der Zone nie). Funde stehen im Ergebnis (`loot`), in
-## `found` und in der Zusammenfassung; ins Inventar legt sie die Hauptszene am Fahrtende. Die angelegte Ausrüstung
-## (`gear`, Loot.modifiers) wirkt nur hier: breitere Zielzone und mehr Fortschritt in der Zone (über Encounters.build),
-## mehr Punkte und Beute-Glück. Ein eigener Würfel für die Beute lässt die Planung der Herausforderungen unberührt.
+## `found` und in der Zusammenfassung; ins Inventar legt sie die Arcade-Bühne am Fahrtende (ArcadeStage.save). Die
+## angelegte Ausrüstung (`gear`, Loot.modifiers) wirkt nur hier: breitere Zielzone und mehr Fortschritt in der Zone
+## (über Encounters.build), mehr Punkte und Beute-Glück. Ein eigener Würfel für die Beute lässt die Planung der Herausforderungen unberührt.
 ##
 ## Rundensteigerung (#54): Jede weitere Runde im selben Lauf wird etwas härter und lohnender – die Runde im Lauf
 ## (`lap_index`, 0 = erste) geht beim Bau des Bausteins, bei Zielzone, Punkten und Beute-Qualität mit (ArcadeTiers.level,
