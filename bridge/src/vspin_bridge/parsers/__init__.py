@@ -15,9 +15,11 @@ from ..sources.base import Capability, RawNotification, TelemetrySample
 from .csc import CscCadence, parse_csc_measurement
 from .errors import ParseError
 from .ftms import parse_indoor_bike_data
+from .heart_rate import parse_heart_rate_measurement
 
 CSC_MEASUREMENT = "00002a5b-0000-1000-8000-00805f9b34fb"
 INDOOR_BIKE_DATA = "00002ad2-0000-1000-8000-00805f9b34fb"
+HEART_RATE_MEASUREMENT = "00002a37-0000-1000-8000-00805f9b34fb"
 
 
 class Decoder:
@@ -66,4 +68,12 @@ def capabilities(raw: RawNotification) -> set[Capability]:
     return set()
 
 
-__all__ = ["CSC_MEASUREMENT", "INDOOR_BIKE_DATA", "Decoder", "ParseError", "capabilities"]
+__all__ = [
+    "CSC_MEASUREMENT",
+    "HEART_RATE_MEASUREMENT",
+    "INDOOR_BIKE_DATA",
+    "Decoder",
+    "ParseError",
+    "capabilities",
+    "parse_heart_rate_measurement",
+]

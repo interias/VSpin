@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from bridge_harness import BRIDGE_ROOT, FIXTURES_DIR, receive_json, run_bridge, wait_until
+from sim_pulse import simulator_pulse
 from vspin_bridge.cli import process_alive
 from vspin_bridge.session import files as session_files
 from vspin_bridge.sources.sim import SimulatorSource
@@ -71,7 +72,7 @@ def stop_with_ctrl_c(bridge) -> int:
     return bridge.stop()
 
 
-def test_simulator_run_writes_csv_matching_the_bus(bridge_process, bus_client, tmp_path):
+def test_simulator_run_writes_csv_matching_the_bus(bridge_process, bus_client, tmp_path, isolated_bus):
     sessions = tmp_path / "out"
     started = datetime.now()
     bridge = start_sim(bridge_process, sessions)
@@ -97,8 +98,11 @@ def test_simulator_run_writes_csv_matching_the_bus(bridge_process, bus_client, t
         assert float(row["cadence"]) == message["cadence"] == 80
         # Konstante Kadenz: Rohwert und geglätteter Wert (EMA, ADR-0004) sind gleich.
         assert float(row["cadence_raw"]) == 80
+        assert int(row["hr_bpm"]) == message["heart_rate"]
+    # Der Simulator liefert einen Puls (träge steigend); die CSV beginnt mit dem ersten Sample des Laufs.
+    assert [int(r["hr_bpm"]) for r in rows] == simulator_pulse(80.0, len(rows))
     for row in rows:
-        assert row["speed_kmh"] == row["power_w"] == row["power_estimated"] == row["hr_bpm"] == ""
+        assert row["speed_kmh"] == row["power_w"] == row["power_estimated"] == ""
         assert row["grade"] == ""  # kein set_grade in diesem Lauf
         assert row["status"] == "connected"
     # Rohdaten-Datei derselben Session: der Simulator hat keine rohen Notifications → leer.
@@ -106,7 +110,7 @@ def test_simulator_run_writes_csv_matching_the_bus(bridge_process, bus_client, t
     assert raw.exists() and raw.read_bytes() == b""
 
 
-def test_grade_is_logged_after_set_grade(bridge_process, bus_client, tmp_path):
+def test_grade_is_logged_after_set_grade(bridge_process, bus_client, tmp_path, isolated_bus):
     bridge = start_sim(bridge_process, tmp_path)
     client = connect(bus_client)
     before = telemetry(client, 4)
@@ -133,7 +137,7 @@ def test_grade_is_logged_after_set_grade(bridge_process, bus_client, tmp_path):
         assert float(by_t[message["t_ms"]]["cadence"]) == message["cadence"]
 
 
-def test_ctrl_c_leaves_complete_csv(bridge_process, bus_client, tmp_path):
+def test_ctrl_c_leaves_complete_csv(bridge_process, bus_client, tmp_path, isolated_bus):
     bridge = start_sim(bridge_process, tmp_path)
     client = connect(bus_client)
     telemetry(client, 6)
@@ -148,7 +152,7 @@ def test_ctrl_c_leaves_complete_csv(bridge_process, bus_client, tmp_path):
         assert int(rows[-1]["t_ms"]) == seen[-1]["t_ms"]
 
 
-def test_stop_file_leaves_complete_session(bridge_process, bus_client, tmp_path):
+def test_stop_file_leaves_complete_session(bridge_process, bus_client, tmp_path, isolated_bus):
     """Stoppweg des Spiels (#25, unter Windows auch des Harness): Stoppdatei mitten im Replay."""
     fixture = FIXTURES_DIR / "csc_stop.raw.jsonl"
     bridge = bridge_process("--source", "replay", str(fixture), "--wait-client", "--sessions-dir", str(tmp_path))
@@ -334,7 +338,7 @@ class DiskFullAfter:
 
 
 def test_write_error_stops_session_logging_but_bridge_keeps_running(
-    in_process_bridge, bus_client, tmp_path, monkeypatch
+    in_process_bridge, bus_client, tmp_path, monkeypatch, isolated_bus
 ):
     real_open = open
 

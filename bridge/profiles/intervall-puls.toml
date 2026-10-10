@@ -1,0 +1,21 @@
+# Intervalle mit vorgegebenem Zielpuls: locker, hart, Erholung. Der gemeldete Puls läuft dem Ziel
+# mit rund 30 s Zeitkonstante nach (sources/sim_heart_rate.py). Endlos.
+# `heart_rate = false` im Kopf würde den Puls stattdessen ganz abschalten (Rad ohne Puls).
+name = "Intervall mit Puls"
+repeat = true
+
+[[steps]]               # Einrollen: Ziel steigt mit
+duration_s = 30
+cadence = 70
+heart_rate = 100
+heart_rate_to = 125
+
+[[steps]]               # Belastung
+duration_s = 60
+cadence = 105
+heart_rate = 170
+
+[[steps]]               # Erholung
+duration_s = 60
+cadence = 60
+heart_rate = 110

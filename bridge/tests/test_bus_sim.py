@@ -1,17 +1,18 @@
 """Bridge mit `--source sim` als Prozess; geprüft wird nur das Verhalten am Bus."""
 
 from bridge_harness import HOST, PORT, port_open, receive_json
+from sim_pulse import is_window, simulator_pulse
 from vspin_bridge.cli import build_parser
 
 TELEMETRY_FIELDS = {"v", "type", "t_ms", "cadence", "cadence_raw", "speed_kmh", "power_w", "power_estimated", "heart_rate"}
-STATUS_FIELDS = {"v", "type", "t_ms", "state", "source", "capabilities"}
+STATUS_FIELDS = {"v", "type", "t_ms", "state", "source", "capabilities", "heart_rate"}
 
 
 def start_sim(bridge_process, cadence: str = "80"):
     return bridge_process("--source", "sim", "--sim-cadence", cadence)
 
 
-def test_new_client_gets_status_first_then_telemetry_with_monotonic_t_ms(bridge_process, bus_client):
+def test_new_client_gets_status_first_then_telemetry_with_monotonic_t_ms(bridge_process, bus_client, isolated_bus):
     start_sim(bridge_process)
     client = bus_client()
 
@@ -35,7 +36,12 @@ def test_new_client_gets_status_first_then_telemetry_with_monotonic_t_ms(bridge_
         assert message["speed_kmh"] is None
         assert message["power_w"] is None
         assert message["power_estimated"] is None
-        assert message["heart_rate"] is None
+    # Der Simulator liefert den Puls eines FTMS-Rads: träge steigend, bei 80 rpm vom Ruhepuls Richtung 132 bpm.
+    # Ohne Pulsgerät geht er unverändert auf den Bus; ein Client sieht einen Ausschnitt vom Anfang der erwarteten
+    # Folge (er hängt praktisch ab Start am Bus, höchstens 10 s später).
+    pulses = [m["heart_rate"] for m in samples]
+    assert all(isinstance(p, int) for p in pulses), pulses
+    assert is_window(pulses, simulator_pulse(80.0, 40 + len(pulses))), pulses
     t_ms = [m["t_ms"] for m in samples]
     assert all(isinstance(t, int) for t in t_ms)
     assert t_ms == sorted(t_ms) and len(set(t_ms)) == len(t_ms), f"t_ms nicht streng monoton: {t_ms}"

@@ -83,6 +83,9 @@
 ## das Fahrerlevel. Eine Wahl wird sofort gespeichert und vom Fahrer (`rider_model`) getragen; nur Kosmetik (ADR-0010).
 ## Der Ghost-Mitfahrer bleibt im Standard-Look, aufgehellt – so bleibt er vom eigenen Fahrer unterscheidbar.
 ##
+## Geräte (Spec #64, `scenes/devices_menu.gd`): aus dem Startmenü; Brustgurt und Uhr suchen, merken (dann
+## `apply_heart_rate_devices()`), vergessen, Live-Puls sehen, LTHR und Maximalpuls des Profils eintragen (Spielstand).
+##
 ## Training (#37): „Fahren → Training“ startet eine Einheit (Training, aus `res://trainings`) als eigenen Modus
 ## (SaveGame.MODE_TRAINING). Die Insel läuft endlos (Rundenwertung mit 0 Runden); das HUD zeigt Phase, Zielkadenz,
 ## Restzeit und nächste Phase, dazu rechtzeitig die Ansage zum Widerstandsknopf. Die Einheit wertet nur die Kadenz
@@ -140,6 +143,8 @@ const START_MENU := preload("res://scenes/start_menu.tscn")
 const LOGBOOK := preload("res://scenes/logbook.gd")
 ## Garderobe (Trikot, Radfarbe, Helm mit Vorschau; #36).
 const WARDROBE := preload("res://scenes/wardrobe.gd")
+## Geräteseite (Brustgurt, Uhr, LTHR und Maximalpuls; Spec #64).
+const DEVICES_MENU := preload("res://scenes/devices_menu.gd")
 ## Ausrüstung des Arcade-Modus (Inventar der Beute; #49).
 const GEAR_MENU := preload("res://scenes/gear_menu.gd")
 ## Talentbaum des Arcade-Modus (Talente aus dem Arcade-Level; #53).
@@ -197,10 +202,13 @@ var config: RideConfig = null
 @export var start_in_menu := true
 ## Grafik-/Fenstereinstellungen; "" = Standardwerte, nichts speichern, Fenster unberührt (Tests, Probe).
 var settings_path := GraphicsSettings.DEFAULT_PATH
+## Gemerkte Pulsgeräte (Abschnitt `[heart_rate]` in `settings_path`); nach einer Änderung `apply_heart_rate_devices()`.
+var heart_rate_devices: HeartRateDevices
 var settings_menu: CanvasLayer
 var start_menu: CanvasLayer
 var logbook: CanvasLayer
 var wardrobe: CanvasLayer
+var devices_menu: CanvasLayer
 var gear_menu: CanvasLayer
 var talent_menu: CanvasLayer
 ## Talente und Arcade-Level im Arcade-Lauf (#53); keine Erweiterung in `ArcadeStage.EXTENSIONS`, siehe `_ready`.
@@ -268,6 +276,10 @@ var resistance_hint := ""
 var grade_reporter := GradeReporter.new()
 ## Fahrzeit, Strecke und Durchschnitte der laufenden Fahrt (ohne Pausen).
 var stats := RideStats.new()
+## Ø-Puls, Max-Puls und Zeit je Zone der laufenden Fahrt (mit den Zonen des Profils beim Start; nur Fahrzeit, #64).
+var pulse_stats := HeartRateStats.new()
+## Die Pulszonen der laufenden Fahrt – dieselben wie in `pulse_stats`, für die Anzeige im HUD (#64).
+var pulse_zones := HeartRateZones.new()
 ## Streckenposition (wie `model.distance_m`) der Ziellinie nach der letzten Runde (INF = endlos).
 var finish_distance_m := 0.0
 
@@ -339,6 +351,7 @@ func _ready() -> void:
 	start_menu.quit_requested.connect(_on_quit_requested)
 	start_menu.logbook_requested.connect(open_logbook)
 	start_menu.wardrobe_requested.connect(open_wardrobe)
+	start_menu.devices_requested.connect(open_devices)
 	start_menu.direction_changed.connect(func(_direction): _update_round_trip_menu())
 	start_menu.arcade_changed.connect(_on_arcade_changed)
 	add_child(start_menu)
@@ -351,6 +364,12 @@ func _ready() -> void:
 	wardrobe.closed.connect(_on_wardrobe_closed)
 	wardrobe.part_chosen.connect(_on_part_chosen)
 	add_child(wardrobe)
+	devices_menu = DEVICES_MENU.new()
+	devices_menu.name = "DevicesMenu"
+	devices_menu.closed.connect(_on_devices_closed)
+	devices_menu.devices_changed.connect(apply_heart_rate_devices)
+	devices_menu.profile_changed.connect(_on_pulse_profile_changed)
+	add_child(devices_menu)
 	gear_menu = GEAR_MENU.new()
 	gear_menu.name = "GearMenu"
 	gear_menu.closed.connect(_on_gear_menu_closed)
@@ -371,6 +390,7 @@ func _ready() -> void:
 	arcade_stage = ArcadeStage.new()
 	add_child(arcade_stage)
 	arcade_stage.setup(track, hud, format_time, GATE_KEEP_BEHIND_M)
+	arcade_stage.summary_providers.append(func(_run: ArcadeRun) -> Array: return pulse_lines())
 	talent_arcade = TalentArcade.new()  # nach den Fähigkeiten (#50, in EXTENSIONS): ihr `run_hook` verändert deren Daten
 	talent_arcade.attach(arcade_stage)
 	_apply_wardrobe()
@@ -394,6 +414,9 @@ func _ready() -> void:
 	bus.status_changed.connect(_on_status_changed)
 	bus.bus_connection_changed.connect(_on_bus_connection_changed)
 	bus.ack_received.connect(_on_ack)
+	heart_rate_devices = HeartRateDevices.load_file(settings_path) if not settings_path.is_empty() \
+			else HeartRateDevices.new()
+	bus.set_heart_rate_devices(heart_rate_devices.bridge_list())  # geht bei jedem (Neu-)Verbinden raus
 	bridge_launcher = BridgeLauncher.new(config, BridgeLauncher.game_dir())
 	bridge_launcher.begin()
 	model = RideModel.new(config, start_distance_m)
@@ -416,6 +439,7 @@ func _process(delta: float) -> void:
 	if state == STATE_MENU:
 		_fly_title(delta)
 		start_menu.show_wheel_status(bus, bridge_launcher.hint())
+		start_menu.show_heart_rate_status(bus)
 		return
 	if state == STATE_RIDING:
 		_ride(delta)
@@ -690,6 +714,9 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 	ghost = save_game.ghost(config.track, track.direction, ghost_kind) if not ghost_kind.is_empty() else null
 	model = RideModel.new(config, start_distance_m)
 	stats = RideStats.new()
+	pulse_zones = save_game.heart_rate_zones()
+	pulse_stats = HeartRateStats.new(pulse_zones)
+	hud.reset_pulse()
 	_new_lap_timing()
 	_reset_progress()
 	grade_reporter.reset()
@@ -845,6 +872,23 @@ func _on_wardrobe_closed() -> void:
 	start_menu.buttons["wardrobe"].grab_focus()
 
 
+## Geräteseite aus dem Startmenü öffnen (das Menü tritt so lange zurück).
+func open_devices() -> void:
+	start_menu.close()
+	devices_menu.open(bus, heart_rate_devices, save_game)
+
+
+func _on_devices_closed() -> void:
+	start_menu.open()
+	start_menu.buttons["devices"].grab_focus()
+
+
+## LTHR/Maximalpuls auf der Geräteseite geändert: Spielstand speichern, Zonen für die nächste Fahrt gelten ab Fahrtbeginn.
+func _on_pulse_profile_changed() -> void:
+	if not save_path.is_empty():
+		save_game.save_file(save_path)
+
+
 ## Teil in der Garderobe gewählt: der Fahrer trägt es, der Spielstand wird gleich gespeichert.
 func _on_part_chosen(_item: String) -> void:
 	_apply_wardrobe()
@@ -904,6 +948,7 @@ func _on_settings_visibility_changed() -> void:
 	if not settings_menu.visible:
 		logbook.focus_default.call_deferred()  # Einstellungen über dem Fahrtenbuch geschlossen
 		wardrobe.focus_default.call_deferred()  # … oder über der Garderobe
+		devices_menu.focus_default.call_deferred()  # … oder über den Geräten
 		gear_menu.focus_default.call_deferred()  # … oder über der Ausrüstung
 		talent_menu.focus_default.call_deferred()  # … oder über den Talenten
 
@@ -942,6 +987,7 @@ func return_to_menu() -> void:
 func _enter_menu() -> void:
 	logbook.close()
 	wardrobe.close()
+	devices_menu.close()
 	gear_menu.close()
 	talent_menu.close()
 	state = STATE_MENU
@@ -997,7 +1043,7 @@ func _save_ride() -> void:
 	_ride_saved = true
 	var entry := SaveGame.ride_entry(ride_mode, config.track,
 			training.finished() if training != null else lap_timing.finished(), lap_timing.lap_times.size(), stats,
-			SaveGame.utc_now(), lap_timing.lap_times, track.direction, _ride_segment_times())
+			SaveGame.utc_now(), lap_timing.lap_times, track.direction, _ride_segment_times(), pulse_stats)
 	if training != null:
 		var score := training.total_score()
 		entry["training"] = training.unit["name"]
@@ -1154,10 +1200,10 @@ func status_message() -> String:
 			if arcade_stage.is_active():
 				return arcade_result()
 			var rewards := rewards_result()  # in der Kopfzeile: als eigene Zeile passten 20 Runden nicht mehr in 1152×648
-			return "%s%s\nZeit: %s\n%s\nØ Kadenz: %d rpm\nØ Tempo: %.1f km/h\nEnter: zurück ins Menü · Esc: Einstellungen" % [
+			return "%s%s\nZeit: %s\n%s\nØ Kadenz: %d rpm\nØ Tempo: %.1f km/h%s\nEnter: zurück ins Menü · Esc: Einstellungen" % [
 					"Ziel erreicht!" if lap_timing.finished() else "Fahrt beendet",
 					" · " + rewards if not rewards.is_empty() else "", format_time(lap_time_s(), true),
-					lap_result(), roundi(stats.avg_cadence()), stats.avg_speed_kmh()]
+					lap_result(), roundi(stats.avg_cadence()), stats.avg_speed_kmh(), _pulse_block()]
 		STATE_PAUSED_MANUAL:
 			return "Pause\nP / Leertaste: weiter\nEsc / F2: Einstellungen (Fahrt beenden, Beenden)"
 		STATE_PAUSED_CONNECTION:
@@ -1209,11 +1255,21 @@ func lap_result() -> String:
 ## Aufwärmen 100 % · 70 rpm 80 % · …“. Abgebrochen: die Teilbewertung der gefahrenen Phasen.
 func training_result() -> String:
 	var rewards := rewards_result()
-	return "%s%s\n%s · Zeit: %s\nZielkadenz getroffen: %s\nJe Phase: %s\nØ Kadenz: %d rpm · Ø Tempo: %.1f km/h\n%s" % [
+	return "%s%s\n%s · Zeit: %s\nZielkadenz getroffen: %s\nJe Phase: %s\nØ Kadenz: %d rpm · Ø Tempo: %.1f km/h%s\n%s" % [
 			"Training beendet!" if training.finished() else "Training abgebrochen",
 			" · " + rewards if not rewards.is_empty() else "", training.unit["name"], format_time(lap_time_s(), true),
 			Training.percent_text(training.total_score()), training.phase_summary(), roundi(stats.avg_cadence()),
-			stats.avg_speed_kmh(), "Enter: zurück ins Menü · Esc: Einstellungen"]
+			stats.avg_speed_kmh(), _pulse_block(), "Enter: zurück ins Menü · Esc: Einstellungen"]
+
+
+## Pulszeilen der Fahrt fürs Ergebnis (#64): „Ø Puls 142 · Max 171 bpm“ und „Zonen: Z2 18:30 · …“; leer ohne Puls.
+func pulse_lines() -> Array:
+	return SaveGame.pulse_lines(SaveGame.pulse_fields(pulse_stats))
+
+
+## `pulse_lines()` als Textblock, jede Zeile mit vorangestelltem Zeilenumbruch ("" ohne Puls).
+func _pulse_block() -> String:
+	return "".join(pulse_lines().map(func(line): return "\n" + line))
 
 
 ## Zusammenfassung eines Arcade-Laufs (#46): Text der Bühne mit den Werten der Fahrt.
@@ -1291,6 +1347,7 @@ func _ride(delta: float) -> void:
 		model.distance_m = before + moved * training.remaining_total_s() / delta
 		used = training.remaining_total_s()
 	stats.add(used, bus.cadence, model.distance_m - before)
+	pulse_stats.add(used, bus.heart_rate_bpm if bus.has_heart_rate() else null)
 	if training != null:
 		training.advance(bus.cadence, used)
 	arcade_stage.advance(model.distance_m, used)
@@ -1321,6 +1378,13 @@ func _report_grade(delta: float) -> void:
 	var grade := GradeReporter.quantize(current_grade())
 	if grade_reporter.wants_to_send(grade) and bus.send_message({"type": "set_grade", "grade": grade}) == OK:
 		grade_reporter.sent(grade)
+
+
+## Speichert die gemerkten Pulsgeräte und schickt sie sofort an die Bridge (für die Geräteseite).
+func apply_heart_rate_devices() -> void:
+	if not settings_path.is_empty():
+		heart_rate_devices.save_file(settings_path)
+	bus.set_heart_rate_devices(heart_rate_devices.bridge_list())
 
 
 func _on_ack(message: Dictionary) -> void:
@@ -1458,6 +1522,9 @@ func _update_view() -> void:
 	var grade := current_grade()
 	hud.show_ride(bus.cadence, model.speed_kmh(), stats.distance_m, format_time(lap_time_s()), grade,
 			format_grade(grade), current_station(), format_power(bus.power_w(), bus.power_estimated()))
+	# Puls: ohne Gurt und ohne Wert (Bridge meldet `off`, kein Puls vom Simulator) bleibt die Anzeige weg
+	hud.show_pulse(bus.heart_rate_bpm, pulse_zones, bus.heart_rate_state != BusClient.HEART_RATE_OFF or bus.has_heart_rate(),
+			stats.ride_time_s)
 	hud.show_lap(model.distance_m, lap_timing.lap_start_m(), lap_timing.lap_end_m(), track.wrap_distance(model.distance_m))
 	hud.show_lap_count(lap_timing.lap_number(), laps, format_time(lap_timing.lap_time_s))
 	if ghost != null:

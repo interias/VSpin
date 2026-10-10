@@ -59,6 +59,12 @@ BUS_URL = f"ws://{HOST}:{PORT}"
 PROFILES_DIR = BRIDGE_ROOT / "profiles"
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
+# Fremde Clients am Bus (ein laufendes Spiel, ein anderer Testlauf) verfälschen Tests, die Kadenzwerte prüfen:
+# ein fremdes `set_grade` senkt die Kadenz des Simulators, ein früher Client gibt `--wait-client` frei. Solche Tests
+# lassen die Bridge auf einer eigenen Loopback-Adresse lauschen (`isolated_bus` in conftest.py); das Spiel und
+# seine Standardadresse 127.0.0.1 erreichen sie nicht.
+ISOLATED_HOST = "127.0.0.2"
+
 START_TIMEOUT_S = 10.0
 STOP_TIMEOUT_S = 5.0
 
@@ -175,8 +181,9 @@ class BridgeProcess:
     Spiel seine Bridge beendet – TerminateProcess ließe sich nicht abfangen. `interrupt()` ist Strg+C.
     """
 
-    def __init__(self, args: list[str], log_path: Path) -> None:
-        self.args = args
+    def __init__(self, args: list[str], log_path: Path, host: str = HOST) -> None:
+        self.host = host
+        self.args = args if host == HOST else [*args, "--host", host]
         self.log_path = log_path
         self.stop_file = log_path.with_suffix(".stop")
         self.proc: subprocess.Popen | None = None
@@ -184,7 +191,7 @@ class BridgeProcess:
 
     def start(self) -> None:
         # Port muss frei sein, sonst würde der Test gegen eine fremde Bridge laufen.
-        wait_until(lambda: not port_open(), STOP_TIMEOUT_S, f"Port {PORT} wird frei")
+        wait_until(lambda: not port_open(self.host), STOP_TIMEOUT_S, f"Port {PORT} wird frei")
         env = bridge_env()
         self._log = open(self.log_path, "w", encoding="utf-8")
         self.proc = subprocess.Popen(
@@ -203,7 +210,7 @@ class BridgeProcess:
         def ready() -> bool:
             if self.proc.poll() is not None:
                 raise RuntimeError(f"Bridge vorzeitig beendet ({self.proc.returncode}):\n{self.log()}")
-            return port_open()
+            return port_open(self.host)
 
         try:
             wait_until(ready, START_TIMEOUT_S, f"Bus auf {BUS_URL}")
@@ -227,7 +234,7 @@ class BridgeProcess:
         self.returncode = self.proc.returncode
         self.proc = None
         self._log.close()
-        wait_until(lambda: not port_open(), STOP_TIMEOUT_S, f"Port {PORT} nach Stopp frei")
+        wait_until(lambda: not port_open(self.host), STOP_TIMEOUT_S, f"Port {PORT} nach Stopp frei")
         return self.returncode
 
     def request_stop(self) -> None:
@@ -248,9 +255,11 @@ class InProcessBridge:
     z. B. einer, die bei `set_grade` einen Fehler wirft. Terminal-Ausgabe in `log()`; `stop()`
     liefert die Ausnahme, mit der `Bridge.run` endete (`None` = sauber beendet)."""
 
-    def __init__(self, source, sessions_dir: Path) -> None:
+    def __init__(self, source, sessions_dir: Path, host: str = HOST, heart_rate=None) -> None:
         self.source = source
         self.sessions_dir = sessions_dir
+        self.host = host
+        self.heart_rate = heart_rate  # Fabrik der Pulsquelle (`HeartRateFactory`); None = Standard der Bridge
         self.error: BaseException | None = None
         self._output = io.StringIO()
         self._thread: threading.Thread | None = None
@@ -258,14 +267,14 @@ class InProcessBridge:
         self._stop: asyncio.Event | None = None
 
     def start(self) -> None:
-        wait_until(lambda: not port_open(), STOP_TIMEOUT_S, f"Port {PORT} wird frei")
+        wait_until(lambda: not port_open(self.host), STOP_TIMEOUT_S, f"Port {PORT} wird frei")
         self._thread = threading.Thread(target=self._main, daemon=True)
         self._thread.start()
 
         def ready() -> bool:
             if not self._thread.is_alive():
                 raise RuntimeError(f"Bridge vorzeitig beendet ({self.error!r}):\n{self.log()}")
-            return port_open()
+            return port_open(self.host)
 
         wait_until(ready, START_TIMEOUT_S, f"Bus auf {BUS_URL}")
 
@@ -275,7 +284,10 @@ class InProcessBridge:
 
         async def main() -> None:
             self._loop, self._stop = asyncio.get_running_loop(), asyncio.Event()
-            await Bridge(self.source, Console(self._output), self.sessions_dir, port=PORT).run(self._stop)
+            options = {} if self.heart_rate is None else {"heart_rate": self.heart_rate}
+            await Bridge(self.source, Console(self._output), self.sessions_dir, host=self.host, port=PORT, **options).run(
+                self._stop
+            )
 
         try:
             asyncio.run(main())
@@ -290,11 +302,20 @@ class InProcessBridge:
         self._thread.join(STOP_TIMEOUT_S)
         assert not self._thread.is_alive(), "Bridge im Testprozess endet nicht"
         self._thread = None
-        wait_until(lambda: not port_open(), STOP_TIMEOUT_S, f"Port {PORT} nach Stopp frei")
+        wait_until(lambda: not port_open(self.host), STOP_TIMEOUT_S, f"Port {PORT} nach Stopp frei")
         return self.error
 
     def log(self) -> str:
         return self._output.getvalue()
+
+    def call(self, fn, *args):
+        """Ruft `fn(*args)` im Event-Loop der Bridge auf und liefert das Ergebnis – für Fakes und Quellen,
+        deren Rückrufe im Loop der Bridge laufen müssen (z. B. `FakeBleAdapter.notify`)."""
+
+        async def run():
+            return fn(*args)
+
+        return asyncio.run_coroutine_threadsafe(run(), self._loop).result(STOP_TIMEOUT_S)
 
 
 def receive_json(client: ClientConnection, timeout_s: float = 3.0) -> dict:

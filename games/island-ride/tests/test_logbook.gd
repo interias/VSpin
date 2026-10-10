@@ -111,6 +111,27 @@ func _celebrations(game: Node) -> Array:
 	return [game.hud.celebration()] + game.hud.queued_celebrations()
 
 
+func test_logbook_shows_pulse_values_only_for_rides_with_pulse() -> void:
+	# Story 18/19 (#64): Ø, Max und Zeit je Zone bei der Fahrt mit Puls; pulslose und alte Fahrten ohne Pulswerte.
+	var pulse := HeartRateStats.new(HeartRateZones.new(170.0))
+	pulse.add(1110.0, 140.0)  # Z2: 18:30
+	pulse.add(250.0, 155.0)  # Z3: 4:10
+	var save := SaveGame.new()
+	save.add_ride(_ride(3.0, "2026-09-01T18:00:00Z"))
+	save.add_ride({"date": "2026-09-02T18:00:00Z", "mode": "rundfahrt", "distance_km": 5.0, "duration_s": 600.0})
+	var with_pulse := _ride(9.0, "2026-09-03T18:00:00Z")
+	with_pulse.merge(SaveGame.pulse_fields(pulse))
+	save.add_ride(with_pulse)
+	var rides: String = (await _logbook_in(Vector2i(1920, 1080), save)).page_text("rides")
+	assert_string_contains(rides, "Puls je Fahrt")
+	assert_string_contains(rides, "03.09.2026: Ø Puls 143 · Max 155 bpm · Zonen: Z2 18:30 · Z3 4:10")
+	assert_eq(rides.count("Ø Puls"), 1, "nur die Fahrt mit Puls")
+	var without := SaveGame.new()
+	without.add_ride(_ride(3.0))
+	assert_false(_logbook_text_has(await _logbook_in(Vector2i(1920, 1080), without), "rides", "Puls"),
+			"ohne Puls keine Pulswerte")
+
+
 func test_ride_unlocks_achievement_and_level_and_both_survive_restart_in_logbook() -> void:
 	# Vorher 9,8 km (Level 1, noch keine Erfolge): die Fahrt überschreitet 10 km gesamt.
 	var before := SaveGame.new()

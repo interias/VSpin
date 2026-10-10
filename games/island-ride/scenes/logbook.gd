@@ -3,7 +3,7 @@
 ##   Übersicht  Statistik (km, Zeit, Fahrten, Runden) und Fahrerlevel, Bestzeiten je Strecke und Richtung,
 ##              Segmentzeiten, Medaillen (beste je Runde und Segment)
 ##   Erfolge    alle Erfolge nach Kategorie, freigeschaltet mit Datum, gesperrte blass
-##   Fahrten    die letzten Fahrten, neueste zuerst
+##   Fahrten    die letzten Fahrten, neueste zuerst; Segmentzeiten und Puls (Ø, Max, Zeit je Zone) je Fahrt darunter
 ## Bedienung mit Maus und Tastatur: Seiten und „Zurück“ als Knöpfe (Pfeiltasten links/rechts, Tab, Enter/Leertaste),
 ## Pfeiltasten hoch/runter, Bild auf/ab, Pos1/Ende scrollen die Seite, das Mausrad ebenso; Esc schließt.
 ## Layout nur über Anker und Container: passt im Halbbild-Fenster (960×1040) wie im Vollbild und in 1152×648; was nicht
@@ -337,6 +337,17 @@ func _fill_rides(content: VBoxContainer, save: SaveGame) -> void:
 	if not lines.is_empty():
 		_heading(content, "Segmentzeiten je Fahrt")
 		for text in lines:
+			_line(content, text)
+	# Puls je Fahrt (#64): nur Fahrten, die Puls trugen; ältere und pulslose Fahrten haben keine Zeile.
+	var pulse := []
+	for i in range(rides.size() - 1, maxi(rides.size() - RECENT_RIDES, 0) - 1, -1):
+		var ride = rides[i]
+		var pulse_lines: Array = SaveGame.pulse_lines(ride) if ride is Dictionary else []
+		if not pulse_lines.is_empty():
+			pulse.append("%s: %s" % [date_text(str(ride.get("date", ""))), " · ".join(pulse_lines)])
+	if not pulse.is_empty():
+		_heading(content, "Puls je Fahrt")
+		for text in pulse:
 			_line(content, text)
 
 

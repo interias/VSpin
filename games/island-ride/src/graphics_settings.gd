@@ -140,6 +140,11 @@ static func load_file(path: String = DEFAULT_PATH) -> GraphicsSettings:
 
 func save_file(path: String = DEFAULT_PATH) -> Error:
 	var file := ConfigFile.new()
+	var previous := ConfigFile.new()
+	if FileAccess.file_exists(path) and previous.load(path) == OK and previous.has_section(HeartRateDevices.SECTION):
+		# Die gemerkten Pulsgeräte (HeartRateDevices) liegen in derselben Datei und überstehen das Speichern.
+		for key in previous.get_section_keys(HeartRateDevices.SECTION):
+			file.set_value(HeartRateDevices.SECTION, key, previous.get_value(HeartRateDevices.SECTION, key))
 	file.set_value("graphics", "aa", aa)
 	file.set_value("graphics", "render_scale", render_scale)
 	file.set_value("graphics", "upscaler", upscaler)

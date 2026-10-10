@@ -21,6 +21,7 @@ from .bus.messages import (
 )
 from .clock import bridge_time_ms
 from .console import Console
+from .heart_rate_relay import HeartRateFactory, HeartRateRelay, bleak_heart_rate
 from .keyboard import HELP, Key, Keyboard, keyboard_available
 from .parsers import Decoder, ParseError
 from .processing import CADENCE_MAX, CADENCE_MIN, CadenceProcessor
@@ -33,6 +34,7 @@ from .sources.base import (
     SourceDisconnectedError,
     TelemetrySample,
 )
+from .sources.heart_rate import HeartRateStatus
 from .sources.sim import SimulatorSource
 
 # Verbindungsstatus (ADR-0004). Jede Änderung geht genau einmal als `status` auf den Bus.
@@ -62,6 +64,7 @@ class Bridge:
         wait_for_client: bool = False,
         host: str = HOST,
         port: int = PORT,
+        heart_rate: HeartRateFactory = bleak_heart_rate,
     ) -> None:
         self._source = source
         self._sessions_dir = sessions_dir
@@ -81,6 +84,11 @@ class Bridge:
             on_message=self._on_client_message,
             host=host,
             port=port,
+            on_client_left=self._on_client_left,
+        )
+        # Pulsquelle (Spec #64): Zustand in `status`, Wert in `telemetry`, Rohdaten in die Session.
+        self._heart_rate = HeartRateRelay(
+            heart_rate, self._on_heart_rate_status, self._on_heart_rate_raw, self._bus.send_to, console
         )
         self._stop: asyncio.Event | None = None
         self._stale_timer: asyncio.TimerHandle | None = None
@@ -102,6 +110,7 @@ class Bridge:
                 raise SessionStartError(f"{self._sessions_dir}: {exc.strerror or exc}") from exc
             self._console.info(f"Session: {self._session.csv.path}")
             self._console.info(f"Rohdaten: {self._session.raw.path}")
+            await self._heart_rate.start()  # aus bis zum ersten Befehl, fasst bis dahin BLE nicht an
             if isinstance(self._source, SimulatorSource) and keyboard_available():
                 keyboard = Keyboard(self._on_key)
                 keyboard.start()
@@ -130,6 +139,7 @@ class Bridge:
             self._cancel_stale_timer()
             if keyboard is not None:
                 keyboard.stop()
+            await self._heart_rate.stop()  # danach keine Pulsmeldung mehr
             await self._bus.stop()
             if self._session is not None:
                 self._session.close()  # alle Zeilen sind schon geflusht
@@ -190,6 +200,7 @@ class Bridge:
                 f"(außerhalb {CADENCE_MIN:.0f}–{CADENCE_MAX:.0f} rpm)"
             )
         published = replace(processed.sample, t_ms=bridge_time_ms())
+        published = replace(published, heart_rate=self._heart_rate.heart_rate(published.heart_rate))
         self._arm_stale_timer(published.t_ms)
         self._cadence = published.cadence
         self._bus.publish(telemetry_message(published))
@@ -255,6 +266,8 @@ class Bridge:
             message = parse_client_message(raw)
         except ClientMessageError as exc:
             return error_message(exc.reason, exc.detail)
+        if not isinstance(message, SetGrade):
+            return await self._heart_rate.handle(message, self._bus.sender())
         return await self._set_grade(message)
 
     async def _set_grade(self, message: SetGrade) -> str:
@@ -278,8 +291,21 @@ class Bridge:
 
     def _status_message(self) -> str:
         return status_message(
-            bridge_time_ms(), self._state, self._source.name, self._source.capabilities
+            bridge_time_ms(), self._state, self._source.name, self._source.capabilities, self._heart_rate.status
         )
+
+    def _on_heart_rate_status(self, status: HeartRateStatus) -> None:
+        """Änderung des Pulszustands ist eine Statusänderung: genau ein `status` an alle."""
+        self._bus.publish(self._status_message())
+        device = "" if status.device is None else f", {status.device.name} ({status.device.role})"
+        self._console.info(f"Puls: {status.state}{device}")
+
+    def _on_heart_rate_raw(self, raw: RawNotification) -> None:
+        """Rohe Puls-Notification: in die Session-Rohdatei, wie beim Rad."""
+        self._log_session(lambda session: session.raw.write(raw))
+
+    def _on_client_left(self, client: object) -> None:
+        self._heart_rate.client_left(client)  # seine Suche auf Anfrage endet
 
     def _set_state(self, state: str, reason: str) -> None:
         if state == self._state:
