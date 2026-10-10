@@ -228,3 +228,73 @@ func test_arcade_area_survives_restart() -> void:
 	loaded.arcade()["tier"] = "drei"
 	assert_eq(CadenceRange.selection(loaded).to_dict(), {"min": 60.0, "max": 120.0}, "ungültig → Standard")
 	assert_eq(ArcadeTiers.selection(loaded), 1)
+
+
+func test_heart_rate_profile_defaults_to_not_set_and_survives_restart() -> void:
+	var save := SaveGame.new()
+	assert_eq(save.lthr_bpm(), 0, "LTHR nicht gesetzt")
+	assert_eq(save.max_hr_bpm(), 0, "Maximalpuls nicht gesetzt")
+	assert_false(save.heart_rate_zones().has_zones(), "ohne Werte keine Zonen")
+	save.set_heart_rate_profile(168, 190)
+	assert_eq(save.save_file(TEMP_PATH), OK)
+	var loaded := SaveGame.load_file(TEMP_PATH)
+	assert_eq(loaded.lthr_bpm(), 168)
+	assert_eq(loaded.max_hr_bpm(), 190)
+	assert_true(loaded.heart_rate_zones().has_zones())
+	assert_eq(loaded.heart_rate_zones().source(), HeartRateZones.Source.LTHR, "LTHR hat Vorrang")
+	assert_eq(loaded.version(), 1, "additiv: die Formatversion bleibt")
+	loaded.set_heart_rate_profile(0, 190)
+	assert_eq(loaded.heart_rate_zones().source(), HeartRateZones.Source.MAX_HR)
+
+
+func test_older_save_without_heart_rate_loads_with_defaults() -> void:
+	_write('{"version": 1, "active_profile": "00112233aabbccdd", "profiles": {"00112233aabbccdd": {'
+			+ '"created": "2026-10-01T08:00:00Z", "rides": [{"mode": "rundfahrt", "distance_km": 9.21, "laps": 1}]}}}')
+	var save := SaveGame.load_file(TEMP_PATH)
+	assert_eq(save.lthr_bpm(), 0)
+	assert_eq(save.max_hr_bpm(), 0)
+	assert_eq(save.profile()["pulse"], {}, "leerer Bereich ergänzt")
+	assert_eq(save.rides().size(), 1, "alte Fahrt bleibt")
+	assert_eq(SaveGame.pulse_lines(save.rides()[0]), [], "alte Fahrt zeigt keine Pulswerte")
+
+
+func test_ride_entry_without_pulse_has_no_pulse_fields() -> void:
+	var plain := SaveGame.ride_entry(SaveGame.MODE_ROUND_TRIP, RideConfig.TRACK_ISLAND, true, 1,
+			_stats(600.0, 85.0, 4000.0), "2026-10-07T18:30:00Z")
+	var silent := SaveGame.ride_entry(SaveGame.MODE_ROUND_TRIP, RideConfig.TRACK_ISLAND, true, 1,
+			_stats(600.0, 85.0, 4000.0), "2026-10-07T18:30:00Z", [], Track.DIRECTION_CW, {}, HeartRateStats.new())
+	for entry in [plain, silent]:
+		for key in ["avg_hr_bpm", "peak_hr_bpm", "hr_zone_s"]:
+			assert_false(entry.has(key), "%s fehlt ohne Puls" % key)
+	assert_eq(silent, plain)
+
+
+func test_ride_entry_with_pulse_stores_avg_max_and_zone_seconds() -> void:
+	var pulse := HeartRateStats.new(HeartRateZones.new(170.0))
+	pulse.add(60.0, 120.0)  # LTHR 170: Z1 bis 137 bpm
+	pulse.add(30.0, 160.0)  # Z4 ab 160 bpm
+	var entry := SaveGame.ride_entry(SaveGame.MODE_TRAINING, RideConfig.TRACK_ISLAND, true, 0,
+			_stats(90.0, 85.0, 600.0), "2026-10-07T18:30:00Z", [], Track.DIRECTION_CW, {}, pulse)
+	assert_eq(entry["avg_hr_bpm"], 133.3)
+	assert_eq(entry["peak_hr_bpm"], 160)
+	assert_eq(entry["hr_zone_s"], [60.0, 0.0, 0.0, 30.0, 0.0], "Z1 und Z4 (LTHR 170)")
+	# JSON-Rundlauf: gespeichert, nicht neu gerechnet – andere Profilwerte ändern die Fahrt nicht.
+	var save := SaveGame.new()
+	save.set_heart_rate_profile(150, 0)
+	save.add_ride(entry)
+	save.save_file(TEMP_PATH)
+	save.set_heart_rate_profile(120, 0)
+	var loaded := SaveGame.load_file(TEMP_PATH)
+	assert_eq(loaded.rides()[0]["hr_zone_s"], [60.0, 0.0, 0.0, 30.0, 0.0])
+	assert_eq(SaveGame.pulse_lines(loaded.rides()[0]), ["Ø Puls 133 · Max 160 bpm", "Zonen: Z1 1:00 · Z4 0:30"])
+
+
+func test_ride_entry_with_pulse_but_without_zones_has_no_zone_time() -> void:
+	var pulse := HeartRateStats.new()
+	pulse.add(60.0, 140.0)
+	var entry := SaveGame.ride_entry(SaveGame.MODE_ROUND_TRIP, RideConfig.TRACK_ISLAND, true, 1,
+			_stats(60.0, 85.0, 400.0), "2026-10-07T18:30:00Z", [], Track.DIRECTION_CW, {}, pulse)
+	assert_eq(entry["avg_hr_bpm"], 140.0)
+	assert_eq(entry["peak_hr_bpm"], 140)
+	assert_false(entry.has("hr_zone_s"))
+	assert_eq(SaveGame.pulse_lines(entry), ["Ø Puls 140 · Max 140 bpm"])

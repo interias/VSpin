@@ -270,6 +270,8 @@ var resistance_hint := ""
 var grade_reporter := GradeReporter.new()
 ## Fahrzeit, Strecke und Durchschnitte der laufenden Fahrt (ohne Pausen).
 var stats := RideStats.new()
+## Ø-Puls, Max-Puls und Zeit je Zone der laufenden Fahrt (mit den Zonen des Profils beim Start; nur Fahrzeit, #64).
+var pulse_stats := HeartRateStats.new()
 ## Streckenposition (wie `model.distance_m`) der Ziellinie nach der letzten Runde (INF = endlos).
 var finish_distance_m := 0.0
 
@@ -373,6 +375,7 @@ func _ready() -> void:
 	arcade_stage = ArcadeStage.new()
 	add_child(arcade_stage)
 	arcade_stage.setup(track, hud, format_time, GATE_KEEP_BEHIND_M)
+	arcade_stage.summary_providers.append(func(_run: ArcadeRun) -> Array: return pulse_lines())
 	talent_arcade = TalentArcade.new()  # nach den Fähigkeiten (#50, in EXTENSIONS): ihr `run_hook` verändert deren Daten
 	talent_arcade.attach(arcade_stage)
 	_apply_wardrobe()
@@ -696,6 +699,7 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 	ghost = save_game.ghost(config.track, track.direction, ghost_kind) if not ghost_kind.is_empty() else null
 	model = RideModel.new(config, start_distance_m)
 	stats = RideStats.new()
+	pulse_stats = HeartRateStats.new(save_game.heart_rate_zones())
 	_new_lap_timing()
 	_reset_progress()
 	grade_reporter.reset()
@@ -1003,7 +1007,7 @@ func _save_ride() -> void:
 	_ride_saved = true
 	var entry := SaveGame.ride_entry(ride_mode, config.track,
 			training.finished() if training != null else lap_timing.finished(), lap_timing.lap_times.size(), stats,
-			SaveGame.utc_now(), lap_timing.lap_times, track.direction, _ride_segment_times())
+			SaveGame.utc_now(), lap_timing.lap_times, track.direction, _ride_segment_times(), pulse_stats)
 	if training != null:
 		var score := training.total_score()
 		entry["training"] = training.unit["name"]
@@ -1160,10 +1164,10 @@ func status_message() -> String:
 			if arcade_stage.is_active():
 				return arcade_result()
 			var rewards := rewards_result()  # in der Kopfzeile: als eigene Zeile passten 20 Runden nicht mehr in 1152×648
-			return "%s%s\nZeit: %s\n%s\nØ Kadenz: %d rpm\nØ Tempo: %.1f km/h\nEnter: zurück ins Menü · Esc: Einstellungen" % [
+			return "%s%s\nZeit: %s\n%s\nØ Kadenz: %d rpm\nØ Tempo: %.1f km/h%s\nEnter: zurück ins Menü · Esc: Einstellungen" % [
 					"Ziel erreicht!" if lap_timing.finished() else "Fahrt beendet",
 					" · " + rewards if not rewards.is_empty() else "", format_time(lap_time_s(), true),
-					lap_result(), roundi(stats.avg_cadence()), stats.avg_speed_kmh()]
+					lap_result(), roundi(stats.avg_cadence()), stats.avg_speed_kmh(), _pulse_block()]
 		STATE_PAUSED_MANUAL:
 			return "Pause\nP / Leertaste: weiter\nEsc / F2: Einstellungen (Fahrt beenden, Beenden)"
 		STATE_PAUSED_CONNECTION:
@@ -1215,11 +1219,21 @@ func lap_result() -> String:
 ## Aufwärmen 100 % · 70 rpm 80 % · …“. Abgebrochen: die Teilbewertung der gefahrenen Phasen.
 func training_result() -> String:
 	var rewards := rewards_result()
-	return "%s%s\n%s · Zeit: %s\nZielkadenz getroffen: %s\nJe Phase: %s\nØ Kadenz: %d rpm · Ø Tempo: %.1f km/h\n%s" % [
+	return "%s%s\n%s · Zeit: %s\nZielkadenz getroffen: %s\nJe Phase: %s\nØ Kadenz: %d rpm · Ø Tempo: %.1f km/h%s\n%s" % [
 			"Training beendet!" if training.finished() else "Training abgebrochen",
 			" · " + rewards if not rewards.is_empty() else "", training.unit["name"], format_time(lap_time_s(), true),
 			Training.percent_text(training.total_score()), training.phase_summary(), roundi(stats.avg_cadence()),
-			stats.avg_speed_kmh(), "Enter: zurück ins Menü · Esc: Einstellungen"]
+			stats.avg_speed_kmh(), _pulse_block(), "Enter: zurück ins Menü · Esc: Einstellungen"]
+
+
+## Pulszeilen der Fahrt fürs Ergebnis (#64): „Ø Puls 142 · Max 171 bpm“ und „Zonen: Z2 18:30 · …“; leer ohne Puls.
+func pulse_lines() -> Array:
+	return SaveGame.pulse_lines(SaveGame.pulse_fields(pulse_stats))
+
+
+## `pulse_lines()` als Textblock, jede Zeile mit vorangestelltem Zeilenumbruch ("" ohne Puls).
+func _pulse_block() -> String:
+	return "".join(pulse_lines().map(func(line): return "\n" + line))
 
 
 ## Zusammenfassung eines Arcade-Laufs (#46): Text der Bühne mit den Werten der Fahrt.
@@ -1297,6 +1311,7 @@ func _ride(delta: float) -> void:
 		model.distance_m = before + moved * training.remaining_total_s() / delta
 		used = training.remaining_total_s()
 	stats.add(used, bus.cadence, model.distance_m - before)
+	pulse_stats.add(used, bus.heart_rate_bpm if bus.has_heart_rate() else null)
 	if training != null:
 		training.advance(bus.cadence, used)
 	arcade_stage.advance(model.distance_m, used)

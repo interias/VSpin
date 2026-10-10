@@ -12,6 +12,7 @@
 ##                                 "achievements": {"<erfolg>": "…Z"},
 ##                                 "wardrobe": {"trikot"|"radfarbe"|"helm": "<teil-id>"},
 ##                                 "camera": {"view": "nah"|"verfolger"|"weit"},
+##                                 "pulse": {"lthr_bpm": 168, "max_hr_bpm": 190},
 ##                                 "arcade": {"cadence_range": {"min": 60, "max": 120}, "tier": 1,
 ##                                            "best_points": {"<stufe>": <punkte>}, "unlocked": 3,
 ##                                            "defeated": {"<stufe>": ["<boss-id>", …]}}}}}
@@ -29,6 +30,10 @@
 ## Kategorie, gilt ihr Standard (der Look vor der Garderobe). Nur Kosmetik (ADR-0010).
 ## Kamera (#59): die gewählte Kameraperspektive (CameraViews.IDS); prüfen und wählen macht CameraViews. Fehlt sie, gilt
 ## „Verfolger“. Nur Darstellung (ADR-0010).
+## Puls (#64): LTHR und Maximalpuls des Fahrerprofils (`lthr_bpm`, `max_hr_bpm`; fehlt ein Wert, gilt er als nicht gesetzt =
+## 0); daraus bilden sich die Zonen (HeartRateZones). Eine Fahrt mit Puls trägt zusätzlich `avg_hr_bpm`, `peak_hr_bpm` und,
+## wenn Zonen galten, `hr_zone_s` (Sekunden in Z1–Z5, mit den zur Fahrt gültigen Zonen gerechnet und so gespeichert).
+## Fahrten ohne Puls und ältere Stände tragen diese Felder nicht – additiv, die Formatversion bleibt 1.
 ##
 ## Training (#37): eine Fahrt im Modus MODE_TRAINING trägt zusätzlich den Namen der Einheit (`training`) und die
 ## Gesamtbewertung (`training_score`, Treffer der Zielkadenz 0..1); `finished` heißt dort: Einheit zu Ende gefahren.
@@ -59,7 +64,7 @@ const MODE_TRAINING := "training"
 const MODE_ARCADE := "arcade"
 ## Bereiche je Fahrerprofil mit Standardwert (fehlende werden beim Laden ergänzt).
 const PROFILE_DEFAULTS := {"rides": [], "best_times": {}, "segment_best_times": {}, "medals": {}, "ghosts": {},
-		"achievements": {}, "wardrobe": {}, "camera": {}, "arcade": {}}
+		"achievements": {}, "wardrobe": {}, "camera": {}, "pulse": {}, "arcade": {}}
 ## Endung, unter der eine unlesbare Datei beiseitegelegt wird.
 const BROKEN_SUFFIX := ".defekt"
 
@@ -217,6 +222,32 @@ func camera() -> Dictionary:
 	return profile()["camera"]
 
 
+## LTHR des Profils in bpm (0 = nicht gesetzt).
+func lthr_bpm() -> int:
+	return _heart_rate_value("lthr_bpm")
+
+
+## Maximalpuls des Profils in bpm (0 = nicht gesetzt).
+func max_hr_bpm() -> int:
+	return _heart_rate_value("max_hr_bpm")
+
+
+## Setzt LTHR und Maximalpuls des Profils (0 = nicht gesetzt). Ob die Werte plausibel sind, prüft HeartRateZones.
+## Schreibt nicht auf die Platte.
+func set_heart_rate_profile(lthr: int, max_hr: int) -> void:
+	profile()["pulse"] = {"lthr_bpm": maxi(lthr, 0), "max_hr_bpm": maxi(max_hr, 0)}
+
+
+## Die Zonen des Profils aus LTHR und Maximalpuls (ohne gültige Werte: `has_zones() == false`).
+func heart_rate_zones() -> HeartRateZones:
+	return HeartRateZones.new(lthr_bpm(), max_hr_bpm())
+
+
+func _heart_rate_value(key: String) -> int:
+	var value = profile()["pulse"].get(key)
+	return int(value) if (value is float or value is int) and value > 0 else 0
+
+
 ## Arcade (#46): Kadenzbereich, Stufe, Bestpunktzahlen …, wie gespeichert (ungeprüft; CadenceRange und ArcadeTiers
 ## prüfen). Schreibbar.
 func arcade() -> Dictionary:
@@ -291,13 +322,14 @@ func _area(area: String, track: String, direction: String, create: bool = false)
 ## endlos). `laps`: abgeschlossene Runden, `lap_times_s` ihre Zeiten.
 ## `direction` und `segment_times_s` (je Segment-ID die beste Zeit dieser Fahrt) kamen in der Nacharbeit zu #26 dazu –
 ## additiv: ältere Einträge ohne sie bleiben gültig.
+## `pulse` (#64): die Pulsstatistik der Fahrt; ihre Kennzahlen kommen als `pulse_fields` dazu, nur wenn Puls kam.
 static func ride_entry(mode: String, track: String, finished: bool, laps: int, stats: RideStats,
 		date: String = utc_now(), lap_times_s: Array = [], direction: String = Track.DIRECTION_CW,
-		segment_times_s: Dictionary = {}) -> Dictionary:
+		segment_times_s: Dictionary = {}, pulse: HeartRateStats = null) -> Dictionary:
 	var segments := {}
 	for id in segment_times_s:
 		segments[id] = snappedf(float(segment_times_s[id]), 0.01)
-	return {
+	var entry := {
 		"date": date,
 		"mode": mode,
 		"track": track,
@@ -311,6 +343,39 @@ static func ride_entry(mode: String, track: String, finished: bool, laps: int, s
 		"direction": direction,
 		"segment_times_s": segments,
 	}
+	entry.merge(pulse_fields(pulse))
+	return entry
+
+
+## Pulsfelder einer Fahrt (#64): `avg_hr_bpm`, `peak_hr_bpm` und, wenn Zonen galten, `hr_zone_s` (fünf Sekundenwerte).
+## Leer ohne Pulsstatistik oder ohne Puls während der Fahrt.
+static func pulse_fields(pulse: HeartRateStats) -> Dictionary:
+	if pulse == null or not pulse.has_pulse():
+		return {}
+	var fields := {"avg_hr_bpm": snappedf(pulse.avg_bpm(), 0.1), "peak_hr_bpm": pulse.max_bpm}
+	var zones := pulse.zone_seconds()
+	if not zones.is_empty():
+		fields["hr_zone_s"] = zones.map(func(s): return snappedf(s, 0.1))
+	return fields
+
+
+## Pulsteil der Anzeige aus Fahrtfeldern (Fahrteintrag oder `pulse_fields`), z. B. "Ø Puls 142 · Max 171 bpm" und
+## darunter "Zonen: Z2 18:30 · Z3 4:10" (nur Zonen mit Zeit): ["…", "…"]; leer, wenn die Fahrt keinen Puls trug.
+static func pulse_lines(fields: Dictionary) -> Array:
+	var avg = fields.get("avg_hr_bpm")
+	var top = fields.get("peak_hr_bpm")
+	if not ((avg is float or avg is int) and avg > 0 and (top is float or top is int)):
+		return []
+	var lines := ["Ø Puls %d · Max %d bpm" % [roundi(avg), roundi(top)]]
+	var zones = fields.get("hr_zone_s")
+	if zones is Array:
+		var parts := []
+		for i in range(mini(zones.size(), HeartRateZones.ZONE_COUNT)):
+			if (zones[i] is float or zones[i] is int) and zones[i] >= 1.0:
+				parts.append("Z%d %d:%02d" % [i + 1, int(zones[i]) / 60, int(zones[i]) % 60])
+		if not parts.is_empty():
+			lines.append("Zonen: " + " · ".join(parts))
+	return lines
 
 
 ## Jetzt als UTC-Zeitstempel („2026-10-07T12:34:56Z“).
