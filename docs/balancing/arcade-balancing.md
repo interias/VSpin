@@ -3,10 +3,10 @@
 - Seed: 1
 - Läufe je Kadenzverlauf und Stufe: 1000 ohne Ausrüstung, 300 mit Empfohlener Stärke; Laufbahnen je Kadenzverlauf: 100 (höchstens 120 Läufe)
 - Fahrt: 45 min auf dem Insel-Rundkurs (9210 m), Standardbereich 60–120 rpm
-- Befehl: `godot --headless --path games/island-ride -s res://tools/balancing_sim.gd -- --runs=1000 --gear-runs=300 --careers=100 --seed=1 --commit=1a104b5 --date=2026-10-09 --note=Laufzeit rund 6 Minuten (ein Kern); Datenstand nach der Nachjustierung --appendix=../../docs/balancing/arcade-balancing-notes.md`
+- Befehl: `godot --headless --path games/island-ride -s res://tools/balancing_sim.gd -- --runs=1000 --gear-runs=300 --careers=100 --seed=1 --commit=1a104b5 --date=2026-10-09 --note=Laufzeit rund 6 Minuten (ein Kern); Datenstand nach der Nachjustierung; Dezimalkomma seit der Nacharbeit 2026-10-10 --appendix=../../docs/balancing/arcade-balancing-notes.md`
 - Stand (Commit): 1a104b5
 - Datum: 2026-10-09
-- Hinweis: Laufzeit rund 6 Minuten (ein Kern); Datenstand nach der Nachjustierung
+- Hinweis: Laufzeit rund 6 Minuten (ein Kern); Datenstand nach der Nachjustierung; Dezimalkomma seit der Nacharbeit 2026-10-10
 
 Erzeugt von `src/balancing.gd`; Lesart und Grenzen der Simulation stehen im Kopf der Datei. Alle Zahlen sind **ohne Fähigkeiten** gerechnet (Untergrenze), Ausrüstung nur dort, wo sie genannt ist.
 
@@ -26,12 +26,12 @@ Funde je Stufe: absolut (Anteil an allen Funden).
 
 | Stufe | Fahrten | Funde/h | Gewöhnlich | Magisch | Selten | Legendär |
 |---|---|---|---|---|---|---|
-| Stufe 1 | 1000 | 9.5 | 3379 (47 %) | 2229 (31 %) | 1169 (16 %) | 349 (5 %) |
-| Stufe 2 | 1000 | 8.1 | 2505 (41 %) | 1866 (31 %) | 1251 (21 %) | 456 (8 %) |
-| Stufe 3 | 1000 | 6.6 | 1751 (35 %) | 1566 (31 %) | 1132 (23 %) | 531 (11 %) |
-| Stufe 4 | 1000 | 6.0 | 1379 (30 %) | 1397 (31 %) | 1126 (25 %) | 621 (14 %) |
-| Stufe 5 | 1000 | 5.5 | 1024 (24 %) | 1177 (28 %) | 1241 (30 %) | 738 (18 %) |
-| Stufe 6 | 1000 | 4.6 | 669 (19 %) | 944 (27 %) | 1100 (31 %) | 795 (23 %) |
+| Stufe 1 | 1000 | 9,5 | 3379 (47 %) | 2229 (31 %) | 1169 (16 %) | 349 (5 %) |
+| Stufe 2 | 1000 | 8,1 | 2505 (41 %) | 1866 (31 %) | 1251 (21 %) | 456 (8 %) |
+| Stufe 3 | 1000 | 6,6 | 1751 (35 %) | 1566 (31 %) | 1132 (23 %) | 531 (11 %) |
+| Stufe 4 | 1000 | 6,0 | 1379 (30 %) | 1397 (31 %) | 1126 (25 %) | 621 (14 %) |
+| Stufe 5 | 1000 | 5,5 | 1024 (24 %) | 1177 (28 %) | 1241 (30 %) | 738 (18 %) |
+| Stufe 6 | 1000 | 4,6 | 669 (19 %) | 944 (27 %) | 1100 (31 %) | 795 (23 %) |
 
 ### Erfolgsquote je Herausforderung und Stufe (ohne Ausrüstung)
 
@@ -121,12 +121,12 @@ Funde je Stufe: absolut (Anteil an allen Funden).
 
 | Stufe | Fahrten | Funde/h | Gewöhnlich | Magisch | Selten | Legendär |
 |---|---|---|---|---|---|---|
-| Stufe 1 | 1000 | 21.1 | 7353 (46 %) | 4842 (31 %) | 2679 (17 %) | 978 (6 %) |
-| Stufe 2 | 1000 | 21.0 | 6126 (39 %) | 4843 (31 %) | 3367 (21 %) | 1453 (9 %) |
-| Stufe 3 | 1000 | 20.3 | 5051 (33 %) | 4575 (30 %) | 3711 (24 %) | 1920 (13 %) |
-| Stufe 4 | 1000 | 19.9 | 3928 (26 %) | 4423 (30 %) | 4100 (27 %) | 2532 (17 %) |
-| Stufe 5 | 1000 | 19.6 | 3126 (21 %) | 3983 (27 %) | 4456 (30 %) | 3203 (22 %) |
-| Stufe 6 | 1000 | 19.3 | 2203 (15 %) | 3461 (24 %) | 4711 (32 %) | 4160 (29 %) |
+| Stufe 1 | 1000 | 21,1 | 7353 (46 %) | 4842 (31 %) | 2679 (17 %) | 978 (6 %) |
+| Stufe 2 | 1000 | 21,0 | 6126 (39 %) | 4843 (31 %) | 3367 (21 %) | 1453 (9 %) |
+| Stufe 3 | 1000 | 20,3 | 5051 (33 %) | 4575 (30 %) | 3711 (24 %) | 1920 (13 %) |
+| Stufe 4 | 1000 | 19,9 | 3928 (26 %) | 4423 (30 %) | 4100 (27 %) | 2532 (17 %) |
+| Stufe 5 | 1000 | 19,6 | 3126 (21 %) | 3983 (27 %) | 4456 (30 %) | 3203 (22 %) |
+| Stufe 6 | 1000 | 19,3 | 2203 (15 %) | 3461 (24 %) | 4711 (32 %) | 4160 (29 %) |
 
 ### Erfolgsquote je Herausforderung und Stufe (ohne Ausrüstung)
 
@@ -216,12 +216,12 @@ Funde je Stufe: absolut (Anteil an allen Funden).
 
 | Stufe | Fahrten | Funde/h | Gewöhnlich | Magisch | Selten | Legendär |
 |---|---|---|---|---|---|---|
-| Stufe 1 | 1000 | 20.0 | 7009 (47 %) | 4574 (31 %) | 2500 (17 %) | 901 (6 %) |
-| Stufe 2 | 1000 | 19.1 | 5685 (40 %) | 4310 (30 %) | 2940 (21 %) | 1400 (10 %) |
-| Stufe 3 | 1000 | 18.1 | 4414 (33 %) | 4204 (31 %) | 3268 (24 %) | 1657 (12 %) |
-| Stufe 4 | 1000 | 17.3 | 3562 (27 %) | 3833 (29 %) | 3461 (27 %) | 2140 (16 %) |
-| Stufe 5 | 1000 | 16.6 | 2846 (23 %) | 3331 (27 %) | 3745 (30 %) | 2534 (20 %) |
-| Stufe 6 | 1000 | 15.6 | 1959 (17 %) | 2879 (25 %) | 3739 (32 %) | 3135 (27 %) |
+| Stufe 1 | 1000 | 20,0 | 7009 (47 %) | 4574 (31 %) | 2500 (17 %) | 901 (6 %) |
+| Stufe 2 | 1000 | 19,1 | 5685 (40 %) | 4310 (30 %) | 2940 (21 %) | 1400 (10 %) |
+| Stufe 3 | 1000 | 18,1 | 4414 (33 %) | 4204 (31 %) | 3268 (24 %) | 1657 (12 %) |
+| Stufe 4 | 1000 | 17,3 | 3562 (27 %) | 3833 (29 %) | 3461 (27 %) | 2140 (16 %) |
+| Stufe 5 | 1000 | 16,6 | 2846 (23 %) | 3331 (27 %) | 3745 (30 %) | 2534 (20 %) |
+| Stufe 6 | 1000 | 15,6 | 1959 (17 %) | 2879 (25 %) | 3739 (32 %) | 3135 (27 %) |
 
 ### Erfolgsquote je Herausforderung und Stufe (ohne Ausrüstung)
 
@@ -333,36 +333,36 @@ Standardbereich 60–120 rpm, erste Runde, ohne Ausrüstung (rpm).
 
 ## Erreichbarkeit der Stufen
 
-Laufbahn: neuer Spielstand (nur im Speicher), gefahren wird immer auf der höchsten freien Stufe; bessere Teile werden angelegt, der Rest verwertet, Talente und Arcade-Level wachsen mit den Punkten. Eine Stufe gilt als erreicht, wenn sie innerhalb der Läufe freigeschaltet wird (Stufen 1–3 sind von Beginn an frei). Ein Lauf = eine Fahrt von 0.75 Stunden.
+Laufbahn: neuer Spielstand (nur im Speicher), gefahren wird immer auf der höchsten freien Stufe; bessere Teile werden angelegt, der Rest verwertet, Talente und Arcade-Level wachsen mit den Punkten. Eine Stufe gilt als erreicht, wenn sie innerhalb der Läufe freigeschaltet wird (Stufen 1–3 sind von Beginn an frei). Ein Lauf = eine Fahrt von 0,75 Stunden.
 
 | Verlauf | Ziel | Verläufe, die es schaffen | Läufe (Median) | Stunden (Median) | Läufe (90 %) | Stunden (90 %) |
 |---|---|---|---|---|---|---|
-| Einsteiger | Stufe 4 | 100 von 100 (100 %) | 3 | 2.3 | 5 | 3.8 |
-| Einsteiger | Stufe 5 | 100 von 100 (100 %) | 5 | 3.8 | 8 | 6.0 |
-| Einsteiger | Stufe 6 | 100 von 100 (100 %) | 9 | 6.8 | 11 | 8.3 |
-| Einsteiger | Stufe 6 abgeschlossen | 100 von 100 (100 %) | 11 | 8.3 | 15 | 11.3 |
-| Trainierter | Stufe 4 | 100 von 100 (100 %) | 1 | 0.8 | 1 | 0.8 |
-| Trainierter | Stufe 5 | 100 von 100 (100 %) | 2 | 1.5 | 2 | 1.5 |
-| Trainierter | Stufe 6 | 100 von 100 (100 %) | 3 | 2.3 | 3 | 2.3 |
-| Trainierter | Stufe 6 abgeschlossen | 100 von 100 (100 %) | 4 | 3.0 | 4 | 3.0 |
-| Sprinter | Stufe 4 | 100 von 100 (100 %) | 1 | 0.8 | 2 | 1.5 |
-| Sprinter | Stufe 5 | 100 von 100 (100 %) | 2 | 1.5 | 3 | 2.3 |
-| Sprinter | Stufe 6 | 100 von 100 (100 %) | 3 | 2.3 | 5 | 3.8 |
-| Sprinter | Stufe 6 abgeschlossen | 100 von 100 (100 %) | 4 | 3.0 | 6 | 4.5 |
+| Einsteiger | Stufe 4 | 100 von 100 (100 %) | 3 | 2,3 | 5 | 3,8 |
+| Einsteiger | Stufe 5 | 100 von 100 (100 %) | 5 | 3,8 | 8 | 6,0 |
+| Einsteiger | Stufe 6 | 100 von 100 (100 %) | 9 | 6,8 | 11 | 8,3 |
+| Einsteiger | Stufe 6 abgeschlossen | 100 von 100 (100 %) | 11 | 8,3 | 15 | 11,3 |
+| Trainierter | Stufe 4 | 100 von 100 (100 %) | 1 | 0,8 | 1 | 0,8 |
+| Trainierter | Stufe 5 | 100 von 100 (100 %) | 2 | 1,5 | 2 | 1,5 |
+| Trainierter | Stufe 6 | 100 von 100 (100 %) | 3 | 2,3 | 3 | 2,3 |
+| Trainierter | Stufe 6 abgeschlossen | 100 von 100 (100 %) | 4 | 3,0 | 4 | 3,0 |
+| Sprinter | Stufe 4 | 100 von 100 (100 %) | 1 | 0,8 | 2 | 1,5 |
+| Sprinter | Stufe 5 | 100 von 100 (100 %) | 2 | 1,5 | 3 | 2,3 |
+| Sprinter | Stufe 6 | 100 von 100 (100 %) | 3 | 2,3 | 5 | 3,8 |
+| Sprinter | Stufe 6 abgeschlossen | 100 von 100 (100 %) | 4 | 3,0 | 6 | 4,5 |
 
 Wann die Ausrüstung (mit Talenten) die Empfohlene Stärke der Stufen 4–6 erreicht:
 
 | Verlauf | Ziel | Verläufe, die es schaffen | Läufe (Median) | Stunden (Median) | Läufe (90 %) | Stunden (90 %) |
 |---|---|---|---|---|---|---|
-| Einsteiger | Stärke 35 (Empfehlung Stufe 4) | 100 von 100 (100 %) | 1 | 0.8 | 2 | 1.5 |
-| Einsteiger | Stärke 50 (Empfehlung Stufe 5) | 100 von 100 (100 %) | 1 | 0.8 | 2 | 1.5 |
-| Einsteiger | Stärke 70 (Empfehlung Stufe 6) | 100 von 100 (100 %) | 2 | 1.5 | 3 | 2.3 |
-| Trainierter | Stärke 35 (Empfehlung Stufe 4) | 100 von 100 (100 %) | 1 | 0.8 | 1 | 0.8 |
-| Trainierter | Stärke 50 (Empfehlung Stufe 5) | 100 von 100 (100 %) | 1 | 0.8 | 1 | 0.8 |
-| Trainierter | Stärke 70 (Empfehlung Stufe 6) | 100 von 100 (100 %) | 1 | 0.8 | 1 | 0.8 |
-| Sprinter | Stärke 35 (Empfehlung Stufe 4) | 100 von 100 (100 %) | 1 | 0.8 | 1 | 0.8 |
-| Sprinter | Stärke 50 (Empfehlung Stufe 5) | 100 von 100 (100 %) | 1 | 0.8 | 1 | 0.8 |
-| Sprinter | Stärke 70 (Empfehlung Stufe 6) | 100 von 100 (100 %) | 1 | 0.8 | 1 | 0.8 |
+| Einsteiger | Stärke 35 (Empfehlung Stufe 4) | 100 von 100 (100 %) | 1 | 0,8 | 2 | 1,5 |
+| Einsteiger | Stärke 50 (Empfehlung Stufe 5) | 100 von 100 (100 %) | 1 | 0,8 | 2 | 1,5 |
+| Einsteiger | Stärke 70 (Empfehlung Stufe 6) | 100 von 100 (100 %) | 2 | 1,5 | 3 | 2,3 |
+| Trainierter | Stärke 35 (Empfehlung Stufe 4) | 100 von 100 (100 %) | 1 | 0,8 | 1 | 0,8 |
+| Trainierter | Stärke 50 (Empfehlung Stufe 5) | 100 von 100 (100 %) | 1 | 0,8 | 1 | 0,8 |
+| Trainierter | Stärke 70 (Empfehlung Stufe 6) | 100 von 100 (100 %) | 1 | 0,8 | 1 | 0,8 |
+| Sprinter | Stärke 35 (Empfehlung Stufe 4) | 100 von 100 (100 %) | 1 | 0,8 | 1 | 0,8 |
+| Sprinter | Stärke 50 (Empfehlung Stufe 5) | 100 von 100 (100 %) | 1 | 0,8 | 1 | 0,8 |
+| Sprinter | Stärke 70 (Empfehlung Stufe 6) | 100 von 100 (100 %) | 1 | 0,8 | 1 | 0,8 |
 
 Stärke und Arcade-Level am Ende der Laufbahn (Median):
 

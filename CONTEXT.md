@@ -62,10 +62,12 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **Boss** | Arcade: Sagengestalt der Insel (z. B. Drac de na Coca, Tramuntana, Dimonis) an festem Ort; sein Lebensbalken sinkt, solange die Kadenz in der Zielzone liegt. |
 | **Beute** | Arcade: Ausrüstung mit Seltenheit; macht nachsichtiger, wirkungsvoller und lohnender, ersetzt aber nie das Treten. |
 | **Stufe** | Arcade: gewählter Schwierigkeitsgrad (wie Diablos Qualstufen); bestimmt Zielzonen, Dauer und Beute-Qualität. Höhere Stufen werden freigeschaltet. |
-| **Elite-Gruppe** | Arcade: zufällig auftauchende Gegnergruppe mit 1–3 **Eigenschaften** (Affixen wie „Windschnell“, „Zäh“); blau = Champions, gelb = Seltene mit Gefolge. Bessere Beute. |
+| **Elite-Gruppe** | Arcade: zufällig auftauchende Gegnergruppe mit 1–3 **Eigenschaften** (Affixen: Windschnell, Wankelmütig, Gegenwind, Zäh, Taktwechsel, Rudelführer); blau = Champions, gelb = Seltene mit **Gefolge** (kleine Herausforderung im Anschluss an den Anführer). Bessere Beute. |
 | **Kadenzmuster** | Aus dem Kadenzverlauf erkannte Geste: **Antritt** (schnell hochziehen), **Gleichmaß** (Kadenz ruhig halten), **Innehalten** (kurz nicht treten), **Rhythmus** (Takt treffen). _Vermeiden:_ „Antritt“ für die Herausforderung – die heißt **Durchbruch**. |
 | **Fähigkeit** | Arcade: Wirkung, die ein Kadenzmuster auslöst (Windböe, Fokus, Schild, Kombo); Talente und legendäre Beute verändern sie. |
 | **Empfohlene Stärke** | Arcade: Wert aus Ausrüstung und Talenten, den eine Stufe voraussetzt; höhere Stufen brauchen Fitness und Build. |
+| **Arcade-Level** | Arcade: eigenes Level aus den Punkten aller Arcade-Läufe; gibt Talentpunkte. Getrennt vom **Fahrerlevel**, das nur Kosmetik freischaltet (ADR-0010). |
+| **Talent** | Arcade: Knoten im Talentbaum (Äste Sprinter, Kletterer, Ausdauer), gelernt mit Talentpunkten aus dem Arcade-Level; verändert Fähigkeiten und Ausrüstungswerte nur im Arcade. |
 
 ## Scope v1
 

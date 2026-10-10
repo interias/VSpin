@@ -251,11 +251,13 @@ func result_text(rewards: String, time_text: String, laps: int, distance_km: flo
 
 
 ## Einblendung, wenn eine Herausforderung endet: „Zone halten geschafft! +100 Punkte“ oder „Zone halten verfehlt –
-## weiter geht's“ (weich: die Fahrt geht weiter).
+## weiter geht's“ (weich: die Fahrt geht weiter); ein Boss (#51) ist „besiegt!“ oder „entkommen“ wie in seinem
+## Lebensbalken.
 static func result_popup_text(result: Dictionary) -> String:
+	var boss: bool = result.get("boss", false)
 	if result["succeeded"]:
-		return "%s geschafft!  +%d Punkte" % [result["name"], result["points"]]
-	return "%s verfehlt – weiter geht's" % result["name"]
+		return "%s %s!  +%d Punkte" % [result["name"], "besiegt" if boss else "geschafft", result["points"]]
+	return "%s %s – weiter geht's" % [result["name"], "entkommen" if boss else "verfehlt"]
 
 
 ## Feedback einer beendeten Herausforderung (#49): Punkte als Popup, ein Fund als Popup in der Farbe seiner Seltenheit
@@ -282,7 +284,11 @@ func _show_hud(finished: bool) -> void:
 	if not run.active.is_empty():
 		var block: ChallengeBlock = run.active["block"]
 		var zone := block.zone()
-		hud.show_arcade(run.active["definition"]["name"], Encounters.target_text(run.active["definition"], zone),
+		# Ein Bosskampf oder eine Elite-Gruppe zeigt das Ziel im Format der laufenden Phase („ab 105 rpm“ in einer Böe).
+		var target: Dictionary = run.active["definition"]
+		if block is BossFight and not (block as BossFight).phase_definition().is_empty():
+			target = (block as BossFight).phase_definition()
+		hud.show_arcade(run.active["definition"]["name"], Encounters.target_text(target, zone),
 				format_time.call(ceilf(block.remaining_s())), points)
 		hud.show_zone(zone.x, zone.y, bus.cadence, Training.percent_text(block.progress()), block.score_caption())
 		return

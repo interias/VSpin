@@ -610,6 +610,29 @@ func test_knockback_pushes_the_chaser_back_only_with_cadence_above_the_threshold
 	assert_lt(chase.gap, BuildEffects.KNOCK_CEILING)
 
 
+func test_knockback_reaches_the_running_phase_of_a_boss_or_an_elite_group() -> void:
+	var knock: Dictionary = Loot.EFFECTS["rueckstoss"]["changes"][0]["knockback"]
+	var bosses := preload("res://src/challenges/boss_challenges.gd")
+	var dimonis := Encounters.build(bosses.find("dimonis"), 1, CadenceRange.new()) as BossFight
+	var chase := dimonis.current_phase() as Chase
+	var gap := chase.gap
+	assert_false(BuildEffects.knock_back(dimonis, 40.0, knock), "unter der Schwelle der Phase: nichts")
+	assert_true(BuildEffects.knock_back(dimonis, 100.0, knock), "die Jagd-Phase der Dimonis bekommt den Rückstoß")
+	assert_almost_eq(chase.gap, gap + 0.15, 1e-9)
+	for i in range(20):
+		BuildEffects.knock_back(dimonis, 100.0, knock)
+	assert_almost_eq(chase.gap, BuildEffects.KNOCK_CEILING, 1e-9, "auch im Bosskampf nie ganz bis zum Erfolg")
+	assert_eq(dimonis.state, ChallengeBlock.RUNNING)
+	var tramuntana := Encounters.build(bosses.find("tramuntana"), 1, CadenceRange.new()) as BossFight
+	assert_false(BuildEffects.knock_back(tramuntana, 100.0, knock), "Phase Zone halten: kein Rückstoß")
+	var elite_def := EliteGroups.make(Encounters.find("durchbruch_bruecke"), EliteGroups.CHAMPION, [])
+	var elite := Encounters.build(elite_def, 1, CadenceRange.new()) as BossFight
+	assert_true(BuildEffects.knock_back(elite, 110.0, knock), "der Durchbruch einer Elite-Gruppe bekommt den Rückstoß")
+	assert_almost_eq((elite.current_phase() as Breakthrough).level, 0.10, 1e-9)
+	dimonis.state = ChallengeBlock.FAILED
+	assert_false(BuildEffects.knock_back(dimonis, 100.0, knock), "nach dem Kampf nichts")
+
+
 func test_knockback_fills_the_breakthrough_bar_and_leaves_other_blocks_alone() -> void:
 	var knock: Dictionary = Loot.EFFECTS["rueckstoss"]["changes"][0]["knockback"]
 	var env := _start(BREAK)
