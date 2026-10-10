@@ -1401,6 +1401,30 @@ Die Antwort (`ack`) der Bridge erscheint dezent unter den Werten: „Widerstand:
 nichts bei `ok: true`. `error`-Antworten landen als Warnung im Log. Mit dem Simulator sinkt bergauf die
 Kadenz; die Steigung steht in der Session-CSV der Bridge (Spalte `grade`).
 
+### Puls (#64)
+
+Puls ist eine zweite Quelle der Bridge (Brustgurt oder Uhr per BLE, `docs/bus-protocol.md`, Abschnitt Puls). Das Spiel
+zeigt ihn nur an und wertet ihn aus; er verändert die Fahrt nicht.
+
+- **Bus:** Der Bus-Client kennt Pulszustand (`off | disconnected | connected | stale`), verbundenes Gerät und Wert
+  (`heart_rate_state`, `heart_rate_device`, `heart_rate_bpm`, NAN = kein Wert) und sendet `set_heart_rate_devices`,
+  `start_heart_rate_search` und `stop_heart_rate_search`. Ohne Pulsgerät kann der Wert vom Rad (FTMS) oder vom Simulator
+  kommen.
+- **Gemerkte Geräte:** höchstens ein Brustgurt und eine Uhr (Adresse, Name) im Abschnitt `[heart_rate]` von
+  `user://settings.cfg` (`src/heart_rate_devices.gd`). Das Spiel schickt sie nach jedem (Neu-)Verbinden an die Bridge,
+  Gurt vor Uhr, auch eine leere Liste – die Gerätewahl gehört dem Spiel, auch bei einer geteilten Bridge. Speichern der
+  Grafikeinstellungen lässt den Abschnitt stehen.
+- **Startmenü:** unter dem Radstatus eine Pulszeile, z. B. „Puls: HRM 600 · 62 bpm“, „Puls: HRM 600 · keine Daten“
+  (`stale`), „Puls: nicht verbunden“, „Puls: 118 bpm (Simulator)“ bzw. „(vom Rad)“ ohne Pulsgerät, „Puls: kein Gerät
+  eingerichtet“.
+- **Zonen** (`src/heart_rate_zones.gd`): fünf Zonen aus der LTHR (Friel, Rad: ab 81, 90, 94, 100 %) oder, ohne LTHR,
+  aus dem Maximalpuls (ab 50, 60, 70, 80, 90 %); ohne beides keine Zonen. Plausibel sind LTHR 80–220 und Maximalpuls
+  100–230 bpm, sonst gilt der Wert als nicht gesetzt. Untergrenzen in ganzen bpm (`roundi(Basis · Anteil)`), jeder Wert
+  liegt in genau einer Zone; unter Z1 zählt als Z1, über Z5 als Z5. Feste Farben: Z1 grau, Z2 blau, Z3 grün, Z4 orange,
+  Z5 rot (Anlehnung an Garmin).
+- **Pulsstatistik einer Fahrt** (`src/heart_rate_stats.gd`): Ø-Puls (zeitgewichtet, nur über Zeit mit Puls), Max-Puls
+  und Sekunden je Zone mit den zur Fahrt gültigen Zonen; Lücken ohne Puls zählen nirgends.
+
 ## Konfiguration
 
 `config.cfg` (ConfigFile/INI) – Änderungen wirken beim nächsten Start, ohne Codeänderung:
@@ -1540,8 +1564,11 @@ src/ride_hud.gd         RideHud: Anzeige der Werte, Rundenfortschritt, readout()
 src/hud_gauge.gd        HudGauge: Kadenz-Bogen · src/hud_grade_icon.gd HudGradeIcon: Steigungskeil
 src/hud_profile.gd      HudProfile: Höhenprofil mit Marker (profile_point() als reine Rechnung)
 src/hud_minimap.gd      HudMinimap: Inselkarte mit Strecke, Landmarken, Fahrer-Pfeil (map_point() als reine Rechnung)
-src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeout), status/telemetry parsen (`cadence` geglättet für HUD/Fahrmodell, `cadence_raw` ungeglättet für Kadenzmuster, #45), send_message
+src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeout), status/telemetry parsen (`cadence` geglättet für HUD/Fahrmodell, `cadence_raw` ungeglättet für Kadenzmuster, #45; Puls und Pulsbefehle, #64), send_message
 src/ride_stats.gd       RideStats: Fahrzeit, Strecke, Ø Kadenz, Ø Tempo (ohne Pausen) – reine Logik
+src/heart_rate_zones.gd HeartRateZones: Pulszonen aus LTHR oder Maximalpuls, Grenzen und Farben je Zone – reine Logik (#64)
+src/heart_rate_stats.gd HeartRateStats: Ø-Puls, Max-Puls, Sekunden je Zone einer Fahrt – reine Logik (#64)
+src/heart_rate_devices.gd HeartRateDevices: gemerkter Brustgurt und Uhr in user://settings.cfg [heart_rate], Liste für die Bridge (#64)
 src/lap_timing.gd       LapTiming: Rundenwertung – Rundenzeiten, Ziel nach n Runden oder endlos, Bestzeit, Ghost-Aufzeichnung – reine Logik
 src/segment_timing.gd   SegmentTiming: Segmentzeiten (Live-Zeit, gewertete Segmente, Segment-Bestzeit) – reine Logik
 src/ghost.gd            Ghost: Runde als Strecke über Zeit – aufzeichnen, abspielen, Abstand in s – reine Logik
