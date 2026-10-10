@@ -272,6 +272,8 @@ var grade_reporter := GradeReporter.new()
 var stats := RideStats.new()
 ## Ø-Puls, Max-Puls und Zeit je Zone der laufenden Fahrt (mit den Zonen des Profils beim Start; nur Fahrzeit, #64).
 var pulse_stats := HeartRateStats.new()
+## Die Pulszonen der laufenden Fahrt – dieselben wie in `pulse_stats`, für die Anzeige im HUD (#64).
+var pulse_zones := HeartRateZones.new()
 ## Streckenposition (wie `model.distance_m`) der Ziellinie nach der letzten Runde (INF = endlos).
 var finish_distance_m := 0.0
 
@@ -699,7 +701,9 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 	ghost = save_game.ghost(config.track, track.direction, ghost_kind) if not ghost_kind.is_empty() else null
 	model = RideModel.new(config, start_distance_m)
 	stats = RideStats.new()
-	pulse_stats = HeartRateStats.new(save_game.heart_rate_zones())
+	pulse_zones = save_game.heart_rate_zones()
+	pulse_stats = HeartRateStats.new(pulse_zones)
+	hud.reset_pulse()
 	_new_lap_timing()
 	_reset_progress()
 	grade_reporter.reset()
@@ -1486,6 +1490,9 @@ func _update_view() -> void:
 	var grade := current_grade()
 	hud.show_ride(bus.cadence, model.speed_kmh(), stats.distance_m, format_time(lap_time_s()), grade,
 			format_grade(grade), current_station(), format_power(bus.power_w(), bus.power_estimated()))
+	# Puls: ohne Gurt und ohne Wert (Bridge meldet `off`, kein Puls vom Simulator) bleibt die Anzeige weg
+	hud.show_pulse(bus.heart_rate_bpm, pulse_zones, bus.heart_rate_state != BusClient.HEART_RATE_OFF or bus.has_heart_rate(),
+			stats.ride_time_s)
 	hud.show_lap(model.distance_m, lap_timing.lap_start_m(), lap_timing.lap_end_m(), track.wrap_distance(model.distance_m))
 	hud.show_lap_count(lap_timing.lap_number(), laps, format_time(lap_timing.lap_time_s))
 	if ghost != null:

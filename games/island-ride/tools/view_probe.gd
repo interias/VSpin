@@ -8,7 +8,7 @@
 ##         [--title] [--window=left|right|fullscreen] [--laps=3] [--segments] [--ghost=1.4] [--logbook] [--rewards]
 ##         [--training] [--ccw] [--wardrobe=trikot_gelb,radfarbe_blau,helm_schwarz] [--fauna] [--effects-kmh=55] [--intro]
 ##         [--panorama=aussichtspunkt,burg] [--view=nah|verfolger|weit] [--arcade] [--gear] [--props] [--rhythm]
-##         [--bosses] [--elite]
+##         [--bosses] [--elite] [--pulse=148|-- --lthr=165]
 ## `--shots`: Streckenpositionen (m) für Screenshots (`shot_<m>.png` in `--out`). `--fps-from/--fps-to`: Fahrt mit
 ## `--speed-kmh` über diesen Abschnitt, danach eine Zeile mit min/Mittel/1-%-Tief der fps. Das HUD wird ausgeblendet
 ## (ohne Bridge stünde dort die Verbindungsmeldung) – außer mit `--hud`: dann zeigt es Beispielwerte (Kadenz wie
@@ -17,6 +17,8 @@
 ## das Grafikmenü. Grafik wie bei einem frischen Start (GraphicsSettings-Standard,
 ## `user://settings.cfg` bleibt unberührt); `--aa`/`--scale`/`--upscaler`/`--vsync=off` überschreiben. `--crop`:
 ## zusätzlich Bildausschnitt `crop_<m>.png` (z. B. für den AA-Vergleich). VSync wie im Projekt (Standard: an).
+## Puls (#64): `--pulse=BPM` (mit `--hud`) zeigt im HUD diesen Puls samt einer Beispielkurve der letzten 3 Minuten, `--pulse=--`
+## den Ausfall („--“, die Kurve endet 31 s vor jetzt); `--lthr=BPM` gibt die Zonen dazu (ohne: nur bpm, ohne Zone).
 ## Fahrer und Rad treten mit `--cadence` (rpm, 0 = Stillstand): die Hauptszene füttert ohne Bus nur eine Attrappe
 ## (sie steht in der Verbindungspause), die Probe bewegt das echte Modell. Vor jedem Screenshot 1 s Tritt.
 ## `--close`: zusätzlich Nahaufnahmen je Position (`close_<m>_side.png`, `close_<m>_rear.png`, Kamera nur hier
@@ -152,6 +154,9 @@ var _intro := false
 var _panorama = null
 ## Kameraperspektive (`--view`; "" = Standard).
 var _view := ""
+## Beispiel-Puls im HUD (`--pulse`; −1 = ohne Pulsanzeige, 0 = Ausfall „--“) und LTHR für die Zonen (`--lthr`, 0 = ohne).
+var _pulse_bpm := -1.0
+var _lthr := 0.0
 
 
 func _initialize() -> void:
@@ -247,6 +252,10 @@ func _initialize() -> void:
 			_outfit = Array(value.split(",", false)) if arg.contains("=") else []
 		elif arg == "--fauna":
 			_fauna = true
+		elif arg.begins_with("--pulse="):
+			_pulse_bpm = 0.0 if value == "--" else float(value)
+		elif arg.begins_with("--lthr="):
+			_lthr = float(value)
 		elif arg == "--ccw":
 			_ccw = true
 		elif arg.begins_with("--effects-kmh="):
@@ -301,6 +310,10 @@ func _initialize() -> void:
 		_ride.get_node("Hud/Message").modulate = Color.TRANSPARENT
 		_ride.bus.cadence = _cadence
 		_ride.bus.last_telemetry = {"cadence": _cadence, "power_w": 142.0}
+		if _pulse_bpm >= 0.0:  # Zustand und Zonen; die Kurve folgt je Bild in `_sample_pulse` (die Fahrzeit steht erst dann fest)
+			_ride.bus.heart_rate_state = BusClient.HEART_RATE_CONNECTED
+			_ride.bus.heart_rate_bpm = _pulse_bpm if _pulse_bpm > 0.0 else NAN
+			_ride.pulse_zones = HeartRateZones.new(_lthr)
 	if not profile.is_empty():
 		_ride.sky.set_compatibility(profile == "compat")
 	_set_sky(hour, date, weather, season)
@@ -347,6 +360,8 @@ func _initialize() -> void:
 	_ride.speed_effects.hold_kmh = _effects_kmh
 	for d in shots:
 		_place(d)
+		if _hud and _pulse_bpm >= 0.0:
+			_sample_pulse()
 		_pedal(1.0)
 		if _hud and not _view.is_empty():
 			_ride.hud.show_camera_view(CameraViews.NAMES[_ride.camera_view])
@@ -610,6 +625,24 @@ func _training_shots(out_dir: String) -> void:
 	_ride._update_view()
 	await _frames(8)
 	_save_image(out_dir.path_join("training_result.png"))
+
+
+## Beispielkurve (#64): die letzten 171 s Fahrzeit bis zur jetzigen (`stats.ride_time_s`) mit einer Lücke bei 95–105 s
+## nach dem Anfang; beim Ausfall (`--pulse=--`) endet sie 31 s vor „jetzt“.
+func _sample_pulse() -> void:
+	var now: float = _ride.stats.ride_time_s
+	var span := 171.0
+	var centre := _pulse_bpm if _pulse_bpm > 0.0 else 140.0
+	var last := span if _pulse_bpm > 0.0 else span - 31.0
+	_ride.hud.reset_pulse()
+	for i in range(int(last * 2.0) + 1):
+		var t := i * 0.5
+		if t > 95.0 and t < 105.0:
+			continue
+		var bpm := centre - 14.0 + 22.0 * (t / span) + 10.0 * sin(t / 9.0)
+		if t == span:
+			bpm = _pulse_bpm
+		_ride.hud.show_pulse(bpm, _ride.pulse_zones, true, now - span + t)
 
 
 ## Training `seconds` lang mit `_cadence` und dem Tempo des Fahrmodells fahren (Strecke, Einheit, Anzeige, Kamera wie
