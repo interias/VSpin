@@ -1425,6 +1425,12 @@ zeigt ihn nur an und wertet ihn aus; er verändert die Fahrt nicht.
   Z5 rot (Anlehnung an Garmin).
 - **Pulsstatistik einer Fahrt** (`src/heart_rate_stats.gd`): Ø-Puls (zeitgewichtet, nur über Zeit mit Puls), Max-Puls
   und Sekunden je Zone mit den zur Fahrt gültigen Zonen; Lücken ohne Puls zählen nirgends.
+- **Spielstand und Fahrtenbuch:** Das Fahrerprofil speichert LTHR und Maximalpuls (Bereich `pulse`, additiv, Formatversion
+  bleibt 1; `SaveGame.lthr_bpm()`, `max_hr_bpm()`, `set_heart_rate_profile()`, `heart_rate_zones()`). Eine Fahrt mit Puls
+  speichert `avg_hr_bpm`, `peak_hr_bpm` und `hr_zone_s` (Sekunden Z1–Z5), gerechnet mit den beim Start gültigen Zonen und
+  nicht neu berechnet; Fahrten ohne Puls tragen keine Pulsfelder. Die Übersicht am Ende jeder Fahrt (Rundfahrt, Training,
+  Arcade) und das Fahrtenbuch (Seite „Fahrten“, Block „Puls je Fahrt“) zeigen „Ø Puls 142 · Max 171 bpm“ und
+  „Zonen: Z2 18:30 · Z3 4:10“; Pausen zählen nicht.
 
 ## Konfiguration
 
