@@ -197,6 +197,8 @@ var config: RideConfig = null
 @export var start_in_menu := true
 ## Grafik-/Fenstereinstellungen; "" = Standardwerte, nichts speichern, Fenster unberührt (Tests, Probe).
 var settings_path := GraphicsSettings.DEFAULT_PATH
+## Gemerkte Pulsgeräte (Abschnitt `[heart_rate]` in `settings_path`); nach einer Änderung `apply_heart_rate_devices()`.
+var heart_rate_devices: HeartRateDevices
 var settings_menu: CanvasLayer
 var start_menu: CanvasLayer
 var logbook: CanvasLayer
@@ -394,6 +396,9 @@ func _ready() -> void:
 	bus.status_changed.connect(_on_status_changed)
 	bus.bus_connection_changed.connect(_on_bus_connection_changed)
 	bus.ack_received.connect(_on_ack)
+	heart_rate_devices = HeartRateDevices.load_file(settings_path) if not settings_path.is_empty() \
+			else HeartRateDevices.new()
+	bus.set_heart_rate_devices(heart_rate_devices.bridge_list())  # geht bei jedem (Neu-)Verbinden raus
 	bridge_launcher = BridgeLauncher.new(config, BridgeLauncher.game_dir())
 	bridge_launcher.begin()
 	model = RideModel.new(config, start_distance_m)
@@ -416,6 +421,7 @@ func _process(delta: float) -> void:
 	if state == STATE_MENU:
 		_fly_title(delta)
 		start_menu.show_wheel_status(bus, bridge_launcher.hint())
+		start_menu.show_heart_rate_status(bus)
 		return
 	if state == STATE_RIDING:
 		_ride(delta)
@@ -1321,6 +1327,13 @@ func _report_grade(delta: float) -> void:
 	var grade := GradeReporter.quantize(current_grade())
 	if grade_reporter.wants_to_send(grade) and bus.send_message({"type": "set_grade", "grade": grade}) == OK:
 		grade_reporter.sent(grade)
+
+
+## Speichert die gemerkten Pulsgeräte und schickt sie sofort an die Bridge (für die Geräteseite).
+func apply_heart_rate_devices() -> void:
+	if not settings_path.is_empty():
+		heart_rate_devices.save_file(settings_path)
+	bus.set_heart_rate_devices(heart_rate_devices.bridge_list())
 
 
 func _on_ack(message: Dictionary) -> void:
