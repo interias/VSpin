@@ -1444,7 +1444,7 @@ fehlschlagen lässt, wenn ein `test_*.gd` nicht ladbar ist (GUT allein überspri
 Einzelnes Skript: zusätzlich `-gselect=test_bus_client`. Die Tests brauchen keine Bridge und
 benutzen Ports ab 18765 – nie den Bus-Port 8765.
 
-**Testisolation (#62, `tests/support/test_isolation.gd`):** Kein Test schreibt in das echte `user://` (Spielstand,
+**Testisolation (#62, `tests/support/isolation.gd`):** Kein Test schreibt in das echte `user://` (Spielstand,
 Einstellungen, Gelände-Cache). Testdateien legen Tests über `TestIsolation.path("test_….json")` an, nicht unter
 `user://`; sie liegen unter `.godot/test_user/<n>/` (git-ignoriert, je Worktree). Ein Wächter in den GUT-Hooks
 (`.gutconfig.json`: `tests/support/pre_run_isolation.gd` hält das echte `user://` vor dem Lauf fest,
@@ -1476,7 +1476,7 @@ Ein guter Test prüft von außen: Drehbuch rein → beobachtbares Spielverhalten
   `connect_client(bus)` (nackter `BusClient`), `run_for(s)`, `run_until(cond, timeout_s)`,
   `press_key(KEY_P)` (Taste wie ein Spieler drücken); räumt nach jedem Test auf. `spawn_ride` setzt
   `quit_on_request = false` – „Beenden“ im Menü meldet dann nur `quit_requested`, statt den Testlauf zu beenden.
-- `tests/support/test_isolation.gd` (`TestIsolation`): `path(name)` für jede Datei, die ein Test schreibt (statt
+- `tests/support/isolation.gd` (`TestIsolation`): `path(name)` für jede Datei, die ein Test schreibt (statt
   `user://`), `first_test_port()` für feste Testports (`TestIsolation.first_test_port() + 50`), `probe_bus_url()` für
   Prüfhilfen gegen die echte Bridge.
 

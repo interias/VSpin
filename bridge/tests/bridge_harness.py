@@ -31,7 +31,7 @@ HOST = "127.0.0.1"
 
 # Parallele Testläufe (#62): `VSPIN_PORT_BASE=n` gibt jedem Lauf (je Worktree) einen eigenen Bus-Port
 # 8765 + n; ohne Variable (oder 0) bleibt es 8765. Das Spiel leitet daraus seine Testports ab
-# (18765 + 100·n, `tests/support/test_isolation.gd`). Die Bereiche überschneiden sich nie; n ≤ 466 hält
+# (18765 + 100·n, `tests/support/isolation.gd`). Die Bereiche überschneiden sich nie; n ≤ 466 hält
 # alle Ports ≤ 65535.
 PORT_BASE_ENV = "VSPIN_PORT_BASE"
 DEFAULT_PORT = 8765
