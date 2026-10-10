@@ -400,7 +400,7 @@ static func _pct(part: int, whole: int) -> String:
 
 
 static func _num(value: float, digits: int = 0) -> String:
-	return "–" if is_nan(value) else String.num(value, digits)
+	return "–" if is_nan(value) else String.num(value, digits).replace(".", ",")  # Dezimalkomma wie im übrigen Bericht
 
 
 static func _table(headers: Array, rows: Array) -> String:
@@ -627,7 +627,7 @@ static func _section_reach(careers: Dictionary, options: Dictionary) -> String:
 	return "## Erreichbarkeit der Stufen\n\nLaufbahn: neuer Spielstand (nur im Speicher), gefahren wird immer auf der höchsten freien Stufe; "  \
 			+ "bessere Teile werden angelegt, der Rest verwertet, Talente und Arcade-Level wachsen mit den Punkten. Eine Stufe gilt als "  \
 			+ "erreicht, wenn sie innerhalb der Läufe freigeschaltet wird (Stufen 1–3 sind von Beginn an frei). Ein Lauf = eine Fahrt von "  \
-			+ "%.2f Stunden.\n\n" % hours \
+			+ "%s Stunden.\n\n" % _num(hours, 2) \
 			+ _table(["Verlauf", "Ziel", "Verläufe, die es schaffen", "Läufe (Median)", "Stunden (Median)", "Läufe (90 %)", "Stunden (90 %)"], rows) \
 			+ "\nWann die Ausrüstung (mit Talenten) die Empfohlene Stärke der Stufen 4–6 erreicht:\n\n" \
 			+ _table(["Verlauf", "Ziel", "Verläufe, die es schaffen", "Läufe (Median)", "Stunden (Median)", "Läufe (90 %)", "Stunden (90 %)"], strength_rows) \

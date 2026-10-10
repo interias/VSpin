@@ -977,13 +977,14 @@ entwischt, die Phase ist verfehlt).
 und Restzeit („Phase 2/3 · Böe · ab 105 rpm · noch 12 s“). Der Balken sinkt nur mit dem, was die Kadenz in der Zielzone
 bzw. über der Schwelle erarbeitet: jede geschaffte Phase nimmt ein n-tel, die laufende ihren Fortschritt (bei der Jagd nur
 das Aufgeholte, nicht der geschenkte Vorsprung). Fällt der Balken einer Durchbruch-Phase zurück, erholt sich der Boss
-entsprechend. Unten im HUD stehen der Boss, das Ziel, die Restzeit des ganzen Kampfes (laufende Phase plus die Zeitfenster
+entsprechend. Unten im HUD stehen der Boss, das Ziel der laufenden Phase in ihrem Format (Zone „80–100 rpm“, Schwelle
+„ab 105 rpm“; Nacharbeit #27), die Restzeit des ganzen Kampfes (laufende Phase plus die Zeitfenster
 der folgenden) und der Stand („Kampf“); auf der Strecke ersetzt der Boss das Zieltor.
 
-**Besiegt** – alle Phasen geschafft: Punkte („Tramuntana geschafft!  +400 Punkte“), der Balken meldet „Tramuntana besiegt!“
+**Besiegt** – alle Phasen geschafft: Punkte („Tramuntana besiegt!  +400 Punkte“), der Balken meldet „Tramuntana besiegt!“
 und „Boss-Beute gefunden“; Beute gibt es sicher, mit der Beute-Qualität des Bosses als Faktor auf die Grundqualität (mehr
 seltene Teile). **Entkommen** – scheitert eine Phase (Zeitfenster vorbei, bei den Dimonis: entwischt), entkommt der Boss
-sofort. Das ist weich: keine Punkte, eine Einblendung („Dimonis verfehlt – weiter geht's“), der Balken meldet „Dimonis
+sofort. Das ist weich: keine Punkte, eine Einblendung („Dimonis entkommen – weiter geht's“), der Balken meldet „Dimonis
 entkommen“, die Fahrt geht weiter; Beute wie bei jeder verfehlten Herausforderung nur mit der Chance 0,5 × Schaden (ohne
 Treten in der Zone nie). In jeder Pause (manuell oder Verbindung, ADR-0004) stehen Kampf, Phase, Zeit und Lebensbalken
 still; nach der Rückkehr geht der Kampf weiter. Die **Zusammenfassung** zählt Bosse bei „Herausforderungen: … geschafft ·
@@ -1263,7 +1264,7 @@ Effekt auf zwei angelegten Teilen zählt einmal.
 
 | Effekt | Wirkung |
 |---|---|
-| Rückstoß | „Antritt wirft Gegner zurück“: löst die Windböe aus, rückt der Verfolger der **Jagd** um 15 % Abstand ab und füllt sich der Balken des **Durchbruchs** um 10 % – nur wenn die Kadenz in diesem Schritt über der Schwelle des Bausteins liegt und höchstens bis 95 % (der Erfolg bleibt dem Treten vorbehalten); andere Bausteine merken nichts; Rückmeldung „Rückstoß!“ |
+| Rückstoß | „Antritt wirft Gegner zurück“: löst die Windböe aus, rückt der Verfolger der **Jagd** um 15 % Abstand ab und füllt sich der Balken des **Durchbruchs** um 10 % – nur wenn die Kadenz in diesem Schritt über der Schwelle des Bausteins liegt und höchstens bis 95 % (der Erfolg bleibt dem Treten vorbehalten); andere Bausteine merken nichts; in einem Bosskampf oder einer Elite-Gruppe trifft er die laufende Phase (Nacharbeit #27); Rückmeldung „Rückstoß!“ |
 | Tiefer Atem | Schild hält 4 s länger |
 | Kombo-Ernte | Kombo-Grundpunkte verdoppelt (60 statt 30) |
 | Im Fluss | Fokus doppelt so stark (×2,0 statt ×1,5; Wirkung + 1,0 statt + 0,5) und 4 s länger |
@@ -1522,7 +1523,8 @@ GODOT=godot PYTHON=python games/island-ride/tools/e2e.sh 60 90
 Mit gesetztem `VSPIN_PORT_BASE=n` fahren `e2e.sh`, `e2e_probe.gd` und `view_probe.gd` gegen Port 8765 + n (statt
 `config.cfg [bus] url`) – parallel zu anderen Läufen und ohne die Bridge des Spielers; `e2e.sh` startet die Bridge
 selbst mit `--port`, beim `set_grade`-Handtest die Bridge entsprechend mit `vspin-bridge … --port <8765+n>` starten.
-Den Gelände-Cache legen die Prüfhilfen nach `.godot/test_user/<n>/`.
+Den Gelände-Cache legen die Prüfhilfen nach `.godot/test_user/<n>/`. Ein ungültiger Wert bricht auch die Prüfhilfen mit
+Exit-Code 1 ab, statt still auf 8765 zu fahren (Nacharbeit #27).
 
 `set_grade` von Hand prüfen: Bridge starten (`vspin-bridge --source sim --sim-cadence 80`), dann
 `godot --headless --path games/island-ride -s res://tools/e2e_probe.gd -- --seconds=9 --start-m=2400`

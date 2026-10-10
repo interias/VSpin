@@ -19,7 +19,7 @@ const CHALLENGES := [
 ]
 
 
-## Baustein zur Herausforderung `definition` auf der Stufe `level` (ArcadeTiers.get_tier) mit der schon begrenzten
+## Baustein zur Herausforderung `definition` auf der Stufe `level` (ArcadeTiers.level) mit der schon begrenzten
 ## Zielzone `zone` (Encounters.zone_for, Wächter). Nur über `Encounters.build` aufrufen.
 static func build(definition: Dictionary, level: Dictionary, zone: Vector2) -> ChallengeBlock:
 	var factor: float = level["duration_factor"]

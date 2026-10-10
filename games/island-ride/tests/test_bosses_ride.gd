@@ -75,7 +75,7 @@ func _play_profile(name: String, boss: String) -> Dictionary:
 				"phase": fight.phase_number() if fight != null else 0,
 				"block_s": fight.elapsed_s if fight != null else NAN, "results": game.arcade.results.size(),
 				"bar": prop.bar.title_text(), "line": prop.bar.phase_text(), "figure": prop.figure.state,
-				"ahead_m": prop.figure.target_ahead_m})  # Ziel; die Gestalt gleitet in Echtzeit (_process) dorthin
+				"ahead_m": prop.figure.target_ahead_m, "target": game.hud._challenge_target.text})  # Ziel; die Gestalt gleitet in Echtzeit (_process) dorthin
 		if game.arcade.results.size() > ends.size():
 			ends.append({"i": i, "bar": prop.bar.title_text(), "figure": prop.figure.state})
 		if not game.hud.celebration().is_empty() and not shown.has(game.hud.celebration()):
@@ -136,7 +136,12 @@ func test_scenario_tramuntana_defeated() -> void:
 	assert_true(result["succeeded"], "besiegt")
 	assert_eq(game.arcade.points, 400)
 	assert_false(result["loot"].is_empty(), "Boss-Beute")
-	assert_has(run["shown"], "Tramuntana geschafft!  +400 Punkte")
+	assert_has(run["shown"], "Tramuntana besiegt!  +400 Punkte", "die Einblendung sagt dasselbe wie der Lebensbalken")
+	var targets := {}
+	for s in fight:
+		targets[s["phase"]] = s["target"]
+	assert_eq(targets, {1: "80–100 rpm", 2: "ab 105 rpm", 3: "86–106 rpm"},
+			"die Zielzeile folgt dem Format der laufenden Phase (Zone, Schwelle, Zone)")
 	assert_eq(run["ends"][0]["bar"], "Tramuntana besiegt!", "der Lebensbalken meldet den Sieg")
 	assert_eq(run["ends"][0]["figure"], BossFigure.DEFEATED, "der Sturmgeist sinkt zusammen")
 	var done: int = run["ends"][0]["i"]
@@ -159,7 +164,7 @@ func test_scenario_drac_de_na_coca_defeated() -> void:
 	assert_true(game.arcade.results[0]["succeeded"])
 	assert_eq(game.arcade.points, 600)
 	assert_eq(run["ends"][0]["bar"], "Drac de na Coca besiegt!")
-	assert_has(run["shown"], "Drac de na Coca geschafft!  +600 Punkte")
+	assert_has(run["shown"], "Drac de na Coca besiegt!  +600 Punkte")
 
 
 func test_scenario_dimonis_caught_up() -> void:
@@ -184,7 +189,7 @@ func test_scenario_dimonis_escape_softly() -> void:
 	assert_eq(result["points"], 0, "keine Punkte")
 	assert_eq(result["loot"], {}, "kein Schaden – keine Beute")
 	assert_eq(game.arcade.points, 0)
-	assert_has(run["shown"], "Dimonis verfehlt – weiter geht's", "weich: nur eine Einblendung")
+	assert_has(run["shown"], "Dimonis entkommen – weiter geht's", "weich: nur eine Einblendung")
 	assert_eq(run["ends"][0]["bar"], "Dimonis entkommen")
 	assert_eq(run["ends"][0]["figure"], BossFigure.ESCAPING, "sie ziehen davon")
 	var done: int = run["ends"][0]["i"]
