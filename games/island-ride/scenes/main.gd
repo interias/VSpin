@@ -83,6 +83,9 @@
 ## das Fahrerlevel. Eine Wahl wird sofort gespeichert und vom Fahrer (`rider_model`) getragen; nur Kosmetik (ADR-0010).
 ## Der Ghost-Mitfahrer bleibt im Standard-Look, aufgehellt – so bleibt er vom eigenen Fahrer unterscheidbar.
 ##
+## Geräte (Spec #64, `scenes/devices_menu.gd`): aus dem Startmenü; Brustgurt und Uhr suchen, merken (dann
+## `apply_heart_rate_devices()`), vergessen, Live-Puls sehen, LTHR und Maximalpuls des Profils eintragen (Spielstand).
+##
 ## Training (#37): „Fahren → Training“ startet eine Einheit (Training, aus `res://trainings`) als eigenen Modus
 ## (SaveGame.MODE_TRAINING). Die Insel läuft endlos (Rundenwertung mit 0 Runden); das HUD zeigt Phase, Zielkadenz,
 ## Restzeit und nächste Phase, dazu rechtzeitig die Ansage zum Widerstandsknopf. Die Einheit wertet nur die Kadenz
@@ -140,6 +143,8 @@ const START_MENU := preload("res://scenes/start_menu.tscn")
 const LOGBOOK := preload("res://scenes/logbook.gd")
 ## Garderobe (Trikot, Radfarbe, Helm mit Vorschau; #36).
 const WARDROBE := preload("res://scenes/wardrobe.gd")
+## Geräteseite (Brustgurt, Uhr, LTHR und Maximalpuls; Spec #64).
+const DEVICES_MENU := preload("res://scenes/devices_menu.gd")
 ## Ausrüstung des Arcade-Modus (Inventar der Beute; #49).
 const GEAR_MENU := preload("res://scenes/gear_menu.gd")
 ## Talentbaum des Arcade-Modus (Talente aus dem Arcade-Level; #53).
@@ -203,6 +208,7 @@ var settings_menu: CanvasLayer
 var start_menu: CanvasLayer
 var logbook: CanvasLayer
 var wardrobe: CanvasLayer
+var devices_menu: CanvasLayer
 var gear_menu: CanvasLayer
 var talent_menu: CanvasLayer
 ## Talente und Arcade-Level im Arcade-Lauf (#53); keine Erweiterung in `ArcadeStage.EXTENSIONS`, siehe `_ready`.
@@ -345,6 +351,7 @@ func _ready() -> void:
 	start_menu.quit_requested.connect(_on_quit_requested)
 	start_menu.logbook_requested.connect(open_logbook)
 	start_menu.wardrobe_requested.connect(open_wardrobe)
+	start_menu.devices_requested.connect(open_devices)
 	start_menu.direction_changed.connect(func(_direction): _update_round_trip_menu())
 	start_menu.arcade_changed.connect(_on_arcade_changed)
 	add_child(start_menu)
@@ -357,6 +364,12 @@ func _ready() -> void:
 	wardrobe.closed.connect(_on_wardrobe_closed)
 	wardrobe.part_chosen.connect(_on_part_chosen)
 	add_child(wardrobe)
+	devices_menu = DEVICES_MENU.new()
+	devices_menu.name = "DevicesMenu"
+	devices_menu.closed.connect(_on_devices_closed)
+	devices_menu.devices_changed.connect(apply_heart_rate_devices)
+	devices_menu.profile_changed.connect(_on_pulse_profile_changed)
+	add_child(devices_menu)
 	gear_menu = GEAR_MENU.new()
 	gear_menu.name = "GearMenu"
 	gear_menu.closed.connect(_on_gear_menu_closed)
@@ -859,6 +872,23 @@ func _on_wardrobe_closed() -> void:
 	start_menu.buttons["wardrobe"].grab_focus()
 
 
+## Geräteseite aus dem Startmenü öffnen (das Menü tritt so lange zurück).
+func open_devices() -> void:
+	start_menu.close()
+	devices_menu.open(bus, heart_rate_devices, save_game)
+
+
+func _on_devices_closed() -> void:
+	start_menu.open()
+	start_menu.buttons["devices"].grab_focus()
+
+
+## LTHR/Maximalpuls auf der Geräteseite geändert: Spielstand speichern, Zonen für die nächste Fahrt gelten ab Fahrtbeginn.
+func _on_pulse_profile_changed() -> void:
+	if not save_path.is_empty():
+		save_game.save_file(save_path)
+
+
 ## Teil in der Garderobe gewählt: der Fahrer trägt es, der Spielstand wird gleich gespeichert.
 func _on_part_chosen(_item: String) -> void:
 	_apply_wardrobe()
@@ -918,6 +948,7 @@ func _on_settings_visibility_changed() -> void:
 	if not settings_menu.visible:
 		logbook.focus_default.call_deferred()  # Einstellungen über dem Fahrtenbuch geschlossen
 		wardrobe.focus_default.call_deferred()  # … oder über der Garderobe
+		devices_menu.focus_default.call_deferred()  # … oder über den Geräten
 		gear_menu.focus_default.call_deferred()  # … oder über der Ausrüstung
 		talent_menu.focus_default.call_deferred()  # … oder über den Talenten
 
@@ -956,6 +987,7 @@ func return_to_menu() -> void:
 func _enter_menu() -> void:
 	logbook.close()
 	wardrobe.close()
+	devices_menu.close()
 	gear_menu.close()
 	talent_menu.close()
 	state = STATE_MENU

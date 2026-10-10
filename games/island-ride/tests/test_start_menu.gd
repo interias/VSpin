@@ -117,7 +117,8 @@ func test_menu_items_and_disabled_entries() -> void:
 	assert_eq(texts["logbook"], "Fahrtenbuch")
 	assert_eq(texts["wardrobe"], "Garderobe", "Garderobe wählbar (#36)")
 	assert_eq(texts["training"], "Training", "Training wählbar (#37)")
-	for key in ["drive", "round_trip", "training", "arcade", "logbook", "wardrobe", "settings", "quit", "back"]:
+	assert_eq(texts["devices"], "Geräte", "Geräte wählbar (Spec #64)")
+	for key in ["drive", "round_trip", "training", "arcade", "logbook", "wardrobe", "devices", "settings", "quit", "back"]:
 		assert_false(buttons[key].disabled, "%s wählbar" % key)
 	assert_true(buttons["quit"].is_visible_in_tree(), "Beenden auf dem Desktop")
 	var web_menu := START_MENU_SCENE.instantiate()
@@ -136,7 +137,10 @@ func test_keyboard_drives_menu_into_ride() -> void:
 	await _press(KEY_DOWN)
 	assert_eq(_focused(game), game.start_menu.buttons["wardrobe"], "Garderobe wählbar (#36)")
 	await _press(KEY_DOWN)
+	assert_eq(_focused(game), game.start_menu.buttons["devices"], "Geräte wählbar (Spec #64)")
+	await _press(KEY_DOWN)
 	assert_eq(_focused(game), game.start_menu.buttons["settings"])
+	await _press(KEY_UP)
 	await _press(KEY_UP)
 	await _press(KEY_UP)
 	await _press(KEY_UP)
