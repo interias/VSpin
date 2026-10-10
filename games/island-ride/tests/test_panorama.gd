@@ -4,7 +4,7 @@
 ## Fahrmodell und Rundenzeiten bleiben unberührt (ADR-0010, Gegenprobe mit abgeschalteten Panoramen).
 extends "res://tests/support/bus_test.gd"
 
-const SETTINGS_PATH := "user://test_panorama_settings.cfg"
+var SETTINGS_PATH := TestIsolation.path("test_panorama_settings.cfg")
 ## Zeitschritt der Fahrten (s): grob genug für zwei Runden je Richtung, fein genug für einen Schwenk (40 Schritte).
 const DT := 0.1
 

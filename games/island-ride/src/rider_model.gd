@@ -3,7 +3,9 @@
 ##
 ##   update(cadence, speed_mps, grade, curvature, paused, delta)   einmal pro Frame aus der Hauptszene
 ##   make_ghost()   halbtransparente Kopie als Ghost (#32)
-##   wear(outfit)   Garderobe (#36): Farben je Material, z. B. Wardrobe.outfit(…); nur Kosmetik
+##   wear(outfit)   Garderobe (#36): Farben je Material, z. B. Wardrobe.outfit(…); nur Kosmetik. Auch die Arcade-
+##                  Ausrüstung (#49, Loot.appearance): dazu Felgen, Schuhe und der Talisman am Sattel
+##   reset_look()   zurück zum Grund-Look (vor Garderobe und Ausrüstung), Talisman ab
 ##
 ## Koordinaten (Meter): Ursprung am Boden unter der Radmitte, Fahrtrichtung −Z (wie PathFollow3D), rechts +X.
 ## Knoten: `Lean` (Schräglage um die Aufstandslinie) → `Bike` (Rahmen, starr), `FrontWheel`/`RearWheel` (rollen),
@@ -47,6 +49,9 @@ const JERSEY_COLOR := Color(0.05, 0.55, 0.78)
 const SKIN_COLOR := Color(0.93, 0.72, 0.58)
 ## Materialien, die die Garderobe färbt (#36): Trikot mit Brustband, Rahmen, Helm mit Streifen.
 const OUTFIT_MATERIALS := ["jersey", "jersey_band", "frame", "helmet", "helmet_stripe"]
+## Materialien, die die Arcade-Ausrüstung färbt (#49, Loot.appearance): die der Garderobe, dazu Felgen, Schuhe und der
+## Talisman (nur sichtbar, solange er getragen wird).
+const GEAR_MATERIALS := ["jersey", "jersey_band", "frame", "helmet", "helmet_stripe", "rim", "shoe", "talisman"]
 ## Ghost (#32): Deckkraft und Farbton, zu dem hin aufgehellt wird.
 const GHOST_ALPHA := 0.45
 const GHOST_TINT := Color(0.75, 0.9, 1.0)
@@ -69,12 +74,17 @@ var _forearms: Array[Node3D] = []
 var _hands: Array[Node3D] = []
 
 var _materials := {}
+## Grundfarbe je Material aus GEAR_MATERIALS (für reset_look) und der Talisman am Sattel (#49).
+var _base_colors := {}
+var _talisman: Node3D
 
 
 func _init() -> void:
 	_lean = _node(self, "Lean")
 	_build_bike()
 	_build_rider()
+	for key in GEAR_MATERIALS:
+		_base_colors[key] = (_materials[key] as StandardMaterial3D).albedo_color
 	_apply_pose()
 
 
@@ -100,12 +110,28 @@ func make_ghost(alpha: float = GHOST_ALPHA) -> void:
 		(mesh as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
-## Garderobe (#36): Farben `outfit` (Material-Schlüssel aus OUTFIT_MATERIALS → Farbe) übernehmen; andere Schlüssel
-## bleiben unberührt. Nur das Aussehen – Bewegung und Fahrt ändern sich nicht.
+## Garderobe (#36) und Arcade-Ausrüstung (#49): Farben `outfit` (Material-Schlüssel aus GEAR_MATERIALS → Farbe)
+## übernehmen; andere Schlüssel bleiben unberührt. Mit „talisman“ hängt der Talisman (leuchtend) am Sattel. Nur das
+## Aussehen – Bewegung und Fahrt ändern sich nicht.
 func wear(outfit: Dictionary) -> void:
 	for key in outfit:
-		if key in OUTFIT_MATERIALS and _materials.has(key):
+		if key in GEAR_MATERIALS and _materials.has(key):
 			(_materials[key] as StandardMaterial3D).albedo_color = outfit[key]
+	if outfit.has("talisman"):
+		(_materials["talisman"] as StandardMaterial3D).emission = outfit["talisman"]
+		_talisman.visible = true
+
+
+## Grund-Look wie gebaut (vor Garderobe und Ausrüstung), ohne Talisman.
+func reset_look() -> void:
+	for key in _base_colors:
+		(_materials[key] as StandardMaterial3D).albedo_color = _base_colors[key]
+	_talisman.visible = false
+
+
+## Trägt der Fahrer den Talisman (#49)?
+func talisman_visible() -> bool:
+	return _talisman.visible
 
 
 ## Aktuelle Farbe des Materials `key` (z. B. „jersey“).
@@ -176,6 +202,15 @@ func _build_bike() -> void:
 	_tube(bike, SEAT_CLUSTER, SADDLE + Vector3(0, -0.02, 0.01), 0.012, metal)
 	_box(bike, SADDLE + Vector3(0, 0, 0.03), Vector3(0.13, 0.035, 0.16), black)
 	_box(bike, SADDLE + Vector3(0, -0.002, -0.08), Vector3(0.06, 0.03, 0.14), black)
+	# Talisman (#49, Arcade): Sagen-Amulett an einer Schnur hinten am Sattel, leuchtend in der Farbe seiner Seltenheit.
+	_talisman = _node(bike, "Talisman", SADDLE + Vector3(0, -0.01, 0.1))
+	_talisman.visible = false
+	_tube(_talisman, Vector3.ZERO, Vector3(0, -0.09, 0.01), 0.004, black, 4)
+	var charm := _material("talisman", Color(1.0, 0.55, 0.1), 0.4, 0.3)
+	charm.emission_enabled = true
+	charm.emission_energy_multiplier = 0.8
+	var gem := _box(_talisman, Vector3(0, -0.13, 0.01), Vector3(0.06, 0.06, 0.06), charm)
+	gem.rotation = Vector3(PI / 4.0, 0.0, PI / 4.0)  # auf der Spitze: Raute
 	_tube(bike, HEAD_TOP, BAR, 0.014, metal)
 	_tube(bike, BAR + Vector3(-BAR_HALF_WIDTH, 0, 0), BAR + Vector3(BAR_HALF_WIDTH, 0, 0), 0.013, black)
 	for mirror in [-1.0, 1.0]:
@@ -259,7 +294,7 @@ func _build_rider() -> void:
 		_tube(shin, Vector3(0, SHIN - 0.12, 0), Vector3(0, SHIN - 0.01, 0), 0.054, white, 10)
 		_shins.append(shin)
 		var shoe := _node(rider, "Shoe%d" % side)
-		_box(shoe, Vector3.ZERO, Vector3(0.09, 0.07, 0.27), white)
+		_box(shoe, Vector3.ZERO, Vector3(0.09, 0.07, 0.27), _material("shoe", white.albedo_color, 0.6))
 		_box(shoe, Vector3(0, -0.04, 0.0), Vector3(0.092, 0.015, 0.27), black)
 		_shoes.append(shoe)
 		var upper_arm := _node(rider, "UpperArm%d" % side)

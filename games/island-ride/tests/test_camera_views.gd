@@ -5,7 +5,7 @@
 ## Das Fahrmodell sieht davon nichts (ADR-0010: Fahrmodell daneben ohne Kamera, Vergleichsrunde ohne Wechsel).
 extends "res://tests/support/bus_test.gd"
 
-const SAVE_PATH := "user://test_camera_views_savegame.json"
+var SAVE_PATH := TestIsolation.path("test_camera_views_savegame.json")
 ## Zeitschritt der Fahrten (s).
 const DT := 0.1
 

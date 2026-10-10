@@ -1,0 +1,24 @@
+# Arcade-Szenario „Elite: Seltene“ (#52): Stufe 1, Kadenzbereich 60–120 rpm. Eine Elite-Gruppe Seltene (gelb) aus dem
+# Durchbruch „Zugbrücke“ mit den Eigenschaften Gegenwind und Zäh (Schwelle 112 statt 108 rpm, Balken in 7,8 s statt
+# 6 s), danach ihr Gefolge (Durchbruch ab 102 rpm, 3 s in 9 s). 12 s 90 rpm bis zum Startpunkt, 10 s 116 rpm (der
+# Anführer fällt), 12 s 95 rpm unter der Schwelle des Gefolges, 8 s 90 rpm. Erwartet im Spiel: Standarte und Schild in
+# Gelb mit „Gegenwind · Zäh“, erst der Anführer, dann „Gefolge 1/1“; das Gefolge entkommt – weich verfehlt, keine
+# Punkte, die Fahrt geht weiter. Endet danach (Quelle beendet → disconnected).
+# Im Spiel nachgespielt von games/island-ride/tests/test_elite_groups_ride.gd (der Test erzwingt die Gruppe).
+name = "Arcade: Elite Seltene"
+
+[[steps]]
+duration_s = 12
+cadence = 90
+
+[[steps]]
+duration_s = 10
+cadence = 116
+
+[[steps]]
+duration_s = 12
+cadence = 95
+
+[[steps]]
+duration_s = 8
+cadence = 90

@@ -1,0 +1,58 @@
+# Arcade-Szenario „Gleichmaß“ (#50): Stillstand (Kadenz 0 ausdrücklich gemeldet, kein Gleichmaß), Anfahren, dann 12 s
+# ruhig um 80 rpm (Spanne 5 rpm, innerhalb ±3 rpm) – das Gleichmaß kommt 10 s nach dem Anfahren; danach 8 s breite Wellen
+# (70–100 rpm, kein Gleichmaß) und wieder 12 s ruhig bei 85 rpm (zweites Gleichmaß). Endet danach. Gespielt von
+# games/island-ride/tests/test_abilities_ride.gd.
+name = "Arcade: Gleichmaß"
+
+[[steps]]
+duration_s = 6
+cadence = 0
+
+[[steps]]
+duration_s = 2
+cadence = 0
+cadence_to = 80
+
+[[steps]]
+duration_s = 2
+cadence = 80
+cadence_to = 83
+
+[[steps]]
+duration_s = 2
+cadence = 83
+cadence_to = 78
+
+[[steps]]
+duration_s = 2
+cadence = 78
+cadence_to = 82
+
+[[steps]]
+duration_s = 2
+cadence = 82
+cadence_to = 80
+
+[[steps]]
+duration_s = 2
+cadence = 80
+cadence_to = 81
+
+[[steps]]
+duration_s = 2
+cadence = 81
+cadence_to = 80
+
+[[steps]]
+duration_s = 4
+cadence = 80
+cadence_to = 100
+
+[[steps]]
+duration_s = 4
+cadence = 100
+cadence_to = 70
+
+[[steps]]
+duration_s = 12
+cadence = 85

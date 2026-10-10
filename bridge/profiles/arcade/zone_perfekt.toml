@@ -1,0 +1,9 @@
+# Arcade-Szenario „perfekt in der Zone“ (#46): gleichmäßig 90 rpm – mitten in der Zielzone von „Zone halten“
+# (Stufe 1, Kadenzbereich 60–120 rpm: Zone 80–100 rpm). Erwartet im Spiel: die Herausforderung wird geschafft
+# (15 s in der Zone), Punkte gibt es, die Fahrt geht weiter. Endet danach (Quelle beendet → disconnected).
+# Im Spiel nachgespielt von games/island-ride/tests/test_arcade_ride.gd.
+name = "Arcade: perfekt in der Zone"
+
+[[steps]]
+duration_s = 45
+cadence = 90

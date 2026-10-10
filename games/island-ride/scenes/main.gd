@@ -97,6 +97,16 @@
 ## (GatePlacement.LOCK_AHEAD_M, LOCK_S); das durchfahrene bleibt stehen, bis es hinter der Kamera liegt. Beides ist
 ## nur Anzeige – Fahrmodell und Bewertung sehen es nicht (ADR-0010).
 ##
+## Arcade (#46, #47, #49, #63): „Fahren → Arcade“ startet einen Arcade-Lauf als eigenen Modus (SaveGame.MODE_ARCADE):
+## endlos, im Uhrzeigersinn, ohne Ghost, auf der gewählten Stufe im persönlichen Kadenzbereich. Alles Szenische des Arcade
+## (HUD, Tore, Requisiten, Beute, Zusammenfassung, Ausrüstung am Fahrer) liegt in `ArcadeStage` (`src/arcade_stage.gd`,
+## Kind `ArcadeStage`); die Hauptszene reicht nur durch: Start, Fahrschritt, Anzeige, Speichern, Ergebnis. Arcade-km zählen
+## für Fahrtenbuch, Fahrerlevel und Erfolge, aber Runden im Arcade schreiben nie Bestzeit, Segmentzeit, Medaille oder Ghost
+## (`records_count`, ADR-0010). Die Ausrüstung wird im Menü verwaltet („Fahren → Arcade → Ausrüstung“, `gear_menu`), die
+## Talente (#53) ebenfalls („Fahren → Arcade → Talente“, `talent_menu`); ihre Wirkung im Lauf liegt in der Erweiterung
+## `TalentArcade` (`src/talent_arcade.gd`, hier nach dem Aufbau der Bühne angehängt, damit ihr `run_hook` nach dem der
+## Fähigkeiten läuft).
+##
 ## Bridge aus dem Spiel (#25, BridgeLauncher, nur Windows-Desktop): Ist beim Start keine Bridge auf der Bus-Adresse
 ## erreichbar, startet das Spiel sie unsichtbar mit der Quelle aus `config.cfg [bridge]`; eine laufende wird nur
 ## mitbenutzt. Beim Schließen (Fenster, „Beenden“) beendet das Spiel nur die eigene, sauber über die Stoppdatei.
@@ -130,6 +140,10 @@ const START_MENU := preload("res://scenes/start_menu.tscn")
 const LOGBOOK := preload("res://scenes/logbook.gd")
 ## Garderobe (Trikot, Radfarbe, Helm mit Vorschau; #36).
 const WARDROBE := preload("res://scenes/wardrobe.gd")
+## Ausrüstung des Arcade-Modus (Inventar der Beute; #49).
+const GEAR_MENU := preload("res://scenes/gear_menu.gd")
+## Talentbaum des Arcade-Modus (Talente aus dem Arcade-Level; #53).
+const TALENT_MENU := preload("res://scenes/talent_menu.gd")
 ## Kamera: Abstand hinter dem Fahrer, Höhe und Blickpunkt voraus je Perspektive (CameraViews, „Weit“ und Blickpunkt
 ## aus `config.cfg [camera]`); Glättung (Zeitkonstante).
 const CAMERA_SMOOTHING_S := 0.45
@@ -167,6 +181,8 @@ const CAMERA_PANORAMA_LOOK_HEIGHT_M := 2.0
 const GHOST_OFFSET_M := -1.3
 ## Intervall-Tore (#58): so weit hinter dem Fahrer (m) bleibt ein durchfahrenes Tor noch stehen (hinter der Kamera).
 const GATE_KEEP_BEHIND_M := 20.0
+## Beute (#49): so weit vor dem Fahrer (m) steht die Lichtsäule eines Fundes (Tests lesen sie hier).
+const LOOT_AHEAD_M := ArcadeStage.LOOT_AHEAD_M
 
 const BRIDGE_START_HINT := "Bridge starten: vspin-bridge --source sim"
 const RESISTANCE_NOT_SUPPORTED := "Widerstand: nicht unterstützt"
@@ -185,6 +201,10 @@ var settings_menu: CanvasLayer
 var start_menu: CanvasLayer
 var logbook: CanvasLayer
 var wardrobe: CanvasLayer
+var gear_menu: CanvasLayer
+var talent_menu: CanvasLayer
+## Talente und Arcade-Level im Arcade-Lauf (#53); keine Erweiterung in `ArcadeStage.EXTENSIONS`, siehe `_ready`.
+var talent_arcade: TalentArcade
 ## Spielstand; "" = nicht laden/speichern, Fahrten nur im Speicher (Tests, Probe).
 var save_path := SaveGame.DEFAULT_PATH
 var save_game: SaveGame
@@ -203,6 +223,31 @@ var ride_achievements: Array = []
 var ride_level := 1
 ## Trainingseinheit der laufenden Fahrt (null = kein Training).
 var training: Training = null
+## Bühne des Arcade-Laufs (#63, Kind `ArcadeStage`): hält den Lauf, die Tore, Requisiten und die Lichtsäule.
+var arcade_stage: ArcadeStage
+## Weiterleitungen an die Bühne für Tests und Prüfhilfen (unverändert benannt, #63): Lauf der Fahrt (null = kein Arcade),
+## Würfel und Pool des Laufs (Tests setzen sie), Tore, Zugbrücke, Verfolger, Lichtsäule.
+var arcade: ArcadeRun:
+	get: return arcade_stage.run
+	set(value): arcade_stage.run = value
+var arcade_seed: int:
+	get: return arcade_stage.seed_value
+	set(value): arcade_stage.seed_value = value
+var arcade_pool: Array:
+	get: return arcade_stage.pool
+	set(value): arcade_stage.pool = value
+var arcade_start_gate: CourseGate:
+	get: return arcade_stage.start_gate
+var arcade_finish_gate: CourseGate:
+	get: return arcade_stage.finish_gate
+var arcade_gate_placement: GatePlacement:
+	get: return arcade_stage.gate_placement
+var arcade_bridge: Drawbridge:
+	get: return arcade_stage.bridge
+var arcade_pursuer: Pursuer:
+	get: return arcade_stage.pursuer
+var loot_beam: LootBeam:
+	get: return arcade_stage.loot_beam
 ## Mitfahrer des Ghosts auf der Strecke und sein halbtransparentes Fahrermodell.
 var ghost_rider: PathFollow3D
 var ghost_model: RiderModel
@@ -295,6 +340,7 @@ func _ready() -> void:
 	start_menu.logbook_requested.connect(open_logbook)
 	start_menu.wardrobe_requested.connect(open_wardrobe)
 	start_menu.direction_changed.connect(func(_direction): _update_round_trip_menu())
+	start_menu.arcade_changed.connect(_on_arcade_changed)
 	add_child(start_menu)
 	logbook = LOGBOOK.new()
 	logbook.name = "Logbook"
@@ -305,11 +351,28 @@ func _ready() -> void:
 	wardrobe.closed.connect(_on_wardrobe_closed)
 	wardrobe.part_chosen.connect(_on_part_chosen)
 	add_child(wardrobe)
+	gear_menu = GEAR_MENU.new()
+	gear_menu.name = "GearMenu"
+	gear_menu.closed.connect(_on_gear_menu_closed)
+	gear_menu.gear_changed.connect(_on_gear_changed)
+	add_child(gear_menu)
+	start_menu.gear_requested.connect(open_gear_menu)
+	talent_menu = TALENT_MENU.new()
+	talent_menu.name = "TalentMenu"
+	talent_menu.closed.connect(_on_talent_menu_closed)
+	talent_menu.talents_changed.connect(_on_talents_changed)
+	add_child(talent_menu)
+	start_menu.talents_requested.connect(open_talent_menu)
 	settings_menu.visibility_changed.connect(_on_settings_visibility_changed)
 	_setup_track()
 	_setup_ghost_rider()
 	gate_next = _new_gate("IntervalGate")
 	gate_passed = _new_gate("IntervalGatePassed")
+	arcade_stage = ArcadeStage.new()
+	add_child(arcade_stage)
+	arcade_stage.setup(track, hud, format_time, GATE_KEEP_BEHIND_M)
+	talent_arcade = TalentArcade.new()  # nach den Fähigkeiten (#50, in EXTENSIONS): ihr `run_hook` verändert deren Daten
+	talent_arcade.attach(arcade_stage)
 	_apply_wardrobe()
 	sky = SkyController.new()
 	add_child(sky)
@@ -326,6 +389,7 @@ func _ready() -> void:
 	sound.apply_settings(settings_menu.settings.sound_enabled, settings_menu.settings.sound_volume)
 	hud.celebration_shown.connect(func(_text): sound.play_ui(RideSound.UI_CELEBRATION))
 	bus = BusClient.from_config(config)
+	arcade_stage.bus = bus
 	bus.telemetry_received.connect(_on_telemetry)
 	bus.status_changed.connect(_on_status_changed)
 	bus.bus_connection_changed.connect(_on_bus_connection_changed)
@@ -607,17 +671,22 @@ func _aim_camera(target: Vector3, look: Vector3, follow: float) -> void:
 ## (Ghost.BEST/LAST, "" = aus; ohne Aufzeichnung aus) – Fahrmodell, Statistik, Rundenwertung und Pausen
 ## zurückgesetzt; gefahren wird, sobald das Rad Daten liefert (wie bisher beim Start). Mit `training_unit` (wie
 ## Training.load_file) ein Training: endlos, ohne Ghost, im Uhrzeigersinn. `direction` = Fahrtrichtung
-## (Track.DIRECTION_*, #34). Die Kamera beginnt mit dem Intro (#42); die Fahrt wartet nicht darauf.
+## (Track.DIRECTION_*, #34). Modus SaveGame.MODE_ARCADE startet einen Arcade-Lauf auf Stufe `tier` im Kadenzbereich
+## des Spielstands (#46): endlos, ohne Ghost, im Uhrzeigersinn. Die Kamera beginnt mit dem Intro (#42); die Fahrt
+## wartet nicht darauf.
 func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, ghost_kind: String = "",
-		training_unit: Dictionary = {}, direction: String = Track.DIRECTION_CW) -> void:
+		training_unit: Dictionary = {}, direction: String = Track.DIRECTION_CW,
+		tier: int = ArcadeTiers.DEFAULT) -> void:
 	ride_mode = mode
 	training = Training.new(training_unit) if not training_unit.is_empty() else null
-	if training != null:
+	if training != null or mode == SaveGame.MODE_ARCADE:
 		lap_count = 0
 		ghost_kind = ""
 		direction = Track.DIRECTION_CW
 	laps = lap_count
 	_set_direction(direction)
+	arcade_stage.begin(mode == SaveGame.MODE_ARCADE and training == null, tier, save_game, start_distance_m)
+	_apply_wardrobe()
 	ghost = save_game.ghost(config.track, track.direction, ghost_kind) if not ghost_kind.is_empty() else null
 	model = RideModel.new(config, start_distance_m)
 	stats = RideStats.new()
@@ -649,6 +718,10 @@ func _on_ride_requested(mode: String) -> void:
 	if mode == SaveGame.MODE_TRAINING:
 		start_ride(mode, 0, "", start_menu.training_unit())
 		return
+	if mode == SaveGame.MODE_ARCADE:
+		_on_arcade_changed()
+		start_ride(mode, 0, "", {}, Track.DIRECTION_CW, start_menu.arcade_tier())
+		return
 	start_ride(mode, start_menu.round_trip_laps(), start_menu.ghost_choice(), {}, start_menu.ride_direction())
 
 
@@ -666,10 +739,10 @@ func _set_direction(direction: String) -> void:
 
 
 ## Neue Rundenwertung ab `start_distance_m` mit `laps` Runden, den Segmenten der Strecke und den gespeicherten
-## Bestzeiten; dazu die Medaillen-Schwellen (beim ersten Mal berechnet, danach zwischengespeichert). Im Training ohne
-## Segmente und Bestzeiten: dort zählen Runden nicht.
+## Bestzeiten; dazu die Medaillen-Schwellen (beim ersten Mal berechnet, danach zwischengespeichert). Im Training und im
+## Arcade ohne Segmente und Bestzeiten: dort zählen Runden nicht (`records_count`).
 func _new_lap_timing() -> void:
-	if training != null:
+	if not records_count():
 		lap_timing = LapTiming.new(track.length_m(), start_distance_m, laps)
 	else:
 		lap_timing = LapTiming.new(track.length_m(), start_distance_m, laps,
@@ -721,6 +794,35 @@ func _km_events() -> Array:
 	]
 
 
+## Zählen die Runden dieser Fahrt für Bestzeit, Medaillen, Segmentzeiten und Ghost? Nur in der Rundfahrt – im Training
+## wechselt die Vorgabe, im Arcade wirken Arcade-Werte (ADR-0010).
+func records_count() -> bool:
+	return training == null and not arcade_stage.is_active()
+
+
+## Seite „Arcade“ im Startmenü geändert (oder Losfahren): Stufe und Kadenzbereich in den Spielstand, die beste Punktzahl
+## der Stufe ins Menü.
+func _on_arcade_changed() -> void:
+	ArcadeTiers.choose(save_game, start_menu.arcade_tier())
+	CadenceRange.choose(save_game, start_menu.cadence_range())
+	if not save_path.is_empty():
+		save_game.save_file(save_path)
+	start_menu.show_arcade_best(save_game.best_arcade_points(start_menu.arcade_tier()))
+
+
+## Seite „Arcade“: freigeschaltete Stufen (#54), Stufe und Kadenzbereich wie im Spielstand, dazu die beste Punktzahl der
+## Stufe, Arcade-Level und eigene Stärke aus Ausrüstung und Talenten (#54).
+func _update_arcade_menu() -> void:
+	var tier := ArcadeTiers.selection(save_game)
+	var unlocked := ArcadeTiers.unlocked(save_game)
+	start_menu.set_arcade_unlocked(unlocked, ArcadeTiers.defeated(save_game, unlocked).size(),
+			ArcadeTiers.bosses().size())
+	start_menu.set_arcade_choices(tier, CadenceRange.selection(save_game))
+	start_menu.show_arcade_strength(ArcadeTiers.strength(save_game))
+	start_menu.show_arcade_best(save_game.best_arcade_points(tier))
+	start_menu.show_arcade_level(ArcadeLevel.level(save_game), Talents.available(save_game))
+
+
 ## Fahrtenbuch aus dem Startmenü öffnen (das Menü tritt so lange zurück).
 func open_logbook() -> void:
 	start_menu.close()
@@ -750,9 +852,50 @@ func _on_part_chosen(_item: String) -> void:
 		save_game.save_file(save_path)
 
 
-## Der Fahrer trägt die gewählten Teile der Garderobe (der Ghost-Mitfahrer nicht).
+## Der Fahrer trägt die gewählten Teile der Garderobe (der Ghost-Mitfahrer nicht); im Arcade-Lauf überdeckt die
+## angelegte Ausrüstung sie an ihren Plätzen (#49) – nur dort, Rundfahrt und Training zeigen nur die Garderobe.
 func _apply_wardrobe() -> void:
+	rider_model.reset_look()
 	rider_model.wear(Wardrobe.outfit(Wardrobe.selection(save_game)))
+	arcade_stage.dress(rider_model, save_game)
+
+
+## Ausrüstung (#49) aus der Seite „Arcade“ öffnen (das Menü tritt so lange zurück).
+func open_gear_menu() -> void:
+	start_menu.close()
+	gear_menu.open(save_game)
+
+
+## Talentbaum (#53) aus der Seite „Arcade“ öffnen (das Menü tritt so lange zurück).
+func open_talent_menu() -> void:
+	start_menu.close()
+	talent_menu.open(save_game)
+
+
+func _on_talent_menu_closed() -> void:
+	start_menu.open()
+	start_menu.show_arcade()
+	_update_arcade_menu()
+	start_menu.buttons["arcade_talents"].grab_focus()
+
+
+## Talent erlernt oder zurückgesetzt: gleich speichern.
+func _on_talents_changed() -> void:
+	if not save_path.is_empty():
+		save_game.save_file(save_path)
+
+
+func _on_gear_menu_closed() -> void:
+	start_menu.open()
+	start_menu.show_arcade()
+	_update_arcade_menu()  # neue Ausrüstung: neue Stärke (#54)
+	start_menu.buttons["arcade_gear"].grab_focus()
+
+
+## Teil angelegt oder verwertet: gleich speichern.
+func _on_gear_changed() -> void:
+	if not save_path.is_empty():
+		save_game.save_file(save_path)
 
 
 func _on_settings_visibility_changed() -> void:
@@ -761,6 +904,8 @@ func _on_settings_visibility_changed() -> void:
 	if not settings_menu.visible:
 		logbook.focus_default.call_deferred()  # Einstellungen über dem Fahrtenbuch geschlossen
 		wardrobe.focus_default.call_deferred()  # … oder über der Garderobe
+		gear_menu.focus_default.call_deferred()  # … oder über der Ausrüstung
+		talent_menu.focus_default.call_deferred()  # … oder über den Talenten
 
 
 ## Seite „Rundfahrt“ im Startmenü: Tageszeiten wie im Einstellungsmenü, die gespeicherten Ghosts und die Bestzeit der
@@ -781,7 +926,11 @@ func _update_round_trip_menu() -> void:
 func return_to_menu() -> void:
 	if state == STATE_MENU:
 		return
-	var has_result := training.elapsed_s > 0.0 if training != null else not lap_timing.lap_times.is_empty()
+	var has_result := not lap_timing.lap_times.is_empty()
+	if training != null:
+		has_result = training.elapsed_s > 0.0
+	elif arcade_stage.is_active():
+		has_result = arcade_stage.has_result()
 	if state != STATE_FINISHED and has_result:
 		_finish_ride()
 		return
@@ -793,6 +942,8 @@ func return_to_menu() -> void:
 func _enter_menu() -> void:
 	logbook.close()
 	wardrobe.close()
+	gear_menu.close()
+	talent_menu.close()
 	state = STATE_MENU
 	_manual_pause = false
 	hud.visible = false
@@ -802,8 +953,10 @@ func _enter_menu() -> void:
 	_end_panorama()
 	_set_camera_mode(CAMERA_FOLLOW)
 	hud.show_landmark("")
+	arcade_stage.enter_menu()
 	speed_effects.reset()
 	_update_round_trip_menu()
+	_update_arcade_menu()
 	start_menu.open()
 	state_changed.emit(state)
 	_fly_title(0.0, true)
@@ -814,6 +967,7 @@ func _enter_menu() -> void:
 func _finish_ride() -> void:
 	state = STATE_FINISHED
 	hud.end_celebration()  # „neu!“ steht im Ergebnis; die Einblendung stünde dahinter
+	hud.clear_popups()  # ebenso die Popups (#49)
 	if training != null and training.finished() and not _ride_saved:
 		_achievement_event({"type": Achievements.EVENT_TRAINING,
 				"total_trainings": save_game.finished_trainings() + 1, "score": training.total_score()}, false)
@@ -848,8 +1002,9 @@ func _save_ride() -> void:
 		var score := training.total_score()
 		entry["training"] = training.unit["name"]
 		entry["training_score"] = snappedf(score, 0.001) if not is_nan(score) else 0.0
+	arcade_stage.save(entry, save_game)
 	save_game.add_ride(entry)
-	if training == null:
+	if records_count():
 		_record_round_trip()
 	# Gesamtstand mit dieser Fahrt: holt auch nach, was ein älterer Spielstand schon erfüllt (ohne Einblendung – im
 	# Ergebnis stehen die neuen Erfolge und das Level).
@@ -996,6 +1151,8 @@ func status_message() -> String:
 		STATE_FINISHED:
 			if training != null:
 				return training_result()
+			if arcade_stage.is_active():
+				return arcade_result()
 			var rewards := rewards_result()  # in der Kopfzeile: als eigene Zeile passten 20 Runden nicht mehr in 1152×648
 			return "%s%s\nZeit: %s\n%s\nØ Kadenz: %d rpm\nØ Tempo: %.1f km/h\nEnter: zurück ins Menü · Esc: Einstellungen" % [
 					"Ziel erreicht!" if lap_timing.finished() else "Fahrt beendet",
@@ -1057,6 +1214,12 @@ func training_result() -> String:
 			" · " + rewards if not rewards.is_empty() else "", training.unit["name"], format_time(lap_time_s(), true),
 			Training.percent_text(training.total_score()), training.phase_summary(), roundi(stats.avg_cadence()),
 			stats.avg_speed_kmh(), "Enter: zurück ins Menü · Esc: Einstellungen"]
+
+
+## Zusammenfassung eines Arcade-Laufs (#46): Text der Bühne mit den Werten der Fahrt.
+func arcade_result() -> String:
+	return arcade_stage.result_text(rewards_result(), format_time(lap_time_s(), true), lap_timing.lap_times.size(),
+			stats.distance_m / 1000.0, roundi(stats.avg_cadence()), stats.avg_speed_kmh())
 
 
 ## Neue Erfolge und Levelaufstieg dieser Fahrt fürs Ergebnis in einer Zeile, z. B. „Neuer Erfolg: Erste Runde ·
@@ -1130,9 +1293,10 @@ func _ride(delta: float) -> void:
 	stats.add(used, bus.cadence, model.distance_m - before)
 	if training != null:
 		training.advance(bus.cadence, used)
+	arcade_stage.advance(model.distance_m, used)
 	var segments_before := lap_timing.segments.results.size()
 	var laps_done := lap_timing.advance(model.distance_m, used)
-	if laps_done > 0 and training == null and lap_timing.last_lap_is_new_best():
+	if laps_done > 0 and records_count() and lap_timing.last_lap_is_new_best():
 		hud.celebrate("Neue Bestzeit!  %s" % format_time(lap_timing.lap_times[-1], true))
 	for i in range(segments_before, lap_timing.segments.results.size()):
 		hud.celebrate(segment_result_text(lap_timing.segments.results[i]))
@@ -1304,6 +1468,7 @@ func _update_view() -> void:
 		hud.show_ghost("", false)
 	_show_training()
 	_update_gates()
+	arcade_stage.update_view(model.distance_m, model.speed_mps, state == STATE_MENU, state == STATE_FINISHED)
 	var segment := lap_timing.segments.current()
 	hud.show_segment(segment.get("name", ""), format_time(segment["time_s"], true) if not segment.is_empty() else "")
 	if debug_label.visible:

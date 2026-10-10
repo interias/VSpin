@@ -64,7 +64,7 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **Stufe** | Arcade: gewählter Schwierigkeitsgrad (wie Diablos Qualstufen); bestimmt Zielzonen, Dauer und Beute-Qualität. Höhere Stufen werden freigeschaltet. |
 | **Elite-Gruppe** | Arcade: zufällig auftauchende Gegnergruppe mit 1–3 **Eigenschaften** (Affixen wie „Windschnell“, „Zäh“); blau = Champions, gelb = Seltene mit Gefolge. Bessere Beute. |
 | **Kadenzmuster** | Aus dem Kadenzverlauf erkannte Geste: **Antritt** (schnell hochziehen), **Gleichmaß** (Kadenz ruhig halten), **Innehalten** (kurz nicht treten), **Rhythmus** (Takt treffen). _Vermeiden:_ „Antritt“ für die Herausforderung – die heißt **Durchbruch**. |
-| **Fähigkeit** | Arcade: Wirkung, die ein Kadenzmuster auslöst (Sprung, Fokus, Schild, Kombo); Talente und legendäre Beute verändern sie. |
+| **Fähigkeit** | Arcade: Wirkung, die ein Kadenzmuster auslöst (Windböe, Fokus, Schild, Kombo); Talente und legendäre Beute verändern sie. |
 | **Empfohlene Stärke** | Arcade: Wert aus Ausrüstung und Talenten, den eine Stufe voraussetzt; höhere Stufen brauchen Fitness und Build. |
 
 ## Scope v1

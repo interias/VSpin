@@ -3,7 +3,7 @@
 extends "res://tests/support/bus_test.gd"
 
 const MENU_SCENE := preload("res://scenes/settings_menu.tscn")
-const TEMP_PATH := "user://test_settings_menu.cfg"
+var TEMP_PATH := TestIsolation.path("test_settings_menu.cfg")
 
 
 func after_each() -> void:

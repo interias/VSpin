@@ -61,6 +61,7 @@ class Bridge:
         sessions_dir: Path = DEFAULT_SESSIONS_DIR,
         wait_for_client: bool = False,
         host: str = HOST,
+        port: int = PORT,
     ) -> None:
         self._source = source
         self._sessions_dir = sessions_dir
@@ -79,6 +80,7 @@ class Bridge:
             on_clients_changed=self._on_clients_changed,
             on_message=self._on_client_message,
             host=host,
+            port=port,
         )
         self._stop: asyncio.Event | None = None
         self._stale_timer: asyncio.TimerHandle | None = None
@@ -92,7 +94,7 @@ class Bridge:
         await self._bus.start()
         keyboard: Keyboard | None = None
         try:
-            self._console.info(f"vspin-bridge: Bus auf ws://{self._bus.host}:{PORT}")
+            self._console.info(f"vspin-bridge: Bus auf ws://{self._bus.host}:{self._bus.port}")
             # Session = ein Bridge-Lauf (ADR-0008); erst nach erfolgreichem Bus-Start.
             try:
                 self._session = open_session(self._sessions_dir)

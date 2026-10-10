@@ -1,0 +1,105 @@
+# Arcade-Szenario „Takt getroffen“ (#48): locker bei 70 rpm bis zum Startpunkt der Takt-Tore (ruhiger Takt, Stufe 1,
+# Kadenzbereich 60–120 rpm: Zone 74–94 rpm, Schläge 6/11/16/21/26 s nach dem Start, Fenster ±1 s). Der Start liegt bei 70 rpm
+# etwa 9 s nach Fahrtbeginn; ab 12 s zieht die Kadenz im Takt von 5 s auf 86 rpm hoch (je 1,5 s oben) und fällt wieder auf
+# 70 rpm zurück – jeder Schlag liegt im Fenster in der Zone. Erwartet im Spiel: alle fünf Tore getroffen, die Herausforderung
+# ist geschafft (Punkte, Beute), die Fahrt geht weiter. Endet danach.
+# Im Spiel nachgespielt von games/island-ride/tests/test_arcade_rhythm_collect_ride.gd.
+name = "Arcade: Takt getroffen"
+
+[[steps]]
+duration_s = 12
+cadence = 70
+
+[[steps]]
+duration_s = 1.5
+cadence = 70
+
+[[steps]]
+duration_s = 1
+cadence = 70
+cadence_to = 86
+
+[[steps]]
+duration_s = 1.5
+cadence = 86
+
+[[steps]]
+duration_s = 1
+cadence = 86
+cadence_to = 70
+
+[[steps]]
+duration_s = 1.5
+cadence = 70
+
+[[steps]]
+duration_s = 1
+cadence = 70
+cadence_to = 86
+
+[[steps]]
+duration_s = 1.5
+cadence = 86
+
+[[steps]]
+duration_s = 1
+cadence = 86
+cadence_to = 70
+
+[[steps]]
+duration_s = 1.5
+cadence = 70
+
+[[steps]]
+duration_s = 1
+cadence = 70
+cadence_to = 86
+
+[[steps]]
+duration_s = 1.5
+cadence = 86
+
+[[steps]]
+duration_s = 1
+cadence = 86
+cadence_to = 70
+
+[[steps]]
+duration_s = 1.5
+cadence = 70
+
+[[steps]]
+duration_s = 1
+cadence = 70
+cadence_to = 86
+
+[[steps]]
+duration_s = 1.5
+cadence = 86
+
+[[steps]]
+duration_s = 1
+cadence = 86
+cadence_to = 70
+
+[[steps]]
+duration_s = 1.5
+cadence = 70
+
+[[steps]]
+duration_s = 1
+cadence = 70
+cadence_to = 86
+
+[[steps]]
+duration_s = 1.5
+cadence = 86
+
+[[steps]]
+duration_s = 1
+cadence = 86
+cadence_to = 70
+
+[[steps]]
+duration_s = 8
+cadence = 70

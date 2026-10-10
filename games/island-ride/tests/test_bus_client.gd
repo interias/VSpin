@@ -56,6 +56,31 @@ func test_telemetry_without_cadence_keeps_last_value() -> void:
 	assert_eq(client.cadence, 85.0)
 
 
+func test_reads_unsmoothed_cadence_next_to_smoothed() -> void:
+	# Bridge ab #45: `cadence_raw` (ungeglättet) neben `cadence`; `null` behält den letzten Wert.
+	var gap := FakeBusServer.telemetry(40.0, 0.3, {"cadence_raw": null})
+	var bus := start_fake_bus([
+		FakeBusServer.status(),
+		FakeBusServer.telemetry(80.0, 0.1, {"cadence_raw": 80.0}),
+		FakeBusServer.telemetry(52.3, 0.2, {"cadence_raw": 0.0}),
+		gap,
+	])
+	var client := connect_client(bus)
+	assert_true(await run_until(func(): return client.last_telemetry_t_ms == 200, 3.0))
+	assert_eq(client.cadence_raw, 0.0, "ungeglättet: Treten hört sofort auf")
+	assert_eq(client.cadence, 52.3, "geglättet bleibt getrennt")
+	assert_true(await run_until(func(): return client.last_telemetry_t_ms == 300, 3.0))
+	assert_eq(client.cadence_raw, 0.0, "null behält den letzten Wert")
+	assert_eq(client.cadence, 40.0)
+
+
+func test_older_bridge_without_unsmoothed_cadence_falls_back_to_cadence() -> void:
+	var bus := start_fake_bus([FakeBusServer.status(), FakeBusServer.telemetry(77.0, 0.1)])
+	var client := connect_client(bus)
+	assert_true(await run_until(func(): return client.cadence == 77.0, 3.0))
+	assert_eq(client.cadence_raw, 77.0)
+
+
 func test_ignores_unknown_messages() -> void:
 	var bus := start_fake_bus([
 		FakeBusServer.status(),
@@ -100,7 +125,7 @@ func test_reconnects_after_bus_closes() -> void:
 
 func test_connects_when_bus_comes_up_later() -> void:
 	var bus := FakeBusServer.new([FakeBusServer.status(), FakeBusServer.telemetry(55.0, 0.1)])
-	var port := FakeBusServer.DEFAULT_PORT + 50
+	var port := TestIsolation.first_test_port() + 50
 	bus.port = port
 	var client := connect_client(bus, 0.2)
 	await run_for(0.5)
@@ -131,7 +156,7 @@ func test_script_from_json_file() -> void:
 func test_reconnects_when_connecting_hangs() -> void:
 	# Ein TCP-Server, der nie den WebSocket-Handshake beantwortet: der Client hängt in CONNECTING.
 	var server := TCPServer.new()
-	var port := FakeBusServer.DEFAULT_PORT + 52
+	var port := TestIsolation.first_test_port() + 52
 	assert_eq(server.listen(port, FakeBusServer.HOST), OK)
 	var held: Array = []
 	var client := connect_client_to("ws://%s:%d" % [FakeBusServer.HOST, port], 0.1, 0.4)

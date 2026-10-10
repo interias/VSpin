@@ -52,6 +52,20 @@ godot --headless --path games/island-ride --import       # Spiel, einmalig
 godot --headless --path games/island-ride -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit
 ```
 
+Die Tests schreiben nie in den Spielstand oder die Einstellungen unter `%APPDATA%\Godot\app_userdata\Inselfahrt`:
+Ihre Dateien liegen in `games/island-ride/.godot/test_user/`, und der Testlauf scheitert, wenn sich im echten Ordner
+etwas ändert. **Mehrere Testläufe gleichzeitig** (z. B. je Worktree): jedem Lauf eine eigene Zahl
+`VSPIN_PORT_BASE` geben (0–466; Bus-Port der Bridge-Tests 8765 + n, Testports des Spiels ab 18765 + 100·n,
+eigenes Testverzeichnis), pytest dazu mit eigenem `--basetemp`:
+
+```powershell
+$env:VSPIN_PORT_BASE = "2"
+cd bridge; .venv\Scripts\python -m pytest -q -p no:cacheprovider --basetemp=$env:TEMP\pytest-2; cd ..
+godot --headless --path games/island-ride -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit
+```
+
+Ohne Variable ändert sich nichts; das Spiel selbst liest sie nicht.
+
 Details: [`bridge/README.md`](../bridge/README.md), [`games/island-ride/README.md`](../games/island-ride/README.md).
 
 ## Mit Docker Desktop starten

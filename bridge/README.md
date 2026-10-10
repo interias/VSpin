@@ -46,6 +46,8 @@ schon laufende Bridge (z. B. hier von Hand gestartet) nutzt das Spiel nur mit un
 Der Bus lauscht standardmäßig nur auf `127.0.0.1`. `--host ADRESSE` (z. B. `--host 0.0.0.0`) ist für den
 Container gedacht (`docker-compose.yml`, siehe [Anleitung](../docs/anleitung.md) „Mit Docker Desktop starten“), dessen Port nur auf
 `127.0.0.1` des Rechners veröffentlicht wird – nativ nicht verwenden, sonst ist der Bus im Netz erreichbar.
+`--port PORT` (Standard 8765) ist nur für parallele Test- und Prüfläufe gedacht (siehe „Testen“); das Spiel verbindet
+sich mit `config.cfg [bus] url`. Die Bridge selbst liest `VSPIN_PORT_BASE` nicht.
 
 Clients können `set_grade` senden (virtuelle Steigung, ADR-0007). Die Bridge antwortet dem
 Absender mit `ack` (bis zur Widerstandssteuerung `ok: false, reason: "not_supported"`) und
@@ -73,6 +75,38 @@ unter [`profiles/`](profiles/):
 | `sprint.toml` | Intervalle 80 → 130 → 70 rpm, endlos |
 | `stillstand.toml` | Fahren, 8 s Kadenz 0 (Daten laufen weiter → bleibt `connected`), endlos |
 | `abbruch.toml` | Fahren → 4 s keine Daten (`stale`) → Abbruch (`disconnected`) → Neuverbindung (`connected`), endlos |
+| `arcade/zone_perfekt.toml` | Arcade-Szenario (#46) „perfekt in der Zone“: 45 s 90 rpm, dann Ende |
+| `arcade/zone_knapp_daneben.toml` | Arcade-Szenario „knapp daneben“: 50 s 102 rpm (2 rpm über der Zone), dann Ende |
+| `arcade/zone_abbruch.toml` | Arcade-Szenario „Abbruch“: 15 s 90 rpm → 4 s keine Daten → 30 s `disconnected` → 30 s 90 rpm, dann Ende |
+| `arcade/durchbruch_geschafft.toml` | Arcade-Szenario (#47) „Durchbruch geschafft“: 12 s 90 rpm, 8 s 114 rpm (über der Schwelle 108 rpm), 10 s 90 rpm, dann Ende |
+| `arcade/durchbruch_zu_schwach.toml` | Arcade-Szenario „Durchbruch zu schwach“: 12 s 90 rpm, 22 s 104 rpm (unter der Schwelle), 10 s 90 rpm, dann Ende |
+| `arcade/jagd_entkommen.toml` | Arcade-Szenario „Jagd entkommen“: 12 s 90 rpm, 14 s 100 rpm (über der Schwelle 93 rpm), 10 s 90 rpm, dann Ende |
+| `arcade/jagd_eingeholt.toml` | Arcade-Szenario „Jagd eingeholt“: 12 s 90 rpm, 14 s 80 rpm (unter der Schwelle), 10 s 90 rpm, dann Ende |
+| `arcade/takt_getroffen.toml` | Arcade-Szenario (#48) „Takt getroffen“: 12 s 70 rpm, dann fünfmal im Takt von 5 s auf 86 rpm hoch (je 1,5 s oben) und zurück auf 70 rpm, 8 s 70 rpm, dann Ende |
+| `arcade/takt_verfehlt.toml` | Arcade-Szenario „Takt verfehlt“: 45 s 100 rpm (über der Zone 74–94 rpm der Takt-Tore), dann Ende |
+| `arcade/sammeln_viel.toml` | Arcade-Szenario „Sammeln viel“: 45 s 108 rpm (Magnetradius rund 3,9 m), dann Ende |
+| `arcade/sammeln_wenig.toml` | Arcade-Szenario „Sammeln wenig“: 45 s 78 rpm (knapp über der Rampe 75 rpm, Magnetradius rund 1,3 m), dann Ende |
+| `arcade/antritt.toml` | Kadenzmuster-Szenario (#45, #50): drei Antritte aus 80 rpm (+30 in 0,5 s, +30 in 1,5 s, +26 in 2 s), dann Ende |
+| `arcade/innehalten.toml` | Kadenzmuster-Szenario (#45, #50): zweimal 3 s Kadenz 0 (aus 80 und 110 rpm), am Ende 1,5 s (kein Innehalten), dann Ende |
+| `arcade/gleichmass.toml` | Kadenzmuster-Szenario (#50): 6 s Stillstand, Anfahren, 12 s ruhig um 80 rpm (Spanne 5 rpm), 8 s breite Wellen (70–100 rpm), 12 s ruhig bei 85 rpm, dann Ende |
+| `arcade/rhythmus.toml` | Kadenzmuster-Szenario (#50): 6 s 80 rpm, sechs Pulse 80 → 96 → 80 rpm im Takt von 3 s, 6 s Ruhe, fünf Pulse mit ungleichen Abständen (kein Takt), 6 s 80 rpm, dann Ende |
+| `arcade/boss_abbruch.toml` | Boss-Szenario (#51) „Abbruch mitten im Bosskampf“ (Tramuntana): 12 s 90 rpm → 4 s keine Daten → 30 s `disconnected` → 8 s 90 rpm, 7 s 112 rpm, 15 s 96 rpm, 5 s 90 rpm, dann Ende |
+| `arcade/boss_tramuntana.toml` | Boss-Szenario „Tramuntana besiegt“: 20 s 90 rpm (Gegenwind), 7 s 112 rpm (Böe), 15 s 96 rpm (Sturmfront), 5 s 90 rpm, dann Ende |
+| `arcade/boss_drac.toml` | Boss-Szenario „Drac de na Coca besiegt“: 22 s 90 rpm, 8 s 114 rpm, 15 s 96 rpm, 7 s 116 rpm, 5 s 90 rpm, dann Ende |
+| `arcade/boss_dimonis_besiegt.toml` | Boss-Szenario „Dimonis besiegt“ (Jagd): 15 s 100 rpm, 7 s 112 rpm, 12 s 104 rpm, 5 s 90 rpm, dann Ende |
+| `arcade/boss_dimonis_entkommen.toml` | Boss-Szenario „Dimonis entkommen“: 25 s 85 rpm (unter der Schwelle 93 rpm der Jagd), 10 s 90 rpm, dann Ende |
+| `arcade/elite_champion.toml` | Elite-Szenario (#52) „Champions“ (Jagd mit Windschnell und Gegenwind, Schwelle 98 rpm): 6 s 90 rpm, 16 s 104 rpm, 10 s 90 rpm, dann Ende |
+| `arcade/elite_selten.toml` | Elite-Szenario „Seltene“ (Durchbruch mit Gegenwind und Zäh, Schwelle 112 rpm, danach Gefolge ab 102 rpm): 12 s 90 rpm, 10 s 116 rpm, 12 s 95 rpm, 8 s 90 rpm, dann Ende |
+
+Die Arcade-Szenarien `zone_*` spielt das Spiel auch in seinen Tests nach (`games/island-ride/tests/test_arcade_ride.gd`, gleicher
+Kadenzverlauf über den Fake-Bus) und prüft dort das Ergebnis: geschafft, weich verfehlt, Pause bei Abbruch. `takt_*` und `sammeln_*` (#48) spielt
+`games/island-ride/tests/test_arcade_rhythm_collect_ride.gd` nach (Takt getroffen/verfehlt, Sammeln viel/wenig). Die Kadenzmuster-Szenarien
+`antritt`, `innehalten`, `gleichmass` und `rhythmus` spielt `games/island-ride/tests/test_abilities_ride.gd` (#50) nach: das Muster wird erkannt,
+die Fähigkeit ausgelöst, die Anzeige zeigt „aktiv“ und danach die Abklingzeit. Die Boss-Szenarien `boss_*` (#51) spielt `games/island-ride/tests/test_bosses_ride.gd` mit dem jeweils erzwungenen Boss nach:
+besiegt (Punkte, Boss-Beute), entkommen (weich, ohne Beute) und beim Abbruch die Pause mitten im Kampf, danach Weiterfahrt und Sieg. Die
+Elite-Szenarien `elite_*` (#52) spielt `games/island-ride/tests/test_elite_groups_ride.gd` mit der jeweils erzwungenen Elite-Gruppe nach: Champions
+abgehängt (Punkte, Beute) und Seltene, deren Gefolge entkommt (weich verfehlt), mit Standarte und Schild in der Farbe der Stufe. (`SimProfile.to_script` bildet `cadence_raw` nicht ab, der Fake-Bus fällt auf
+`cadence` zurück; die Unterscheidung geglättet/ungeglättet prüft ein eigener Test.)
 
 Format:
 
@@ -157,6 +191,10 @@ Gilt für alle Quellen gleich, auch für den Simulator (ADR-0004):
   keinen neuen Wert, zählen aber für diese Regel. Kommen gar keine Daten, erfindet die Bridge
   nichts – dann wird der Status nach 3 s `stale`. Der nächste Wert nach ≥ 2,5 s ohne Wert
   startet die Glättung neu.
+- **Ungeglättet für die Kadenzmuster:** Zusätzlich geht `cadence_raw` auf den Bus – dieselben Regeln (Ausreißer,
+  Kadenz 0 nach 2,5 s), nur ohne EMA; zwischen zwei neuen Werten gilt der letzte. Anzeige und Fahrmodell nutzen
+  `cadence`. Grund: Bei 250 ms Meldetakt kostet der EMA Antritt und Innehalten 250–500 ms (Messung unten unter
+  „Testen“, Nachtrag #45 in ADR-0004).
 - Geschwindigkeit, Leistung und Puls gehen ungeglättet durch.
 
 Gerechnet wird auf der Zeitachse der Quelle – beim Replay der Aufnahme. Ein Replay liefert
@@ -217,11 +255,28 @@ python -m pytest                           # im Ordner bridge/
 Testmuster: Tests starten die Bridge als echten Prozess (`python -m vspin_bridge`,
 `PYTHONPATH=src`) und prüfen nur das am Bus beobachtbare Verhalten über Test-Clients
 (`tests/bridge_harness.py`, Fixtures `bridge_process`/`bus_client` in `tests/conftest.py`).
-Port 8765 muss frei sein. Kein Rad, kein Windows nötig. Laufen Tests aus mehreren Checkouts
-gleichzeitig, wartet jeder Lauf auf die Sperre `/tmp/vspin-bridge-tests.lock` (flock, nur
-Linux/macOS; unter Windows ohne Sperre) – Bridge-Tests laufen so nie parallel.
+Port 8765 (mit `VSPIN_PORT_BASE` 8765 + n, siehe unten) muss frei sein. Kein Rad, kein Windows nötig.
+
+**Parallele Testläufe (#62):** `VSPIN_PORT_BASE=n` (ganze Zahl 0–466, ohne Variable 0) gibt einem Lauf – etwa je
+Worktree – den eigenen Bus-Port 8765 + n; der Harness startet jede Bridge mit `--port`. Läufe mit gleichem Wert
+warten aufeinander (Sperre `vspin-bridge-tests-<port>.lock` im Temp-Ordner: `fcntl.flock` unter Linux/macOS,
+`msvcrt.locking` unter Windows), Läufe mit anderem Wert laufen gleichzeitig. Dazu je Lauf ein eigenes `--basetemp`:
+
+```
+VSPIN_PORT_BASE=2 python -m pytest -q -p no:cacheprovider --basetemp=<temp>/pytest-2
+```
+
+Das Spiel leitet aus demselben Wert seine Testports ab (`games/island-ride/README.md`, „Tests“). Ein ungültiger Wert
+bricht den Lauf ab, statt still auf 8765 zu fallen.
 Der Harness beendet die Bridge wie im Betrieb: unter Linux/macOS mit SIGTERM, unter Windows über die Stoppdatei
 wie das Spiel; „Strg+C“ ist SIGINT bzw. unter Windows Strg+Untbr an die eigene Prozessgruppe.
+
+**Messung Kadenzmuster (#45):** `python tests/cadence_latency.py` (im Ordner `bridge/`, mit `PYTHONPATH=src` oder
+installiertem Paket) misst die Erkennungsverzögerung von Antritt und Innehalten am geglätteten gegen den
+ungeglätteten Wert – Profile mit Meldetakt 250 ms und 1 s, Rauschen mit Seeds 1–20, dazu CSC-Replays – und gibt eine
+Tabelle aus. `--profile DATEI`, `--interval MS`, `--seeds N`, `--replay DATEI.raw.jsonl` (z. B. ein JC312-Mitschnitt,
+#1) wählen andere Eingaben. Die Detektoren dort sind vorläufig (Definition im Kopf der Datei); die Zahlen ohne
+Rauschen hält `tests/test_cadence_raw.py` fest.
 
 Parser und Aufbereitung werden ebenso nur von außen getestet: Replay-Fixtures unter
 `tests/fixtures/` (handgebaut, erzeugt von `tests/fixtures/make_fixtures.py`; neu erzeugen mit
@@ -231,7 +286,7 @@ Session-Dateien und Terminal.
 Struktur (teils noch geplant):
 
 ```
-profiles/        Beispielprofile für den Simulator (--profile)
+profiles/        Beispielprofile für den Simulator (--profile); arcade/: Arcade-Szenarien des Spiels (#46–#48, Bosse #51, Elite #52), Kadenzmuster-Szenarien (#45, #50)
 src/vspin_bridge/
   sources/      sim (+ profile), replay, später ble  – alle implementieren DeviceSource
   parsers/      rohe Notification → TelemetrySample (CSC, FTMS Indoor Bike Data)
@@ -239,4 +294,5 @@ src/vspin_bridge/
   bus/          WebSocket-Server (docs/bus-protocol.md)
   session/      Session-CSV und Rohdaten (ADR-0008)
 tests/fixtures/  Replay-Fixtures (handgebaut; später echte JC312-Dumps)
+tests/cadence_latency.py  Messung Erkennungsverzögerung der Kadenzmuster (#45)
 ```

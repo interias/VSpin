@@ -11,7 +11,10 @@
 ##                                 "ghosts": {"<strecke>": {"<richtung>": {"best"|"last": {Ghost.to_dict()}}}},
 ##                                 "achievements": {"<erfolg>": "…Z"},
 ##                                 "wardrobe": {"trikot"|"radfarbe"|"helm": "<teil-id>"},
-##                                 "camera": {"view": "nah"|"verfolger"|"weit"}}}}
+##                                 "camera": {"view": "nah"|"verfolger"|"weit"},
+##                                 "arcade": {"cadence_range": {"min": 60, "max": 120}, "tier": 1,
+##                                            "best_points": {"<stufe>": <punkte>}, "unlocked": 3,
+##                                            "defeated": {"<stufe>": ["<boss-id>", …]}}}}}
 ##
 ## Bestzeiten (#31): schnellste Runde je Strecke und Richtung (LapTiming.DIRECTION_*), in Sekunden.
 ## Segment-Bestzeiten (#33): schnellste Zeit je Strecke, Richtung und Segment-ID, in Sekunden.
@@ -31,6 +34,14 @@
 ## Gesamtbewertung (`training_score`, Treffer der Zielkadenz 0..1); `finished` heißt dort: Einheit zu Ende gefahren.
 ## Bestzeit, Segmentzeiten, Medaillen und Ghosts schreibt das Training nicht.
 ##
+## Arcade (#46): eine Fahrt im Modus MODE_ARCADE trägt zusätzlich `arcade` (ArcadeRun.to_entry: Stufe, Punkte,
+## geschafft, verfehlt); ihre km zählen wie jede Fahrt für Fahrtenbuch, Fahrerlevel und Erfolge. Bestzeit,
+## Segmentzeiten, Medaillen und Ghosts schreibt Arcade nie (ADR-0010). Der Bereich `arcade` hält den persönlichen
+## Kadenzbereich (CadenceRange prüft), die zuletzt gewählte Stufe (ArcadeTiers prüft) und die beste Punktzahl je Stufe;
+## spätere Pakete (Beute #49, Talente #53, Stufen #54) ergänzen ihn. Stufen (#54): `unlocked` ist die höchste wählbare Stufe
+## (fehlt → die drei Startstufen), `defeated` je Stufe die dort besiegten Bosse (ArcadeTiers prüft und schreibt beides).
+## Ein Stand ohne ihn bekommt beim Laden den leeren Bereich (es gelten die Standards) – additiv, die Formatversion bleibt 1.
+##
 ## Erweitern (spätere Pakete) geht additiv:
 ## neue Bereiche in PROFILE_DEFAULTS bekommen beim Laden ihren Standardwert. Ändert sich das Format, steigt
 ## VERSION und `_upgrade_steps()` bekommt einen Schritt von der alten Version aus – alte Stände werden beim Laden
@@ -42,12 +53,13 @@ extends RefCounted
 const DEFAULT_PATH := "user://savegame.json"
 ## Aktuelle Formatversion.
 const VERSION := 1
-## Spielmodus einer Fahrt (CONTEXT.md: Rundfahrt, Training; Arcade folgt).
+## Spielmodus einer Fahrt (CONTEXT.md: Rundfahrt, Training, Arcade).
 const MODE_ROUND_TRIP := "rundfahrt"
 const MODE_TRAINING := "training"
+const MODE_ARCADE := "arcade"
 ## Bereiche je Fahrerprofil mit Standardwert (fehlende werden beim Laden ergänzt).
 const PROFILE_DEFAULTS := {"rides": [], "best_times": {}, "segment_best_times": {}, "medals": {}, "ghosts": {},
-		"achievements": {}, "wardrobe": {}, "camera": {}}
+		"achievements": {}, "wardrobe": {}, "camera": {}, "arcade": {}}
 ## Endung, unter der eine unlesbare Datei beiseitegelegt wird.
 const BROKEN_SUFFIX := ".defekt"
 
@@ -203,6 +215,29 @@ func wardrobe() -> Dictionary:
 ## Kamera: {"view": <perspektive>}, wie gespeichert (ungeprüft; CameraViews.selection prüft). Schreibbar.
 func camera() -> Dictionary:
 	return profile()["camera"]
+
+
+## Arcade (#46): Kadenzbereich, Stufe, Bestpunktzahlen …, wie gespeichert (ungeprüft; CadenceRange und ArcadeTiers
+## prüfen). Schreibbar.
+func arcade() -> Dictionary:
+	return profile()["arcade"]
+
+
+## Beste Punktzahl eines Arcade-Laufs auf Stufe `tier` (0 = noch keine).
+func best_arcade_points(tier: int) -> int:
+	var best = arcade().get("best_points", {}).get(str(tier)) if arcade().get("best_points") is Dictionary else null
+	return int(best) if (best is float or best is int) and best > 0 else 0
+
+
+## Trägt `points` als beste Punktzahl der Stufe `tier` ein, wenn sie höher ist. Gibt zurück, ob sie eingetragen wurde.
+## Schreibt nicht auf die Platte.
+func record_arcade_points(tier: int, points: int) -> bool:
+	if points <= best_arcade_points(tier):
+		return false
+	if not (arcade().get("best_points") is Dictionary):
+		arcade()["best_points"] = {}
+	arcade()["best_points"][str(tier)] = points
+	return true
 
 
 ## Gefahrene Kilometer aller Fahrten (jeder Modus).

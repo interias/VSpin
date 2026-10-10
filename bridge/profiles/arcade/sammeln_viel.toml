@@ -1,0 +1,10 @@
+# Arcade-Szenario „Sammeln viel“ (#48): durchgehend 108 rpm – die Rampe der Wiese (Stufe 1, Kadenzbereich 60–120 rpm) beginnt
+# bei 75 rpm, der Magnetradius wächst von 1 m bis 5 m bei 120 rpm und liegt bei 108 rpm bei rund 3,9 m. Erwartet im Spiel:
+# 7 von 8 Sammelobjekten liegen im Radius (nötig 5), die Herausforderung ist geschafft (Punkte, Beute), die Fahrt geht
+# weiter. Endet danach.
+# Im Spiel nachgespielt von games/island-ride/tests/test_arcade_rhythm_collect_ride.gd.
+name = "Arcade: Sammeln viel"
+
+[[steps]]
+duration_s = 45
+cadence = 108

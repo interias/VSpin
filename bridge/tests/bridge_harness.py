@@ -17,6 +17,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections.abc import Iterator
@@ -27,7 +28,32 @@ from websockets.sync.client import ClientConnection
 BRIDGE_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = BRIDGE_ROOT / "src"
 HOST = "127.0.0.1"
-PORT = 8765
+
+# Parallele Testläufe (#62): `VSPIN_PORT_BASE=n` gibt jedem Lauf (je Worktree) einen eigenen Bus-Port
+# 8765 + n; ohne Variable (oder 0) bleibt es 8765. Das Spiel leitet daraus seine Testports ab
+# (18765 + 100·n, `tests/support/test_isolation.gd`). Die Bereiche überschneiden sich nie; n ≤ 466 hält
+# alle Ports ≤ 65535.
+PORT_BASE_ENV = "VSPIN_PORT_BASE"
+DEFAULT_PORT = 8765
+MAX_PORT_BASE = 466
+
+
+def port_base(env: dict[str, str] | None = None) -> int:
+    """Wert n aus `VSPIN_PORT_BASE` (leer/fehlt = 0); ein ungültiger Wert bricht den Lauf ab, statt still
+    auf 8765 zu fallen und einem parallelen Lauf in die Quere zu kommen."""
+    raw = (os.environ if env is None else env).get(PORT_BASE_ENV, "").strip()
+    if not raw:
+        return 0
+    try:
+        base = int(raw)
+    except ValueError:
+        raise ValueError(f"{PORT_BASE_ENV}={raw!r}: erwartet eine ganze Zahl 0–{MAX_PORT_BASE}") from None
+    if not 0 <= base <= MAX_PORT_BASE:
+        raise ValueError(f"{PORT_BASE_ENV}={raw!r}: erwartet eine ganze Zahl 0–{MAX_PORT_BASE}")
+    return base
+
+
+PORT = DEFAULT_PORT + port_base()
 BUS_URL = f"ws://{HOST}:{PORT}"
 
 PROFILES_DIR = BRIDGE_ROOT / "profiles"
@@ -36,34 +62,67 @@ FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 START_TIMEOUT_S = 10.0
 STOP_TIMEOUT_S = 5.0
 
-# Port 8765 ist fest (ADR-0002): Testläufe aus mehreren Checkouts dürfen nie gleichzeitig
-# Bridges starten. Die Sperre gilt rechnerweit über eine Datei in /tmp.
-LOCK_PATH = Path("/tmp/vspin-bridge-tests.lock")
-LOCK_WAIT_NOTICE_S = 1.0
+# Testläufe auf derselben Port-Basis dürfen nie gleichzeitig Bridges starten: Die Sperre gilt rechnerweit
+# je Bus-Port über eine Datei im Temp-Ordner. Läufe mit anderer Basis (VSPIN_PORT_BASE) laufen gleichzeitig.
+LOCK_WAIT_POLL_S = 0.2
+
+
+def lock_path(port: int) -> Path:
+    return Path(tempfile.gettempdir()) / f"vspin-bridge-tests-{port}.lock"
+
+
+LOCK_PATH = lock_path(PORT)
+
+
+def try_lock(lock_file) -> bool:
+    """Sperrt `lock_file` exklusiv, ohne zu warten; False, wenn ein anderer Prozess die Sperre hält.
+
+    Linux/macOS `fcntl.flock`, Windows `msvcrt.locking` (erstes Byte). Beide gibt das OS beim Prozessende
+    von selbst frei – auch nach SIGKILL bzw. TerminateProcess bleibt keine verwaiste Sperre.
+    """
+    if sys.platform == "win32":
+        import msvcrt
+
+        lock_file.seek(0)
+        try:
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError:
+            return False
+        return True
+    import fcntl
+
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return False
+    return True
+
+
+def _unlock(lock_file) -> None:
+    if sys.platform == "win32":
+        import msvcrt
+
+        lock_file.seek(0)
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+        return
+    import fcntl
+
+    fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
 @contextlib.contextmanager
 def port_lock(path: Path = LOCK_PATH) -> Iterator[None]:
-    """Exklusive Sperre (flock) für alle Bridge-Tests eines Laufs; andere Läufe warten.
-
-    Linux/macOS: `fcntl.flock`, gibt das OS beim Prozessende von selbst frei – auch nach
-    SIGKILL bleibt keine verwaiste Sperre. Windows: ohne Sperre (kein fcntl).
-    """
-    try:
-        import fcntl
-    except ImportError:  # Windows
-        yield
-        return
-    with open(path, "a") as lock_file:
-        try:
-            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+    """Exklusive Sperre für alle Bridge-Tests eines Laufs auf dieser Port-Basis; andere Läufe derselben Basis
+    warten."""
+    with open(path, "a+") as lock_file:
+        if not try_lock(lock_file):
             print(f"\nWarte auf {path} – ein anderer Bridge-Testlauf belegt Port {PORT} …", file=sys.__stderr__)
-            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            while not try_lock(lock_file):
+                time.sleep(LOCK_WAIT_POLL_S)
         try:
             yield
         finally:
-            fcntl.flock(lock_file, fcntl.LOCK_UN)
+            _unlock(lock_file)
 
 
 def port_open(host: str = HOST, port: int = PORT) -> bool:
@@ -95,7 +154,7 @@ def run_bridge(args: list[str], cwd: Path, timeout_s: float = START_TIMEOUT_S) -
     """Für Läufe, die von selbst enden (Fehler beim Start): Exit-Code und Ausgabe."""
     wait_until(lambda: not port_open(), STOP_TIMEOUT_S, f"Port {PORT} wird frei")
     result = subprocess.run(
-        [sys.executable, "-m", "vspin_bridge", *args],
+        [sys.executable, "-m", "vspin_bridge", *args, "--port", str(PORT)],
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
@@ -129,7 +188,7 @@ class BridgeProcess:
         env = bridge_env()
         self._log = open(self.log_path, "w", encoding="utf-8")
         self.proc = subprocess.Popen(
-            [sys.executable, "-m", "vspin_bridge", *self.args, "--stop-file", str(self.stop_file)],
+            [sys.executable, "-m", "vspin_bridge", *self.args, "--stop-file", str(self.stop_file), "--port", str(PORT)],
             stdin=subprocess.DEVNULL,  # kein TTY → Tastatur aus, Bridge läuft trotzdem
             stdout=self._log,
             stderr=subprocess.STDOUT,
@@ -216,7 +275,7 @@ class InProcessBridge:
 
         async def main() -> None:
             self._loop, self._stop = asyncio.get_running_loop(), asyncio.Event()
-            await Bridge(self.source, Console(self._output), self.sessions_dir).run(self._stop)
+            await Bridge(self.source, Console(self._output), self.sessions_dir, port=PORT).run(self._stop)
 
         try:
             asyncio.run(main())

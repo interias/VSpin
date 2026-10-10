@@ -19,7 +19,8 @@ const PAGES := {"overview": "Übersicht", "achievements": "Erfolge", "rides": "F
 const RECENT_RIDES := 20
 const TRACK_NAMES := {RideConfig.TRACK_ISLAND: "Insel-Rundkurs", RideConfig.TRACK_GRAYBOX: "Graybox"}
 const DIRECTION_NAMES := {"cw": "im Uhrzeigersinn", "ccw": "gegen den Uhrzeigersinn"}
-const MODE_NAMES := {SaveGame.MODE_ROUND_TRIP: "Rundfahrt", SaveGame.MODE_TRAINING: "Training"}
+const MODE_NAMES := {SaveGame.MODE_ROUND_TRIP: "Rundfahrt", SaveGame.MODE_TRAINING: "Training",
+		SaveGame.MODE_ARCADE: "Arcade"}
 const COLOR_HEADING := Color(1.0, 0.86, 0.45)
 const COLOR_DIM := Color(1.0, 1.0, 1.0, 0.45)
 ## Scrollschritt der Pfeiltasten (px).
