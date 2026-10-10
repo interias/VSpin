@@ -1437,6 +1437,14 @@ zeigt ihn nur an und wertet ihn aus; er verändert die Fahrt nicht.
   3 Minuten Fahrzeit auf Zonenbändern, Lücken bleiben Lücken; in der kompakten Leiste (unter 760 px) stehen Zahl und Zone in
   Zonenfarbe. Die Kurve ist nur Anzeige. Die Zonen sind die der Fahrt (dieselben wie in der Pulsstatistik). Sichtprüfung:
   `tools/view_probe.gd -- --hud --pulse=148 --lthr=165` (`--pulse=--` zeigt den Ausfall, ohne `--lthr` keine Zonen).
+- **Geräteseite** (Startmenü → „Geräte“, `scenes/devices_menu.gd`): je eine Karte für Brustgurt und Uhr mit Anleitung
+  (Gurt: Elektroden anfeuchten, anlegen; Forerunner 970: Taste Mitte links halten → Watch Settings → Health & Wellness →
+  Wrist Heart Rate → Broadcast Heart Rate, laut Garmin-Handbuch), „Suchen“ (30 s, Liste mit Name und Signalstärke, nur an
+  diesen Client), „Als Brustgurt/Uhr merken“, „Vergessen“ (sofort an die Bridge und gespeichert) und Live-Puls; Hinweise,
+  wenn nichts gefunden wird. Darunter LTHR und Maximalpuls des Profils (80–220 bzw. 100–230 bpm, sonst abgewiesen) mit den
+  Zonengrenzen Z1–Z5; ohne beide Werte der Hinweis, dass der Puls ohne Zonen erscheint. Verlassen der Seite stoppt die Suche.
+  Wie viele BLE-Verbindungen der HRM 600 parallel hält, ist nicht verifiziert – die Anleitung empfiehlt, die Uhr per ANT+
+  mit dem Gurt zu koppeln.
 
 ## Konfiguration
 
@@ -1584,6 +1592,7 @@ src/heart_rate_zones.gd HeartRateZones: Pulszonen aus LTHR oder Maximalpuls, Gre
 src/heart_rate_stats.gd HeartRateStats: Ø-Puls, Max-Puls, Sekunden je Zone einer Fahrt – reine Logik (#64)
 src/heart_rate_devices.gd HeartRateDevices: gemerkter Brustgurt und Uhr in user://settings.cfg [heart_rate], Liste für die Bridge (#64)
 src/hud_pulse.gd        HudPulse: Pulskurve der letzten 3 min auf Zonenbändern (curve_points/band_rects als reine Rechnung) (#64)
+scenes/devices_menu.gd  DevicesMenu: Menüseite „Geräte“ – Anleitung, Suche, Merken/Vergessen, Live-Puls, LTHR/Maximalpuls mit Zonen (#64)
 src/lap_timing.gd       LapTiming: Rundenwertung – Rundenzeiten, Ziel nach n Runden oder endlos, Bestzeit, Ghost-Aufzeichnung – reine Logik
 src/segment_timing.gd   SegmentTiming: Segmentzeiten (Live-Zeit, gewertete Segmente, Segment-Bestzeit) – reine Logik
 src/ghost.gd            Ghost: Runde als Strecke über Zeit – aufzeichnen, abspielen, Abstand in s – reine Logik
