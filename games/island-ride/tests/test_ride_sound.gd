@@ -72,6 +72,130 @@ func test_wind_rises_with_speed_and_freewheel_ticks_only_when_coasting() -> void
 	assert_gt(RideSound.freewheel_pitch(40.0), RideSound.freewheel_pitch(10.0), "schneller rollen, schneller ticken")
 
 
+## Fahrtwind vor #69, fest eingetragen (nicht aus dem neuen Code gerechnet): Grundpegel 0,45, Anstieg smoothstep(5, 45, km/h),
+## Tonhöhe 0,8 … 1,35; Klang (normiert, 16 Bit): Effektivwert 0,2316, Anteil der Energie der Differenz benachbarter Samples
+## (einfacher Hochpass) an der Gesamtenergie 0,5052.
+const OLD_WIND_GAIN := 0.45
+const OLD_WIND_RMS := 0.2316
+const OLD_WIND_HIGHPASS := 0.5052
+const OLD_WIND_PITCH := Vector2(0.8, 1.35)
+## Fingerabdruck der übrigen Klänge vor #69 – unverändert; je Klang [Samples, Effektivwert, Hochpass-Anteil, Schwerpunkt
+## der Energie in der Zeit 0..1]. Bewusst kein Hash der Sample-Bytes: Der hinge an der letzten Stelle von sin/exp der
+## jeweiligen Laufzeit (Windows, Linux, Web) und kippte dort schon bei einem Sample um ein Bit. Die Länge gilt exakt, die
+## Zahlen mit Toleranz (weit über jeder Plattformabweichung, weit unter einer Änderung an Teiltönen, Abklingen, Filtern
+## oder Seed).
+const OTHER_SOUND_PRINTS := {"sea": [66150, 0.21102, 0.01605, 0.47196], "rain": [44100, 0.22477, 2.11942, 0.51597],
+		"freewheel": [1103, 0.06911, 1.14872, 0.01485], "sheep": [19845, 0.15703, 0.28592, 0.16946],
+		"church": [38588, 0.13935, 0.03242, 0.23423], "gull": [19845, 0.36970, 0.35538, 0.40167],
+		"click": [662, 0.23027, 0.07445, 0.14022], "chime": [15435, 0.26256, 0.19634, 0.30513],
+		"announce": [11025, 0.31271, 0.06995, 0.26070]}
+const FINGERPRINT_TOLERANCE := 0.0005
+
+
+## Länge, Effektivwert, Hochpass-Anteil (Energie der Differenz benachbarter Samples / Gesamtenergie) und Schwerpunkt der
+## Energie in der Zeit (0..1) eines Klangs.
+func _sample_stats(id: String) -> Dictionary:
+	var data := SoundSynth.build(id).data
+	var energy := 0.0
+	var diff := 0.0
+	var centre := 0.0
+	var prev := 0.0
+	var count := data.size() / 2
+	for i in range(count):
+		var v := data.decode_s16(i * 2) / 32768.0
+		energy += v * v
+		diff += (v - prev) * (v - prev)
+		centre += v * v * float(i) / count
+		prev = v
+	return {"count": count, "rms": sqrt(energy / count), "highpass": diff / energy, "centre": centre / energy}
+
+
+func test_wind_is_clearly_quieter_than_before_at_the_same_speed() -> void:
+	var rms: float = _sample_stats("wind")["rms"]
+	for kmh in [10.0, 20.0, 30.0, 45.0]:
+		var level: float = RideSound.levels({"riding": true, "speed_kmh": kmh, "cadence": 80.0})["wind"]
+		var now := level * RideSound.GAIN["wind"] * rms
+		var before := smoothstep(5.0, 45.0, kmh) * OLD_WIND_GAIN * OLD_WIND_RMS
+		assert_lt(now, before * 0.5, "%d km/h: mindestens 6 dB leiser (%.4f statt %.4f)" % [kmh, now, before])
+	var onset: float = RideSound.levels({"riding": true, "speed_kmh": 15.0})["wind"]
+	assert_lt(onset, smoothstep(5.0, 45.0, 15.0), "sanfterer Anstieg: bei 15 km/h weniger vom Höchstpegel als früher")
+	assert_lt(RideSound.WIND_PITCH.y, OLD_WIND_PITCH.y, "Tonhöhe steigt nicht so hoch")
+	assert_lt(RideSound.WIND_PITCH.y - RideSound.WIND_PITCH.x, OLD_WIND_PITCH.y - OLD_WIND_PITCH.x, "… und weniger weit")
+
+
+func test_wind_sample_has_no_harsh_highs() -> void:
+	var stats := _sample_stats("wind")
+	assert_lt(stats["highpass"], OLD_WIND_HIGHPASS * 0.3, "Höhenanteil höchstens 30 %% von früher (%.4f)" % stats["highpass"])
+	assert_lt(stats["rms"], OLD_WIND_RMS, "Klang selbst nicht dichter als früher")
+
+
+func test_other_sounds_are_unchanged_and_their_gains_unchanged() -> void:
+	for id in OTHER_SOUND_PRINTS:
+		var stats := _sample_stats(id)
+		var expected: Array = OTHER_SOUND_PRINTS[id]
+		assert_eq(stats["count"], expected[0], "%s: Länge unverändert" % id)
+		assert_almost_eq(stats["rms"], expected[1], FINGERPRINT_TOLERANCE, "%s: Effektivwert unverändert" % id)
+		assert_almost_eq(stats["highpass"], expected[2], FINGERPRINT_TOLERANCE, "%s: Höhenanteil unverändert" % id)
+		assert_almost_eq(stats["centre"], expected[3], FINGERPRINT_TOLERANCE, "%s: Zeitverlauf unverändert" % id)
+	var others := {"freewheel": 0.2, "sea": 0.4, "rain": 0.35, "gulls": 0.3, "sheep": 0.3, "church": 0.45, "click": 0.25,
+			"chime": 0.3, "announce": 0.35}
+	for key in others:
+		assert_eq(RideSound.GAIN[key], others[key], "Grundpegel %s unverändert" % key)
+	assert_eq(RideSound.GAIN.size(), others.size() + 1)
+	var c := {"riding": true, "speed_kmh": 25.0, "cadence": 0.0, "water_m": 100.0, "rain": 0.5}
+	assert_almost_eq(RideSound.levels(c)["freewheel"], lerpf(0.6, 1.0, smoothstep(1.0, 30.0, 25.0)), 0.0001)
+	assert_almost_eq(RideSound.levels(c)["sea"], 1.0 - smoothstep(25.0, 220.0, 100.0), 0.0001)
+	assert_eq(RideSound.levels(c)["rain"], 0.5)
+
+
+func test_wind_volume_scales_only_the_wind_and_zero_is_off() -> void:
+	var game := _island()
+	var sound: RideSound = game.sound
+	var player: AudioStreamPlayer = sound.players["wind"]
+	game.state = game.STATE_RIDING
+	game.model.speed_mps = 30.0 / 3.6
+	var at: Vector3 = game.world.track.position_at(0.0) + Vector3.UP * 2.0
+	_listen(game, at)
+	assert_gt(sound.current["wind"], 0.3, "Fahrtwind bei 30 km/h")
+	var full_db := player.volume_db
+	assert_almost_eq(full_db, linear_to_db(sound.current["wind"] * RideSound.GAIN["wind"]), 0.01, "Regler voll: wie berechnet")
+	var bus := AudioServer.get_bus_index(RideSound.BUS)
+	sound.apply_settings(true, 0.3, 0.5)
+	_listen(game, at)
+	assert_almost_eq(player.volume_db, full_db + linear_to_db(0.5), 0.01, "halber Regler: halber Pegel, sofort")
+	assert_almost_eq(AudioServer.get_bus_volume_db(bus), linear_to_db(0.3), 0.01, "Gesamtlautstärke unberührt")
+	sound.apply_settings(true, 0.3, 0.0)
+	_listen(game, at)
+	assert_false(player.playing, "Regler Aus: Fahrtwind still")
+	assert_false(AudioServer.is_bus_mute(bus), "Ton insgesamt an")
+	sound.apply_settings(true, 0.3, 1.0)
+	_listen(game, at)
+	assert_almost_eq(player.volume_db, full_db, 0.01, "wieder voll")
+
+
+func test_wind_row_in_menu_applies_at_once_and_is_saved() -> void:
+	var game := _island(SETTINGS_PATH)
+	var menu: CanvasLayer = game.settings_menu
+	var right: Node = menu.options["time"].get_parent()
+	assert_eq(menu.options["wind_volume"].get_parent(), right, "neben Ton und Lautstärke")
+	assert_eq(menu.options["wind_volume"].get_index(), menu.options["sound_volume"].get_index() + 2, "direkt unter der Lautstärke (Beschriftung + Auswahl)")
+	var option: OptionButton = menu.options["wind_volume"]
+	assert_eq(option.get_item_text(0), "Aus")
+	assert_eq(option.get_item_text(option.item_count - 1), "100 %")
+	assert_eq(option.get_item_text(option.selected), "100 %", "Standard voll")
+	_choose(menu, "wind_volume", 0.5)
+	assert_eq(game.sound.wind_volume, 0.5, "wirkt sofort")
+	_choose(menu, "wind_volume", 0.0)
+	assert_eq(game.sound.wind_volume, 0.0)
+	assert_eq(GraphicsSettings.load_file(SETTINGS_PATH).wind_volume, 0.0, "gespeichert")
+	remove_child(game)
+	game.free()
+	game = _island(SETTINGS_PATH)
+	assert_eq(game.sound.wind_volume, 0.0, "nach Neustart wirksam")
+	option = game.settings_menu.options["wind_volume"]
+	assert_eq(option.get_item_text(option.selected), "Aus", "Menü zeigt den Stand")
+
+
 func test_rain_only_when_it_rains() -> void:
 	assert_eq(RideSound.levels({"rain": 0.0})["rain"], 0.0)
 	assert_eq(RideSound.levels({"rain": 1.0})["rain"], 1.0)

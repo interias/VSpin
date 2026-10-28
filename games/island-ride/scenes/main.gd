@@ -386,7 +386,8 @@ func _ready() -> void:
 	sound = RideSound.new()
 	add_child(sound)
 	sound.setup(self)
-	sound.apply_settings(settings_menu.settings.sound_enabled, settings_menu.settings.sound_volume)
+	sound.apply_settings(settings_menu.settings.sound_enabled, settings_menu.settings.sound_volume,
+			settings_menu.settings.wind_volume)
 	hud.celebration_shown.connect(func(_text): sound.play_ui(RideSound.UI_CELEBRATION))
 	bus = BusClient.from_config(config)
 	arcade_stage.bus = bus
@@ -442,8 +443,9 @@ func _on_settings_changed(key: String) -> void:
 		speed_effects.enabled = settings_menu.settings.speed_effects
 	if key == "panorama":
 		panorama_enabled = settings_menu.settings.panorama
-	if key in ["sound", "sound_volume"]:
-		sound.apply_settings(settings_menu.settings.sound_enabled, settings_menu.settings.sound_volume)
+	if key in ["sound", "sound_volume", "wind_volume"]:
+		sound.apply_settings(settings_menu.settings.sound_enabled, settings_menu.settings.sound_volume,
+				settings_menu.settings.wind_volume)
 	if key == "camera_view":
 		set_camera_view(settings_menu.camera_view, false)
 	if key in ["time", "weather", "season"]:
