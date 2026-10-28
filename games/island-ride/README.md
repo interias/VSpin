@@ -514,6 +514,7 @@ Startmenü) und „Beenden“ (beendet das Spiel; im Browser ausgeblendet) – `
 | Jahreszeit | Nach Datum (Mallorca), Mandelblüte, Frühling, Sommer, Herbst, Winter (fest) – sofort (#39) | Nach Datum |
 | Ton | An, Aus – alle Klänge des Spiels (#44) | An |
 | Lautstärke | 10, 20, 30, 50, 70, 100 % – eigener Audio-Bus „Spiel“, Musik nebenher bleibt hörbar | 30 % (leise) |
+| Fahrtwind | Aus, 25, 50, 75, 100 % – eigener Regler nur für den Fahrtwind, zusätzlich zur Lautstärke (#69) | 100 % |
 | Fenstermodus | Fenster (mit Rahmen, frei skalierbar), Randloses Fenster, Vollbild | Fenster 1600 × 900, mittig |
 | Fenstergröße | 960 × 1040, 1280 × 720, 1600 × 900, 1920 × 1080, 2560 × 1440 (im Vollbild: Bildschirmauflösung) | 1600 × 900 |
 
@@ -1375,14 +1376,15 @@ Prüfungen sind unverändert.
 ### Ton (#44)
 
 Dezent und standardmäßig leise (Lautstärke 30 %, jeder Klang zusätzlich gedämpft), auf einem eigenen Audio-Bus
-„Spiel“ – Lautstärke und Aus-Schalter stehen im Einstellungsmenü und in `settings.cfg [sound]`. Alle Klänge entstehen
+„Spiel“ – Lautstärke und Aus-Schalter stehen im Einstellungsmenü und in `settings.cfg [sound]`; der Fahrtwind hat
+zusätzlich einen eigenen Regler (`wind_volume`, Aus bis 100 %, Standard 100 %, #69). Alle Klänge entstehen
 **prozedural** im Spiel (`src/sound_synth.gd`, SoundSynth), es gibt keine Klangdateien; erzeugt wird einmal beim Start,
 ein Klang je Frame. Was wann wie laut klingt, rechnet `RideSound.levels()` (`src/ride_sound.gd`) aus Tempo, Kadenz, Ort,
 Wetter und Tageslicht; Hörer ist die Kamera. Ton ist nur Ausgabe (ADR-0010).
 
 | Klang | Wann und wo | Erzeugung |
 |---|---|---|
-| Fahrtwind | beim Fahren, ab 5 km/h, voll und heller (Abspieltempo 0,8 → 1,35) ab 45 km/h | Rauschen, Tiefpass, plus ein Band um ~600 Hz mit langsam schwankender Stärke (Böen); 3-s-Schleife, 11 kHz |
+| Fahrtwind | beim Fahren, ab 5 km/h sanft ansteigend (`smoothstep` hoch 1,5), voll ab 45 km/h, Abspieltempo 0,85 → 1,1; Grundpegel 0,2 und eigener Regler (#69) | Rauschen, Tiefpass, plus ein weiches Band um ~250 Hz (zwei Tiefpässe) mit langsam schwankender Stärke (Böen), ohne harte Höhen; 3-s-Schleife, 11 kHz |
 | Freilauf | Kadenz 0 und Tempo ≥ 1 km/h; 12 Klicks je Radumdrehung | ein Klick (Rauschstoß 1,2 ms + 3,2 kHz, 2 ms) je 1/20 s; das Abspieltempo setzt die Klicks je Sekunde |
 | Meer | bis 25 m vom Wasser voll, ab 220 m still (Messringe um den Hörer im Höhenfeld) | braunes Rauschen (Brandung) und Zischen der auslaufenden Welle, zwei Wellen je 6-s-Schleife, 11 kHz |
 | Regen | nach der Regenstärke des Wetters, wie die sichtbaren Tropfen | hochpassgefiltertes Rauschen plus vereinzelte Tropfen (abklingende 3,2-kHz-Klicks); 2-s-Schleife |
@@ -1640,7 +1642,7 @@ src/weather.gd          Weather: simuliertes Wetter, Zustände und Übergänge �
 src/sky_controller.gd   SkyController: Sonne, Mond, Himmel, Environment, Regen, Sterne, Web-Lichtprofil (G6); Farbstimmung, Höhennebel (#42)
 src/night_lights.gd     NightLights: Laternen, Leuchtfeuer, Fahrradlicht bei Nacht
 src/speed_effects.gd    SpeedEffects: Geschwindigkeitslinien und Sichtfeld-Kick ab 35 km/h, abschaltbar (#42)
-src/ride_sound.gd       RideSound: Ton – Pegel aus Tempo, Ort, Wetter, Tageslicht (levels() als reine Rechnung), Bus „Spiel“, Auslöser (#44)
+src/ride_sound.gd       RideSound: Ton – Pegel aus Tempo, Ort, Wetter, Tageslicht (levels() als reine Rechnung), Bus „Spiel“, Auslöser, Regler Fahrtwind (#44, #69)
 src/sound_synth.gd      SoundSynth: alle Klänge prozedural als AudioStreamWAV (Rauschen, Filter, Teiltöne), keine Dateien (#44)
 src/shaders/            Wind (Vegetation), Meer (Wellen, Flachwasser, Brandung), Lichtkegel, Leuchtpunkte, Geschwindigkeitslinien
 src/graybox_track.gd    GrayboxTrack: Rundkurs ~900 m, flach → +6 % → Kuppe → −6 % → flach (`[world] track="graybox"`)
