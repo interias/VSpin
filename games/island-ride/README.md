@@ -349,7 +349,7 @@ Reihenfolge egal: Startet das Spiel zuerst, zeigt es „Bridge nicht erreichbar 
    `127.0.0.1:8765` erreichbar, startet das Spiel sie als unsichtbaren Kindprozess (`pythonw` aus `bridge/.venv`, kein
    Konsolenfenster) mit Quelle und Ablage aus `config.cfg [bridge]` (`autostart`, `program`, `source` = `sim`/`ble`,
    `sessions_dir`, beim Simulator die Start-Kadenz `sim_cadence`, Standard 80 rpm – unter `pythonw` gibt es keine
-   Pfeiltasten; relative Pfade ab dem Spielordner). Beim Schließen (Fenster, „Beenden“) beendet es nur diese eigene
+   Pfeiltasten; beim Trainer `trainer_read_only`, Standard `false`; relative Pfade ab dem Spielordner). Beim Schließen (Fenster, „Beenden“) beendet es nur diese eigene
    Bridge, sauber über die Stoppdatei (`--stop-file`, Session vollständig); erst wenn sie nach 5 s noch läuft, hart.
    Endet das Spiel ohne Stoppdatei (Absturz, „Stop“ im Editor), beendet sich die Bridge selbst (`--parent-pid`).
    Eine schon laufende Bridge wird nur mitbenutzt und nie beendet. Radstatus dabei: „Bridge nicht erreichbar – Bridge
@@ -1407,13 +1407,20 @@ Das Spiel meldet die Steigung an der Fahrerposition per `{"v": 0, "type": "set_g
 - Endwert: weicht der gemeldete Wert (unter der Schwelle) ab und hat sich die Steigung 1 s lang nicht um
   0,5 Prozentpunkte bewegt, wird der aktuelle Wert einmal nachgesendet (danach erst wieder nach einer neuen
   Bewegung über die Schwelle) – so bleibt am Ende einer Rampe nicht ein bis zu 0,5 Prozentpunkte alter Wert stehen,
-- nicht in der Verbindungspause (sinnlos); nach der Rückkehr wird der aktuelle Wert erneut gemeldet,
+- nur beim Fahren: **Grundlast** (#75) – verlässt das Spiel den Zustand `riding` (Verbindungspause, manuelle Pause,
+  Ziel, zurück ins Menü), sendet es einmal `set_grade 0`; beim Weiterfahren wird der aktuelle Wert erneut gemeldet,
   auch wenn er sich nicht geändert hat.
 
-Die Antwort (`ack`) der Bridge erscheint dezent unter den Werten: „Widerstand: nicht unterstützt“ bei
-`ok: false, reason: "not_supported"` (Normalfall bis zum ESP32), „Widerstand: Fehler (…)“ bei anderem Grund,
-nichts bei `ok: true`. `error`-Antworten landen als Warnung im Log. Mit dem Simulator sinkt bergauf die
-Kadenz; die Steigung steht in der Session-CSV der Bridge (Spalte `grade`).
+Mit einem steuerbaren Trainer (`source="ble"`, FTMS mit Simulation) wird die Steigung zum Widerstand am Trainer
+(ADR-0007, Nachtrag #75); die Bridge drosselt selbst noch einmal (0,1 %, 2 Hz) und setzt beim Beenden oder wenn
+das Spiel den Bus verlässt Steigung 0. Die Antwort (`ack`) der Bridge erscheint dezent unter den Werten:
+„Widerstand: nicht unterstützt“ bei `ok: false, reason: "not_supported"` (Simulator, Replay, Trainer ohne
+Simulation), „Widerstand: Fehler (…)“ bei anderem Grund, nichts bei `ok: true`. Vorrang davor hat der Stand der
+Steuerung aus `status.trainer.control`: bei `lost` der Hinweis, dass eine andere App den Trainer steuert und der
+Widerstand aus VSpin pausiert, bei `read_only` der Hinweis auf den Nur-lesen-Modus (`config.cfg [bridge]
+trainer_read_only=true` → Bridge mit `--read-only`, nur bei `source="ble"`). `error`-Antworten landen als Warnung
+im Log. Mit dem Simulator sinkt bergauf die Kadenz; die Steigung steht in der Session-CSV der Bridge (Spalte
+`grade`).
 
 ### Puls (#64)
 
