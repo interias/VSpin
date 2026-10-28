@@ -123,7 +123,9 @@ func test_pause_key_toggles_manual_pause() -> void:
 	await run_for(0.5)
 	assert_eq(ride.model.distance_m, distance, "steht während der Pause")
 	await press_key(KEY_SPACE)
-	assert_eq(ride.state, RIDING, "Leertaste setzt fort")
+	assert_eq(ride.state, PAUSED_MANUAL, "Leertaste ist Sprechtaste und setzt nicht fort (Spec #76)")
+	await press_key(KEY_P)
+	assert_eq(ride.state, RIDING, "P setzt fort")
 	await run_for(0.3)
 	assert_gt(ride.model.distance_m, distance)
 

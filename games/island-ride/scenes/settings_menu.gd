@@ -245,6 +245,10 @@ func _build() -> void:
 	_add_row(grid, "wind_volume", "Fahrtwind",
 			GraphicsSettings.WIND_VOLUMES.map(func(v): return "Aus" if v == 0.0 else "%d %%" % roundi(v * 100.0)),
 			GraphicsSettings.WIND_VOLUMES, func(v): settings.wind_volume = v)
+	_add_row(grid, "companion", "Begleiter", ["An", "Aus"], [true, false], func(v): settings.companion_enabled = v)
+	_add_row(grid, "companion_volume", "Toni-Lautstärke",
+			GraphicsSettings.COMPANION_VOLUMES.map(func(v): return "%d %%" % roundi(v * 100.0)),
+			GraphicsSettings.COMPANION_VOLUMES, func(v): settings.companion_volume = v)
 	_add_row(grid, "window_mode", "Fenstermodus", GraphicsSettings.WINDOW_MODES.map(func(m): return WINDOW_LABELS[m]),
 			GraphicsSettings.WINDOW_MODES, _on_window_mode)
 	_add_row(grid, "window_size", "Fenstergröße", [], [], _on_window_size)
@@ -268,7 +272,7 @@ func _build() -> void:
 	var quit := _add_button(actions, "Beenden", quit_requested.emit)
 	quit.name = "Quit"
 	quit.visible = not web  # im Browser lässt sich das Spiel nicht beenden
-	quit.focus_mode = Control.FOCUS_NONE  # nur per Klick: Leertaste (Pause) beendet nie versehentlich
+	quit.focus_mode = Control.FOCUS_NONE  # nur per Klick: die Leertaste (Sprechtaste) beendet nie versehentlich
 	for key in ["vsync", "window_mode", "window_size"]:
 		for control in _rows[key]:
 			control.visible = not web
@@ -414,6 +418,8 @@ func _refresh() -> void:
 	_select("sound", settings.sound_enabled)
 	_select_or_add("sound_volume", settings.sound_volume, func(v): return "%d %%" % roundi(v * 100.0))
 	_select_or_add("wind_volume", settings.wind_volume, func(v): return "Aus" if v == 0.0 else "%d %%" % roundi(v * 100.0))
+	_select("companion", settings.companion_enabled)
+	_select_or_add("companion_volume", settings.companion_volume, func(v): return "%d %%" % roundi(v * 100.0))
 	_select("camera_view", camera_view)
 	_select("window_mode", settings.window_mode)
 	var number := settings.fixed_hour if settings.time_mode == DayNight.MODE_FIXED 			else settings.timelapse_day_min if settings.time_mode == DayNight.MODE_TIMELAPSE else 0.0

@@ -28,7 +28,7 @@ Im Bridge-Terminal: Pfeil hoch/runter = Kadenz ±5, `q` = beenden. Profile liege
 Das echte Rad (`--source ble`) folgt mit #9.
 
 **3. Spiel starten:** Godot öffnen → `games/island-ride/project.godot` importieren → F5,
-oder `godot --path games/island-ride`. Tasten: `P`/Leertaste Pause, `F3` Debug-Anzeige, `Esc` oder `F2` Menü
+oder `godot --path games/island-ride`. Tasten: `P` Pause, Leertaste in der Fahrt halten = Sprechtaste (Toni), `F3` Debug-Anzeige, `Esc` oder `F2` Menü
 (Kantenglättung, Auflösung, Fenster auf linke/rechte Bildschirmhälfte, Tageszeit, Wetter; Knopf „Beenden“ zum
 Beenden), `F11` Vollbild.
 Reihenfolge egal – das Spiel verbindet sich, sobald die Bridge läuft.

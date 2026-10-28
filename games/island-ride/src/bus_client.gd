@@ -14,6 +14,10 @@
 ## Telemetrie (Bus weg, Quelle `stale`/`disconnected`, Schweigen) ist er NAN – ein alter Puls wäre eine falsche Angabe.
 ## Die gemerkten Geräte gehören dem Spiel: `set_heart_rate_devices` schickt sie sofort und nach jedem (Neu-)Verbinden
 ## erneut, auch eine leere Liste (eine frisch gestartete Bridge kennt keine Geräte, eine geteilte die eines anderen).
+##
+## Begleiter (Spec #76, docs/bus-protocol.md „Spiel ↔ Begleiter“): `companion_status` des Begleiters Toni steht in
+## `companion_state`/`companion_speaking`. Solange das Spiel keins gesehen hat (und nach jedem Abbruch des Busses), gilt:
+## kein Begleiter am Bus (`companion_seen` false). Gesendet wird alles über `send_message`.
 class_name BusClient
 extends RefCounted
 
@@ -29,6 +33,8 @@ signal ack_received(message: Dictionary)
 signal heart_rate_changed(state: String)
 ## Suchergebnis (`heart_rate_found`) nach `start_heart_rate_search`; `device_name` ist "" ohne Namen.
 signal heart_rate_found(address: String, device_name: String, rssi: int)
+## Der Begleiter hat seinen Zustand gemeldet (`companion_status`, jede gültige Nachricht, auch ohne Änderung).
+signal companion_status_received(state: String, speaking: bool)
 ## Die Suche endete ohne eigenes `stop` (`heart_rate_search_ended`); `reason`: timeout | taken_over.
 signal heart_rate_search_ended(reason: String)
 
@@ -45,6 +51,14 @@ const HEART_RATE_OFF := "off"
 const HEART_RATE_DISCONNECTED := "disconnected"
 const HEART_RATE_CONNECTED := "connected"
 const HEART_RATE_STALE := "stale"
+## Zustände des Begleiters laut `companion_status.state`.
+const COMPANION_IDLE := "idle"
+const COMPANION_LISTENING := "listening"
+const COMPANION_THINKING := "thinking"
+const COMPANION_SPEAKING := "speaking"
+const COMPANION_HOARSE := "hoarse"
+const COMPANION_STATES := [COMPANION_IDLE, COMPANION_LISTENING, COMPANION_THINKING, COMPANION_SPEAKING,
+		COMPANION_HOARSE]
 
 var url: String
 var reconnect_s: float
@@ -84,6 +98,11 @@ var heart_rate_device := {}
 ## Aktueller Puls in bpm; NAN = kein Wert (`null` in der Telemetrie, keine Telemetrie). Auch ohne Pulsgerät kann ein
 ## Wert da sein: Rad oder Simulator liefern dann ihren eigenen.
 var heart_rate_bpm := NAN
+## Hat das Spiel seit dem Verbinden ein `companion_status` gesehen? Sonst ist kein Begleiter am Bus.
+var companion_seen := false
+## Zustand des Begleiters laut letztem `companion_status` (COMPANION_*; `idle` ohne Begleiter) und ob er gerade spricht.
+var companion_state := COMPANION_IDLE
+var companion_speaking := false
 
 var _peer: WebSocketPeer = null
 var _retry_in_s := 0.0
@@ -228,6 +247,7 @@ func _set_bus_connected(connected: bool) -> void:
 		bus_connection_changed.emit(connected)
 	if not connected:
 		silent = false
+		forget_companion()  # ein Begleiter meldet sich nach dem Neuverbinden selbst wieder
 		_set_status(STATE_DISCONNECTED)
 		_set_heart_rate(HEART_RATE_OFF, {})  # ohne Bus weiß das Spiel nichts über den Puls
 
@@ -260,6 +280,27 @@ func _read_heart_rate_status(block) -> void:
 			device = {"address": str(info.get("address", "")), "name": str(info.get("name", "")),
 					"role": str(info.get("role", ""))}
 	_set_heart_rate(state, device)
+
+
+## Den Begleiter vergessen: wieder „kein Begleiter am Bus“ (nach einem Abbruch des Busses und wenn das Spiel ihn ausschaltet –
+## ein beendeter Begleiter meldet sich nicht ab, sein letzter Zustand bliebe sonst stehen, auch ein `speaking`).
+func forget_companion() -> void:
+	companion_seen = false
+	companion_state = COMPANION_IDLE
+	companion_speaking = false
+
+
+## `companion_status` übernehmen; ein unbekannter `state` wird ignoriert (Vorwärtskompatibilität). Fehlt `speaking`
+## (oder ist kein Wahrheitswert), gilt `state == speaking`.
+func _read_companion_status(message: Dictionary) -> void:
+	var reported = message.get("state")
+	if not (reported is String) or reported not in COMPANION_STATES:
+		return
+	var speaking = message.get("speaking")
+	companion_seen = true
+	companion_state = reported
+	companion_speaking = speaking if speaking is bool else reported == COMPANION_SPEAKING
+	companion_status_received.emit(companion_state, companion_speaking)
 
 
 func _handle(text: String) -> void:
@@ -302,6 +343,8 @@ func _handle(text: String) -> void:
 			var rssi = message.get("rssi")
 			heart_rate_found.emit(str(message.get("address", "")), found_name if found_name is String else "",
 					int(rssi) if rssi is float or rssi is int else 0)
+		"companion_status":
+			_read_companion_status(message)
 		"heart_rate_search_ended":
 			heart_rate_search_ended.emit(str(message.get("reason", "")))
 		"error":

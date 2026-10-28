@@ -157,10 +157,12 @@ func test_keyboard_drives_menu_into_ride() -> void:
 	assert_false(game.start_menu.visible, "Menü weg")
 	assert_true(game.hud.visible, "HUD da")
 	assert_true(game.rider.visible)
-	assert_null(_focused(game), "kein verborgener Knopf behält den Fokus (Leertaste = Pause)")
+	assert_null(_focused(game), "kein verborgener Knopf behält den Fokus (Leertaste = Sprechtaste)")
 	assert_true(await run_until(func(): return game.state == "riding", 3.0), "Rundfahrt fährt los")
 	await _press(KEY_SPACE)
-	assert_eq(game.state, "paused_manual", "Leertaste pausiert wie bisher")
+	assert_eq(game.state, "riding", "Leertaste ist in der Fahrt die Sprechtaste, keine Pause mehr (Spec #76)")
+	await _press(KEY_P)
+	assert_eq(game.state, "paused_manual", "P pausiert")
 
 
 func test_mouse_selects_menu_items() -> void:
