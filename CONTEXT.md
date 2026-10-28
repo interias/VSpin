@@ -38,6 +38,8 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **ESP32-Retrofit** | Spätere Ausbaustufe: Stepper am Widerstandsknopf + Hall-Sensor; meldet sich als FTMS-Smart-Bike mit Control Point. |
 | **Control Point** | FTMS-Characteristic `0x2AD9` zum Steuern des Geräts; wir nutzen Op `0x11` (Indoor Bike Simulation). |
 | **Session** | Ein Bridge-Lauf; erzeugt `sessions/<zeit>.csv` und `sessions/<zeit>.raw.jsonl`. |
+| **FIT-Datei** | Eine **Fahrt** als FIT-Aktivität (Garmins Dateiformat) in der **Fahrtablage** `sessions/rides/<zeit>_<ride_id>.fit`; die Bridge schreibt sie aus der Session-CSV, ohne geschätzte Watt (ADR-0008, Nachtrag #84). Lässt sich von Hand in Garmin Connect importieren. |
+| **Fahrtablage** | Ordner `sessions/rides/` der Bridge: die **FIT-Datei** jeder gespeicherten **Fahrt** und `rides.json` mit Wanduhr-Anker, Session-CSV und Upload-Marke je `ride_id` – die Merkliste, damit keine Fahrt zweimal hochgeladen wird. Eine Fahrt aus einer früheren **Session** wird nie neu geschrieben (#84). |
 | **HeartRateSource** | Zweite Quelle der Bridge neben der Radquelle: Puls per BLE Heart Rate Service `0x180D`. Gemerkte Geräte haben die Rolle Gurt (Brustgurt) oder Uhr (Garmin-Uhr mit „Herzfrequenz übertragen“); ihre Reihenfolge ist der Vorrang, ein verbundenes Gerät mit geringerem Vorrang wird gegen eines mit höherem getauscht. |
 
 ### Spiel
@@ -46,6 +48,7 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 |---|---|
 | **Runde** | Einmal den Rundkurs abfahren, in einer **Richtung** (im oder gegen den Uhrzeigersinn). |
 | **Fahrt** | Alles von Start bis Ende im Spiel: eine oder mehrere Runden, oder endlos. Nicht zu verwechseln mit der **Session** (ein Bridge-Lauf). |
+| **Fahrt speichern** | Am Ende einer **Fahrt**: das Spiel schickt `save_ride`, die Bridge schreibt die **FIT-Datei** und lädt sie auf Wunsch einmal zu Garmin Connect hoch (#84). Erneutes Speichern schreibt dieselbe Datei (in einer späteren **Session** bleibt sie unverändert) und lädt nicht noch einmal hoch. |
 | **Bestzeit** | Schnellste Runde je Strecke und Richtung. |
 | **Ghost** | Halbtransparenter Mitfahrer, der eine frühere Runde nachfährt – standardmäßig die Bestzeit, wahlweise die letzte Fahrt. |
 | **Segment** | Fester Abschnitt des Rundkurses mit eigener Zeit, z. B. die Bergwertung in den Serpentinen. |
@@ -88,7 +91,7 @@ Prototyp-Game: [ADR-0005](docs/adr/0005-prototyp-game-radsimulator.md) – 3D-Ra
 
 Widerstandssteuerung: [ADR-0007](docs/adr/0007-widerstandssteuerung-esp32.md) – Steigung über FTMS, ESP32 als Smart-Bike.
 
-Datenspeicherung: [ADR-0008](docs/adr/0008-datenspeicherung-und-export.md) – CSV + Roh-JSONL pro Bridge-Start, FIT/Strava später.
+Datenspeicherung: [ADR-0008](docs/adr/0008-datenspeicherung-und-export.md) – CSV + Roh-JSONL pro Bridge-Start, FIT-Datei je Fahrt, optional Garmin-Upload (#84).
 
 Repo & Lizenz: [ADR-0009](docs/adr/0009-repo-organisation-und-lizenz.md) – Monorepo, privat, MIT.
 

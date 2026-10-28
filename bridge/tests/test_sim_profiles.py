@@ -153,7 +153,8 @@ def test_example_profiles_exist():
 def test_example_profile_starts(bridge_process, bus_client, name):
     bridge = bridge_process("--source", "sim", "--profile", str(PROFILES_DIR / name))
     client = bus_client()
-    assert receive_json(client) | {"t_ms": 0} == {
+    status = receive_json(client)
+    assert status | {"t_ms": 0, "garmin": None} == {
         "v": 0,
         "type": "status",
         "t_ms": 0,
@@ -161,7 +162,10 @@ def test_example_profile_starts(bridge_process, bus_client, name):
         "source": "sim",
         "capabilities": ["CADENCE"],
         "heart_rate": {"state": "off", "device": None},  # Pulsquelle bis zum ersten Befehl aus (#64)
+        "garmin": None,  # Anmeldezustand (#84), hängt vom Extra `garmin` ab – unten geprüft
     }
+    # Heimatverzeichnis der Bridge ist der Testordner: nie das Token des Nutzers, also nie `logged_in`.
+    assert status["garmin"]["login"] in ("unavailable", "not_logged_in")
     telemetry = receive_json(client)
     assert telemetry["type"] == "telemetry" and 0 <= telemetry["cadence"] <= 200
     assert bridge.stop() == 0

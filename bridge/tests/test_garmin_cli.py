@@ -17,7 +17,7 @@ from fake_garmin import (
     missing_library,
 )
 
-from vspin_bridge.garmin import GarminConnectUploader, LoginState
+from vspin_bridge.garmin import TOKEN_FILE, GarminConnectUploader, LoginState
 from vspin_bridge.garmin.cli import main
 
 EMAIL = "fahrer@example.org"
@@ -61,8 +61,8 @@ def test_login_stores_the_token_and_prints_no_secret(capsys, tmp_path):
     assert login(lib, token_dir, terminal) == 0
 
     assert lib.clients == [{"email": EMAIL, "password": PASSWORD}]
-    assert lib.logins == [None]
-    assert lib.dumps == [str(token_dir)] and token_dir.is_dir()
+    assert lib.logins == [str(token_dir)]  # `login(tokenstore)` meldet an und speichert selbst (0.3.x)
+    assert lib.saved == [str(token_dir)] and (token_dir / "garmin_tokens.json").is_file()
     assert terminal.prompts == ["Garmin-E-Mail: ", "Garmin-Passwort: "]  # kein MFA ohne Bedarf
     assert "Angemeldet" in assert_no_secret(capsys)
 
@@ -94,19 +94,15 @@ def test_failed_login_exits_nonzero_after_exactly_one_attempt(capsys, tmp_path, 
     assert login(lib, token_dir, terminal) == 1
 
     assert len(lib.clients) == 1 and len(lib.logins) == 1  # kein zweiter Versuch
-    assert lib.dumps == [] and not token_dir.exists()
+    assert lib.saved == [] and not token_dir.exists()
     output = assert_no_secret(capsys)
     assert reason in output and "Nicht sofort wiederholen" in output
 
 
-@pytest.mark.parametrize("broken", ["no_garth", "dump_error"])
-def test_saving_the_token_fails_separately_and_leaves_no_login(capsys, tmp_path, broken):
-    """Anmeldung gelingt, nur das Speichern scheitert: eigene Meldung, kein `logged_in`, kein zweiter Versuch."""
+def test_saving_the_token_fails_separately_and_leaves_no_login(capsys, tmp_path):
+    """Anmeldung gelingt, nur das Token fehlt danach: eigene Meldung, kein `logged_in`, kein zweiter Versuch."""
     lib, terminal, token_dir = FakeGarminLibrary(), Terminal(), tmp_path / "garminconnect"
-    if broken == "no_garth":
-        lib.has_garth = False
-    else:
-        lib.dump_error = PermissionError(f"cannot write {PASSWORD}")
+    lib.saves_token = False
 
     assert login(lib, token_dir, terminal) == 3
 
@@ -119,16 +115,74 @@ def test_saving_the_token_fails_separately_and_leaves_no_login(capsys, tmp_path,
     assert main(["--token-dir", str(token_dir), "status"], library=lib) == 1
 
 
+@pytest.mark.parametrize("abort", [KeyboardInterrupt, EOFError])
+def test_aborting_at_the_mfa_prompt_leaves_no_login(capsys, tmp_path, abort):
+    """Das Token-Verzeichnis wird vor `login()` angelegt; Strg+C an der MFA-Abfrage darf es nicht leer liegen lassen,
+    sonst meldet `login_state()` `logged_in`."""
+    lib, terminal, token_dir = FakeGarminLibrary(), Terminal(), tmp_path / "garminconnect"
+    lib.mfa = True
+    during: list[LoginState] = []
+
+    def getpass(prompt: str) -> str:
+        if "MFA" in prompt:
+            # Mitten in der Anmeldung liegt das Verzeichnis schon leer da: kein `logged_in` für den 5-s-Takt.
+            assert token_dir.is_dir()
+            during.append(GarminConnectUploader(token_dir, lib).login_state())
+            raise abort
+        return terminal.getpass(prompt)
+
+    assert main(["--token-dir", str(token_dir), "login"], library=lib, input_fn=terminal.input, getpass_fn=getpass) == 2
+
+    assert during == [LoginState.NOT_LOGGED_IN]
+    assert not token_dir.exists() and lib.saved == []
+    assert GarminConnectUploader(token_dir, lib).login_state() is LoginState.NOT_LOGGED_IN
+    assert "Anmeldung abgebrochen" in assert_no_secret(capsys)
+
+
 def test_failed_save_keeps_an_existing_token_dir_with_files(capsys, tmp_path):
     lib, token_dir = FakeGarminLibrary(), tmp_path / "garminconnect"
     token_dir.mkdir()
     (token_dir / "old").write_text("x", encoding="utf-8")
-    lib.has_garth = False
+    lib.saves_token = False
 
     assert login(lib, token_dir, Terminal()) == 3
 
-    assert (token_dir / "old").is_file()
-    assert_no_secret(capsys)
+    assert (token_dir / "old").is_file() and not (token_dir / TOKEN_FILE).exists()
+    assert "das Token konnte nicht gespeichert werden" in assert_no_secret(capsys)
+
+
+def test_login_with_a_valid_token_already_there_is_already_logged_in(capsys, tmp_path):
+    """`login(tokenstore)` lädt das vorhandene Token zuerst und kürzt ab, ohne neu zu schreiben: kein Fehler in
+    VSpin (Exit 3), sondern „schon angemeldet“ mit Exit 0, und das Token bleibt unangetastet."""
+    lib, token_dir = FakeGarminLibrary(), tmp_path / "garminconnect"
+    token_dir.mkdir()
+    token = token_dir / TOKEN_FILE
+    token.write_text('{"alt": 1}', encoding="utf-8")
+    stamp = token.stat().st_mtime_ns
+    lib.mfa = True
+
+    assert login(lib, token_dir, Terminal()) == 0
+
+    assert lib.resumed == [str(token_dir)] and lib.saved == [] and lib.mfa_codes == []  # keine Anmeldung bei Garmin
+    assert len(lib.logins) == 1  # genau ein `login()`
+    assert token.read_text(encoding="utf-8") == '{"alt": 1}' and token.stat().st_mtime_ns == stamp
+    output = assert_no_secret(capsys)
+    assert "Schon bei Garmin angemeldet" in output and "Fehler in VSpin" not in output
+    assert GarminConnectUploader(token_dir, lib).login_state() is LoginState.LOGGED_IN
+
+
+def test_login_with_a_rejected_old_token_logs_in_and_stores_a_new_one(capsys, tmp_path):
+    lib, token_dir = FakeGarminLibrary(), tmp_path / "garminconnect"
+    token_dir.mkdir()
+    token = token_dir / TOKEN_FILE
+    token.write_text('{"alt": 1}', encoding="utf-8")
+    os.utime(token, (1_000_000_000, 1_000_000_000))  # Token einer früheren Anmeldung; Windows-mtime ist zu grob
+    lib.tokens_valid = False
+
+    assert login(lib, token_dir, Terminal()) == 0
+
+    assert lib.resumed == [] and lib.saved == [str(token_dir)] and token.read_text(encoding="utf-8") == "{}"
+    assert "Angemeldet. Token gespeichert" in assert_no_secret(capsys)
 
 
 def test_login_without_library_asks_nothing(capsys, tmp_path):
@@ -156,7 +210,11 @@ def test_status(capsys, tmp_path):
     assert main(["--token-dir", str(token_dir), "status"], library=lib) == 1
     assert "Nicht bei Garmin angemeldet" in capsys.readouterr().out
 
-    token_dir.mkdir()
+    token_dir.mkdir()  # das Verzeichnis allein ist keine Anmeldung (etwa nach `logout()` der Bibliothek)
+    assert main(["--token-dir", str(token_dir), "status"], library=lib) == 1
+    assert "Nicht bei Garmin angemeldet" in capsys.readouterr().out
+
+    (token_dir / TOKEN_FILE).write_text("{}", encoding="utf-8")
     assert main(["--token-dir", str(token_dir), "status"], library=lib) == 0
     assert "Bei Garmin angemeldet" in capsys.readouterr().out
 
