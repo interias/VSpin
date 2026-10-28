@@ -202,8 +202,27 @@ func test_frame_shows_rarity_color() -> void:
 		add_child_autofree(view)
 		assert_eq(view.frame_color(), Loot.color_of(rarity), "%s: Rahmen in der Seltenheitsfarbe" % rarity)
 		assert_same(view._backdrop.texture, ItemIcons.backdrop_for(rarity), "Hintergrund in der Seltenheitsfarbe")
-		var gradient := (ItemIcons.backdrop_for(rarity) as GradientTexture2D).gradient
-		assert_eq(gradient.get_color(0), Loot.color_of(rarity).darkened(0.42))
+		var colors := ItemIcons.backdrop_colors(rarity)
+		if ItemIcons.BACKDROPS.has(rarity):
+			assert_eq(colors, ItemIcons.BACKDROPS[rarity], "selten und legendär: eigene Hintergrundfarben")
+			var texture := ItemIcons.backdrop_for(rarity)
+			if rarity == Loot.LEGENDARY:
+				# Strahlenbild: Mitte nahe der Mittelfarbe, Ecke nahe der Randfarbe (Strahlen heben sie höchstens um ~0,22).
+				var image := texture.get_image()
+				var middle := image.get_pixel(ItemIcons.RAY_SIZE / 2, int(ItemIcons.RAY_SIZE * 0.42))
+				var corner := image.get_pixel(0, 0)
+				assert_lt(Vector3(middle.r - colors[0].r, middle.g - colors[0].g, middle.b - colors[0].b).length(), 0.1,
+						"legendär: Bildmitte in der Mittelfarbe")
+				assert_lt(Vector3(corner.r - colors[1].r, corner.g - colors[1].g, corner.b - colors[1].b).length(), 0.25,
+						"legendär: Bildecke in der Randfarbe")
+			else:
+				var gradient := (texture as GradientTexture2D).gradient
+				assert_eq(gradient.get_color(0), colors[0], "selten: Verlauf aus den Hintergrundfarben")
+				assert_eq(gradient.get_color(1), colors[1])
+		else:
+			var gradient := (ItemIcons.backdrop_for(rarity) as GradientTexture2D).gradient
+			assert_eq(gradient.get_color(0), Loot.color_of(rarity).darkened(0.42), "gewöhnlich, magisch: Rahmenfarbe abgedunkelt")
+			assert_eq(gradient.get_color(1), Loot.color_of(rarity).darkened(0.84))
 		assert_same(view.texture(), ItemIcons.texture_for(view.item))
 
 
@@ -287,3 +306,106 @@ func test_studio_hangs_at_root_after_the_frame() -> void:
 	var studio := get_tree().root.get_node_or_null("ItemIconStudio")
 	assert_not_null(studio, "Viewports hängen unter einem eigenen Knoten an der Wurzel")
 	assert_eq(studio.get_child_count(), 1)
+
+
+## Selten und legendär liegen als Rahmenfarbe nah beieinander (Gelb, Orange; kommen aus Loot und färben auch Lichtsäule und
+## Schrift). Im Symbol selbst trennen Hintergrund und Zier sie: selten hell goldgelb, legendär tief Glutorange bis Rot. Schwellen:
+## Der RGB-Abstand der Rahmenfarben beträgt 0,22; die alten Hintergründe (Rahmenfarbe abgedunkelt) lagen bei 0,19 (Mitte) und
+## 0,05 (Rand) auseinander. Jetzt verlangen wir mindestens 0,3 an beiden Stellen, einen Farbtonabstand von 0,05 und einen hellen
+## Rand bei selten gegen einen dunklen bei legendär.
+func test_rare_and_legendary_backdrops_differ_clearly() -> void:
+	var rare := ItemIcons.backdrop_colors(Loot.RARE)
+	var legendary := ItemIcons.backdrop_colors(Loot.LEGENDARY)
+	var distance := func(a: Color, b: Color) -> float:
+		return Vector3(a.r - b.r, a.g - b.g, a.b - b.b).length()
+	assert_gt(distance.call(rare[0], legendary[0]), 0.3, "Mitte weit auseinander")
+	assert_gt(distance.call(rare[1], legendary[1]), 0.3, "Rand weit auseinander")
+	assert_gt((rare[0] as Color).h - (legendary[0] as Color).h, 0.05, "selten gelber, legendär röter")
+	assert_gt((rare[1] as Color).v, 0.4, "selten: heller Rand")
+	assert_lt((legendary[1] as Color).v, 0.3, "legendär: dunkler, roter Rand")
+	assert_gt((rare[0] as Color).s, 0.0)
+	# Die Rahmenfarben bleiben (Loot).
+	assert_eq(Loot.color_of(Loot.RARE), Color(1.0, 0.86, 0.2))
+	assert_eq(Loot.color_of(Loot.LEGENDARY), Color(1.0, 0.55, 0.1))
+	# Zier: selten blasses Silbergold, legendär sattes Gold.
+	var trims := ItemIcons.TRIMS
+	assert_gt((trims[3] as Color).s - (trims[2] as Color).s, 0.4, "legendäre Zier viel satter als die seltene")
+	assert_gt((trims[2] as Color).v, 0.85, "seltene Zier hell")
+	assert_gt(distance.call(trims[2], trims[3]), 0.3, "Zierfarben weit auseinander")
+	var variants := {}
+	for rarity in [Loot.RARE, Loot.LEGENDARY]:
+		variants[rarity] = ItemIcons.variant_of(_item("helm", rarity, {"zone_width_rpm": 3}))
+	assert_eq(variants[Loot.RARE]["trim"], trims[2])
+	assert_eq(variants[Loot.LEGENDARY]["trim"], trims[3])
+
+
+## Legendär: Strahlenkranz im Hintergrund – auf gleichem Abstand von der Mitte wechseln Strahl und Lücke; bei selten ist der
+## Verlauf glatt. Das Bild ist geteilt und rendert ohne Leuchten (der Schalter berührt es nicht).
+func test_legendary_backdrop_has_rays_and_rare_does_not() -> void:
+	var rays := ItemIcons.backdrop_for(Loot.LEGENDARY)
+	assert_same(rays, ItemIcons.backdrop_for(Loot.LEGENDARY), "einmal gezeichnet, geteilt")
+	var image := rays.get_image()
+	var middle := Vector2(0.5, 0.42) * ItemIcons.RAY_SIZE
+	var radius := ItemIcons.RAY_SIZE * 0.3
+	var low := 1.0
+	var high := 0.0
+	for i in range(96):
+		var at := middle + Vector2.from_angle(TAU * i / 96.0) * radius
+		var green := image.get_pixel(clampi(roundi(at.x), 0, ItemIcons.RAY_SIZE - 1), clampi(roundi(at.y), 0, ItemIcons.RAY_SIZE - 1)).g
+		low = minf(low, green)
+		high = maxf(high, green)
+	assert_gt(high - low, 0.08, "Strahlen: Helligkeit wechselt um den Kranz (%.3f bis %.3f)" % [low, high])
+	var rare := (ItemIcons.backdrop_for(Loot.RARE) as GradientTexture2D)
+	assert_eq(rare.fill, GradientTexture2D.FILL_RADIAL, "selten: glatter Verlauf ohne Strahlen")
+	ItemIcons.glow_enabled = false
+	assert_same(ItemIcons.backdrop_for(Loot.LEGENDARY), rays, "Leuchten aus ändert den Hintergrund nicht")
+
+
+## Aerohelm (#83 Feinschliff): schmal in Querrichtung gegenüber seiner Länge (Tropfen mit Heckspitze, vorher 0,6), mit
+## Lüftungsschlitzen, Visierkante und Visier.
+func test_helmet_is_slim_with_vents_and_visor() -> void:
+	for detail in range(ItemIcons.DETAILS):
+		var variant := ItemIcons.variant_of(_item("helm", Loot.RARE, {"zone_width_rpm": 3}))
+		variant["detail"] = detail
+		var model := ItemIcons.build_model(variant)
+		var box: AABB = (model.get_node("Mesh") as MeshInstance3D).mesh.get_aabb()
+		assert_lt(box.size.z / box.size.x, 0.42, "Detail %d: Breite zur Länge %.2f" % [detail, box.size.z / box.size.x])
+		for part in ["Heckspitze", "Lüftungsschlitze", "Visierkante", "Visier"]:
+			assert_has(model.get_meta("parts"), part)
+		model.free()
+
+
+## Radschuh: lang und flach, mit Pedalplatte samt Cleat unter der Sohle (Länge zur Höhe 1,85, vorher 1,87: der Wächter
+## sichert die Bauteile und den Cleat, die Lesbarkeit bei 64 px zeigen die Bilder), Fersenkappe, Drehverschluss; Klettriemen nur bei Detail 1.
+func test_shoe_is_long_and_flat_with_cleat_and_dial() -> void:
+	for detail in range(ItemIcons.DETAILS):
+		var variant := ItemIcons.variant_of(_item("schuhe", Loot.LEGENDARY, {"zone_width_rpm": 3}, "im_fluss"))
+		variant["detail"] = detail
+		var model := ItemIcons.build_model(variant)
+		var box: AABB = (model.get_node("Mesh") as MeshInstance3D).mesh.get_aabb()
+		assert_gt(box.size.x / box.size.y, 1.8, "Detail %d: Länge zur Höhe %.2f" % [detail, box.size.x / box.size.y])
+		assert_lt(box.position.y, -0.05, "Cleat ragt unter die Sohle")
+		for part in ["Sohle", "Obermaterial", "Fersenkappe", "Drehverschluss", "Pedalplatte"]:
+			assert_has(model.get_meta("parts"), part)
+		assert_eq((model.get_meta("parts") as Array).has("Klettriemen"), detail == 1)
+		model.free()
+
+
+## Talisman-Motive füllen den Anhänger: der Drachenkopf (Schnauze, Hörner, Auge, Feuer) mindestens 88 % seiner Breite (jetzt 94 %, der
+## alte Kopf kam in dieser Messung auf 81 %; die Hülle zählt Hörner und Feuer mit), Windspirale und Hörnermaske mindestens 55 % (Windspirale vorher 49 %). Gemessen an den Bauteilen im Modell (`metrics`).
+func test_talisman_motifs_fill_the_pendant() -> void:
+	var minimum := {BossFigure.DRAC: 0.88, BossFigure.TRAMUNTANA: 0.55, BossFigure.DIMONIS: 0.55}
+	var effects := {BossFigure.DRAC: "tiefer_atem", BossFigure.TRAMUNTANA: "rueckstoss", BossFigure.DIMONIS: "kombo_ernte"}
+	for motif in minimum:
+		for pattern in ItemIcons.PATTERNS:
+			var variant := ItemIcons.variant_of(_item("talisman", Loot.LEGENDARY, {"luck_pct": 25}, effects[motif]))
+			variant["pattern"] = pattern
+			var model := ItemIcons.build_model(variant)
+			var metrics: Dictionary = model.get_meta("metrics")
+			var share: float = metrics["motif_width"] / metrics["pendant_width"]
+			assert_gt(share, minimum[motif], "%s (%s): Motiv %.0f %% der Anhängerbreite" % [motif, pattern, share * 100.0])
+			assert_lt(share, 1.0, "%s: das Motiv bleibt im Anhänger" % motif)
+			model.free()
+	var stone := ItemIcons.build_model(ItemIcons.variant_of(_item("talisman", Loot.COMMON, {"luck_pct": 5})))
+	assert_eq(stone.get_meta("metrics"), {}, "Stein: kein Motiv zu messen")
+	stone.free()
