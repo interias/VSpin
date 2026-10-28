@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import random
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import prompts
@@ -22,6 +23,8 @@ from .bus import BusClient
 from .config import CompanionConfig, ConfigError, save_wake_interval
 from .notes import MEMORY, NOTES, SOUL, Notebook, NoteRefused
 from .ports import Brain, Clock, Ears, Mouth, ToolCall, ToolResult
+from .protocol_log import TARGET_LATENCY_S, ProtocolLog
+from .utterance import Utterance
 from .wake import RideWatch, describe_event
 
 PROTOCOL_VERSION = 0
@@ -35,6 +38,7 @@ SPEAKING = "speaking"
 HOARSE = "hoarse"
 STATES = (IDLE, LISTENING, THINKING, SPEAKING, HOARSE)
 
+FINAL_COST_TIMEOUT_S = 3.0  # letzte Kostenabfrage beim Beenden darf das Prozessende kaum verzögern
 MIN_UNPROMPTED_GAP_S = 60.0  # Story 10: mindestens eine Minute Schweigen zwischen zwei ungefragten Sätzen
 
 
@@ -69,6 +73,7 @@ class Companion:
         self._config = config
         self._rng = rng or random.Random()  # Tests geben einen mit festem Seed
         self._notes = Notebook(data_dir, brain.summarize, log)
+        self._protocol = ProtocolLog(data_dir, log)
         self._tasks: set[asyncio.Task] = set()
         # Das Brain macht eins nach dem anderen: Sitzung öffnen/schließen, Antwort, Wecker, Aufräumen.
         self._brain_lock = asyncio.Lock()
@@ -88,6 +93,12 @@ class Companion:
         self._last_unprompted_at: float | None = None
         self._alarm: asyncio.Task | None = None
         self._waking: asyncio.Task | None = None
+        # Antwort in Rede (Barge-in bricht sie ab)
+        self._replying: asyncio.Task | None = None
+        self._utterance: Utterance | None = None
+        self._volume: float | None = None  # zuletzt gemeldetes `companion_volume` (0..1)
+        self._latencies: list[float] = []  # Antwortzeiten der laufenden Fahrt
+        self._cost_jobs: list[_CostJob] = []  # Fahrten, deren Kosten OpenRouter noch nicht geliefert hat
 
     @property
     def state(self) -> str:
@@ -99,12 +110,15 @@ class Companion:
         try:
             await self._bus.run(stop)
         finally:
+            with contextlib.suppress(Exception):
+                await self._mouth.stop()  # Wiedergabe und Synthese enden, kein Thread verzögert das Prozessende
             tasks = list(self._tasks)
             for task in tasks:
                 task.cancel()
             for task in tasks:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
+            await self._settle_costs()
             with contextlib.suppress(Exception):
                 await self._close_session()
 
@@ -135,6 +149,7 @@ class Companion:
     async def _ride_event(self, event: dict) -> None:
         kind = event.get("kind")
         if kind == "ride_start":
+            self._apply_volume(event)
             await self._send_status()  # das Spiel kennt Tonis Stand ab Fahrtbeginn, auch wenn es später kam
             self._ride_started(event)
             return
@@ -168,6 +183,8 @@ class Companion:
         self._boss, self._hard_until = False, None
         self._pending.clear()
         self._last_unprompted_at = None
+        self._latencies = []
+        self._discard_usage()  # was vor der Fahrt gesprochen wurde, gehört nicht in ihr Protokoll
         self._log(f"Fahrt beginnt – {self._ride.splitlines()[0]}")
         self._spawn(self._new_session())  # warme Sitzung je Fahrt, Seele und Gedächtnis frisch gelesen
         self._schedule_timer()
@@ -180,8 +197,11 @@ class Companion:
         self._rearm()
         self._log("Fahrt zu Ende")
         self._spawn(self._finish_ride())
+        self._protocol_ride(self._take_usage(), self._latencies)
+        self._latencies = []
 
     def _ride_state(self, state: dict) -> None:
+        self._apply_volume(state)
         if not self._riding:
             return
         for key, text in self._watch.update(state):
@@ -273,6 +293,7 @@ class Companion:
 
     async def _wake(self) -> None:
         port = "Brain"
+        speech: Utterance | None = None
         try:
             if not self._wake_allowed():
                 self._pending.clear()
@@ -284,35 +305,54 @@ class Companion:
             occasions = list(self._pending.values())
             self._pending.clear()
             self._schedule_timer()
-            parts: list[str] = []
             async with self._brain_lock:
                 if not self._wake_allowed():  # Fahrt endete oder `stay_silent`, während Toni wartete
                     return
                 hard = self._hard_phase()
                 await self._ensure_session()
                 prompt = prompts.wake_prompt(occasions, prompts.ride_line(self._watch.last), hard)
+                speech = self._utterance = Utterance(
+                    self._mouth,
+                    one_sentence=lambda: hard or self._hard_phase(),
+                    gate=self._wake_gate,
+                    on_sound=self._wake_sound,
+                )
                 async for item in self._brain.respond(prompt):
                     if isinstance(item, ToolCall):
                         self._log(f"Werkzeug {item.name} {item.arguments}")
                     else:
-                        parts.append(item)
-            text = prompts.spoken_text(parts, hard or self._hard_phase())
-            if not text or self._state != IDLE or not self._wake_allowed():
+                        speech.feed(item)
+            port = "Mouth"
+            await speech.finish()
+            if not speech.sentences:
                 self._log("Wecker: Toni schweigt")
                 return
             port = "Clock"
-            self._last_unprompted_at = self._clock.now()
-            await self._set_state(SPEAKING)
-            self._log(f"Ungefragt: {text}")
-            port = "Mouth"
-            await self._mouth.speak(text)
             self._last_unprompted_at = self._clock.now()  # die Minute Schweigen zählt ab dem Ende des Satzes
             await self._set_state(IDLE)
         except Exception as exc:
+            if speech is not None and speech.sentences:
+                speech.cancel()
+                with contextlib.suppress(Exception):
+                    await self._mouth.stop()
             await self._hoarse(port, exc)
         finally:
+            if speech is not None and self._utterance is speech:  # die Antwort auf eine Frage bleibt stehen
+                self._utterance = None
             self._waking = None
             self._rearm()
+
+    def _wake_gate(self) -> bool:
+        """Vor dem ersten Satz des Weckers: Toni darf nur sprechen, wenn er noch `idle` ist (nicht angesprochen
+        wurde) und der Wecker noch gilt; die Minute Schweigen beginnt mit dem Satz."""
+        if self._state != IDLE or not self._wake_allowed():
+            return False
+        self._last_unprompted_at = self._clock.now()
+        return True
+
+    async def _wake_sound(self) -> None:
+        if self._state == IDLE:
+            await self._set_state(SPEAKING)
 
     # --- Werkzeuge --------------------------------------------------------------------------------------------
 
@@ -358,8 +398,10 @@ class Companion:
     # --- Sprechtaste ------------------------------------------------------------------------------------------
 
     async def _ptt_down(self) -> None:
-        if self._state not in (IDLE, HOARSE):
-            return  # Toni denkt oder spricht noch – Barge-in kommt mit #79
+        if self._state in (THINKING, SPEAKING) or self._speech_in_flight():
+            await self._barge_in()
+        elif self._state not in (IDLE, HOARSE):
+            return  # Toni hört schon zu
         try:
             await self._ears.start_listening()
         except Exception as exc:
@@ -367,26 +409,54 @@ class Companion:
             return
         await self._set_state(LISTENING)
 
+    def _speech_in_flight(self) -> bool:
+        return self._utterance is not None and bool(self._utterance.sentences)
+
+    async def _barge_in(self) -> None:
+        """Der Fahrer unterbricht Toni (Story 5): Antwort-Aufgabe und offene Sätze abbrechen, Wiedergabe und
+        Synthese des Mundes stoppen. Danach hört Toni zu."""
+        self._log("Barge-in: Toni wird unterbrochen")
+        current = asyncio.current_task()
+        tasks = [t for t in (self._replying, self._waking) if t is not None and t is not current and not t.done()]
+        for task in tasks:
+            task.cancel()
+        if self._utterance is not None:
+            self._utterance.cancel()
+        self._replying = None
+        try:
+            await self._mouth.stop()
+        except Exception as exc:
+            await self._hoarse("Mouth", exc)
+        # Die abgebrochenen Aufgaben räumen im Hintergrund auf (das Brain braucht dafür bis zu 3 s); die ersten
+        # Wörter des Fahrers warten nicht darauf. Brain-Zugriffe bleiben nacheinander (`_brain_lock`).
+
     async def _ptt_up(self) -> None:
         if self._state != LISTENING:
             return
         await self._set_state(THINKING)
         # Eigene Aufgabe: Der Bus liest weiter, während Toni denkt und spricht.
-        self._spawn(self._reply())
+        self._replying = self._spawn(self._reply())
 
     async def _reply(self) -> None:
-        port = "Ears"
+        port = "Clock"
+        speech: Utterance | None = None
         try:
+            released = self._clock.now()  # Antwortzeit zählt ab dem Loslassen, inklusive Erkennung
+            port = "Ears"
             question = await self._ears.stop_listening()
-            port = "Clock"
-            released = self._clock.now()
             if not question.strip():
                 self._log("Sprechtaste: nichts verstanden")
                 await self._set_state(IDLE)
                 return
             self._log(f"Frage: {question}")
             port = "Brain"
-            parts: list[str] = []
+
+            async def on_sound() -> None:
+                await self._question_sound(released, speech)
+
+            speech = self._utterance = Utterance(
+                self._mouth, one_sentence=lambda: self._riding and self._hard_phase(), on_sound=on_sound
+            )
             async with self._brain_lock:
                 await self._ensure_session()
                 ride = prompts.ride_line(self._watch.last) if self._riding else None
@@ -394,19 +464,120 @@ class Companion:
                     if isinstance(item, ToolCall):
                         self._log(f"Werkzeug {item.name} {item.arguments}")
                     else:
-                        parts.append(item)
-            answer = prompts.spoken_text(parts, self._riding and self._hard_phase())
-            if answer:
-                port = "Clock"
-                latency_s = self._clock.now() - released
-                await self._set_state(SPEAKING)
-                self._log(f"Antwort nach {latency_s:.2f} s: {answer}")
-                port = "Mouth"
-                await self._mouth.speak(answer)
+                        speech.feed(item)
+            port = "Mouth"
+            await speech.finish()
         except Exception as exc:
+            if speech is not None and speech.sentences:
+                speech.cancel()
+                with contextlib.suppress(Exception):
+                    await self._mouth.stop()
             await self._hoarse(port, exc)
             return
+        finally:
+            if self._utterance is speech:
+                self._utterance = None
         await self._set_state(IDLE)
+
+    async def _question_sound(self, released: float, speech: Utterance | None) -> None:
+        """Der erste Ton der Antwort spielt: Antwortzeit ins Protokoll (Ziel ≤ 2,5 s), Status `speaking`."""
+        latency_s = self._clock.now() - released
+        self._latencies.append(latency_s)
+        first = speech.sentences[0] if speech is not None and speech.sentences else ""
+        self._log(f"Antwort nach {latency_s:.2f} s: {first}")
+        self._protocol.write(
+            {"type": "answer", "latency_s": round(latency_s, 2), "within_target": latency_s <= TARGET_LATENCY_S}
+        )
+        if self._state == THINKING:
+            await self._set_state(SPEAKING)
+
+    # --- Lautstärke, Kosten und Protokoll ----------------------------------------------------------------------
+
+    def _apply_volume(self, message: dict) -> None:
+        """`companion_volume` (0..1) aus `ride_state` und `ride_start`: der zuletzt empfangene Wert gilt; fehlt er
+        oder ist er keine Zahl, bleibt es, wie es war (Standard des Mundes: 1,0)."""
+        volume = message.get("companion_volume")
+        if isinstance(volume, bool) or not isinstance(volume, (int, float)) or volume != volume:
+            return
+        volume = min(1.0, max(0.0, float(volume)))
+        if volume != self._volume:
+            self._volume = volume
+            self._mouth.set_volume(volume)
+
+    def _take_usage(self):
+        try:
+            return self._mouth.take_usage()
+        except Exception as exc:
+            self._log(f"Sprachverbrauch nicht lesbar – {type(exc).__name__}: {exc}")
+            return None
+
+    def _discard_usage(self) -> None:
+        usage = self._take_usage()
+        if usage is not None and usage.requests:
+            self._log(f"Sprachverbrauch vor der Fahrt ({usage.chars} Zeichen) zählt nicht zur Fahrt")
+
+    def _protocol_ride(self, usage, latencies: list[float]) -> None:
+        """Protokoll der Fahrt bei `ride_end`: Zeichen und Antwortzeiten sofort, die Kosten aus OpenRouters
+        Generation-API als Nachtrag (`ride_cost`) – die gibt den Datensatz erst kurz nach der Synthese her."""
+        record: dict = {
+            "type": "ride",
+            "answers": len(latencies),
+            "latency_avg_s": round(sum(latencies) / len(latencies), 2) if latencies else None,
+            "latency_max_s": round(max(latencies), 2) if latencies else None,
+            "over_target": sum(1 for value in latencies if value > TARGET_LATENCY_S),
+        }
+        if usage is None:
+            self._protocol.write({**record, "chars": None, "requests": None, "total_cost_usd": None, "cost": "unknown"})
+            return
+        ids = list(usage.generation_ids)
+        record.update(chars=usage.chars, requests=usage.requests, generations=ids, aborted_requests=usage.aborted)
+        if not usage.requests:
+            self._protocol.write({**record, "total_cost_usd": 0.0, "unknown_generations": 0, "lower_bound": usage.aborted > 0})
+            return
+        ride_end_at = self._protocol.write({**record, "total_cost_usd": None, "cost": "pending"})
+        # Anfragen ohne `X-Generation-Id`: ihre Kosten sind nicht abholbar
+        job = _CostJob(ride_end_at, ids, usage.requests - len(ids), usage.aborted)
+        self._cost_jobs.append(job)
+        self._spawn(self._collect_cost(job))
+
+    async def _collect_cost(self, job: "_CostJob") -> None:
+        """Eigene Aufgabe: wartet auf OpenRouter, ohne Fahrt oder Antwortzeit zu stören."""
+        costs: dict[str, float] = {}
+        try:
+            costs = await self._mouth.cost_of(job.ids)
+        except Exception as exc:
+            self._log(f"Sprachkosten nicht abgeholt – {type(exc).__name__}: {exc}")
+        self._write_cost(job, costs)
+
+    async def _settle_costs(self) -> None:
+        """Beim Beenden: jede Fahrt, deren Kosten noch ausstehen, bekommt eine letzte Abfrage ohne Wartezeit; was
+        dann bekannt ist, steht im Protokoll, der Rest bleibt unbekannt."""
+        for job in list(self._cost_jobs):
+            costs: dict[str, float] = {}
+            try:
+                costs = await asyncio.wait_for(self._mouth.cost_of(job.ids, patient=False), FINAL_COST_TIMEOUT_S)
+            except Exception as exc:
+                self._log(f"Sprachkosten beim Beenden nicht abgeholt – {type(exc).__name__}: {exc}")
+            self._write_cost(job, costs)
+
+    def _write_cost(self, job: "_CostJob", costs: dict[str, float]) -> None:
+        if job not in self._cost_jobs:
+            return
+        self._cost_jobs.remove(job)
+        unknown = job.unidentified + len([i for i in job.ids if i not in costs])
+        total = round(sum(costs.values()), 6) if costs or not unknown else None
+        self._protocol.write(
+            {
+                "type": "ride_cost",
+                "ride_end_at": job.ride_end_at,
+                "total_cost_usd": total,
+                "unknown_generations": unknown,
+                "aborted_requests": job.aborted,
+                # abgebrochene Synthesen sind womöglich berechnet, aber nirgends zu sehen: dann nur eine Untergrenze
+                "lower_bound": unknown > 0 or job.aborted > 0,
+            }
+        )
+        self._log(f"Sprachkosten der Fahrt: {total if total is not None else 'unbekannt'} $ ({unknown} unbekannt)")
 
     # --- Status -----------------------------------------------------------------------------------------------
 
@@ -432,6 +603,14 @@ class Companion:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return task
+
+
+@dataclass
+class _CostJob:
+    ride_end_at: str
+    ids: list[str]
+    unidentified: int
+    aborted: int
 
 
 def _text_arg(args: dict, name: str) -> str:

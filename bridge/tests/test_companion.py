@@ -198,16 +198,29 @@ def _companion_process(tmp_path, *args: str, extra_env: dict[str, str] | None = 
         )
 
 
+def block_packages(tmp_path, *names: str) -> str:
+    """PYTHONPATH mit Stubs, die den Import der Pakete scheitern lassen: Der Test gilt auch mit installiertem Extra
+    `companion` und startet nie Mikrofon, Modell oder Lautsprecher."""
+    stub_dir = tmp_path / "stub"
+    stub_dir.mkdir(exist_ok=True)
+    for name in names:
+        (stub_dir / f"{name}.py").write_text(f'raise ImportError("Stub: {name} im Test gesperrt")\n', encoding="utf-8")
+    return os.pathsep.join([str(stub_dir), bridge_env()["PYTHONPATH"]])
+
+
 def test_entry_point_without_adapters_goes_hoarse_and_keeps_running(bridge_process, bus_client, tmp_path):
     start_bus(bridge_process)
     game = connect(bus_client)
     data_dir, stop_file = tmp_path / "companion", tmp_path / "companion.stop"
     data_dir.mkdir()
     (data_dir / "companion.json").write_text('{"brain": "api_key", "kommt_spaeter": 1}', encoding="utf-8")
-    proc = _companion_process(tmp_path, "--data-dir", str(data_dir), "--stop-file", str(stop_file))
+    pythonpath = block_packages(tmp_path, "sounddevice", "faster_whisper", "av")  # Extra `companion` fehlt
+    proc = _companion_process(
+        tmp_path, "--data-dir", str(data_dir), "--stop-file", str(stop_file), extra_env={"PYTHONPATH": pythonpath}
+    )
     try:
         assert next_status(game, timeout_s=START_TIMEOUT_S) == status("idle")
-        ptt(game, "down")  # bis #79 kein echtes Ohr: heiser
+        ptt(game, "down")  # ohne Paket des Extras kein Ohr: heiser
         assert next_status(game) == status("hoarse")
         game.send(json.dumps({"v": 0, "type": "ride_event", "kind": "ride_start"}))
         assert next_status(game) == status("hoarse")  # lebt weiter und meldet seinen Stand
@@ -220,7 +233,7 @@ def test_entry_point_without_adapters_goes_hoarse_and_keeps_running(bridge_proce
             proc.wait()
     log = (tmp_path / "companion.log").read_text(encoding="utf-8")
     assert f"Ablage {data_dir} (Denken: api_key)" in log
-    assert "Toni ist heiser – Ears: AdapterMissing" in log
+    assert "Toni ist heiser – Ears: AdapterMissing: Ears: Stub: sounddevice im Test gesperrt" in log
     assert "Toni ist heiser – Brain: BrainUnavailable: ANTHROPIC_API_KEY fehlt" in log  # #78: echtes Brain
     # In die Ablage kommt nur die Vorgabe-Seele (#78); companion.json bleibt, wie sie war.
     assert sorted(p.name for p in data_dir.iterdir()) == ["companion.json", "soul.md"]

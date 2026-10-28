@@ -1,7 +1,8 @@
 """Echter Brain-Adapter (ADR-0011): Claude Haiku 5.5 über das Claude Agent SDK.
 
 `ClaudeSDKClient` mit einer Sitzung je Fahrt, eingebaute Werkzeuge aus, keine Projekt- oder Nutzereinstellungen,
-Tonis Werkzeuge über einen In-Process-MCP-Server, `effort: low` für die Latenz. Anmeldung nach `brain` in
+Tonis Werkzeuge über einen In-Process-MCP-Server, `effort: low` für die Latenz, Textstücke beim Schreiben
+(`include_partial_messages`, #79). Anmeldung nach `brain` in
 `companion.json`: `oauth` (Standard) mit `CLAUDE_CODE_OAUTH_TOKEN` aus `claude setup-token`, `api_key` mit
 `ANTHROPIC_API_KEY` – je aus der Umgebung oder der `.env` der Ablage (`env_file.py`). **Kein stilles Ausweichen:**
 fehlt das Geheimnis der gewählten Anmeldung, wird Toni heiser; das jeweils andere wird für den CLI-Prozess geleert.
@@ -10,6 +11,7 @@ fehlt das Geheimnis der gewählten Anmeldung, wird Toni heiser; das jeweils ande
 der Prozess läuft weiter. Kein Test ruft diesen Adapter gegen Claude – der Nutzer prüft ihn von Hand (Spec #76).
 """
 
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -21,6 +23,7 @@ EFFORT = "low"  # Haiku 5.5 denkt adaptiv, Standard wäre `medium` – Ziel ≤ 
 OAUTH_TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN"
 API_KEY_ENV = "ANTHROPIC_API_KEY"
 AUTH_TOKEN_ENV = "ANTHROPIC_AUTH_TOKEN"  # stünde in der Rangfolge der CLI über beiden – wird immer geleert
+ABANDON_TIMEOUT_S = 3.0  # so lange darf das Wegräumen nach einem Barge-in dauern
 SERVER = "toni"  # Werkzeuge heißen für das SDK `mcp__toni__<name>`
 
 SUMMARY_SYSTEM = (
@@ -93,6 +96,7 @@ class ClaudeBrain:
         self._brain = brain
         self._data_dir = data_dir
         self._client = None
+        self._stale = False  # nach einem Abbruch, den `_abandon` nicht sauber wegräumen konnte
 
     async def open_session(self, system_prompt: str, tools: ToolHandler) -> None:
         env = sdk_env(self._brain, self._data_dir)
@@ -104,10 +108,11 @@ class ClaudeBrain:
             env,
             mcp_servers={SERVER: server},
             allowed_tools=[f"mcp__{SERVER}__{name}" for name, _, _ in TOOLS],
+            include_partial_messages=True,  # Textstücke schon beim Schreiben (Satz für Satz sprechen, #79)
         )
         client = sdk.ClaudeSDKClient(options=options)
         await client.connect()
-        self._client = client
+        self._client, self._stale = client, False
 
     async def close_session(self) -> None:
         client, self._client = self._client, None
@@ -115,21 +120,59 @@ class ClaudeBrain:
             await client.disconnect()
 
     async def respond(self, prompt: str) -> AsyncIterator[str | ToolCall]:
+        """Textstücke, sobald Haiku sie schreibt (`StreamEvent` mit `text_delta`, `include_partial_messages`), dazwischen
+        die Werkzeugaufrufe. Die vollständige `AssistantMessage` eines Textblocks liefert nur noch, was die Teilstücke
+        nicht schon geliefert haben (nichts doppelt). Wird der Strom vorzeitig beendet (Barge-in), unterbricht
+        `_abandon` die Anfrage und liest ihren Rest weg, damit die nächste Antwort sauber beginnt."""
         if self._client is None:
             raise BrainUnavailable("keine offene Sitzung")
+        if self._stale:
+            raise BrainUnavailable("Sitzung nach einem Abbruch unbrauchbar")
         sdk = _import_sdk()
-        await self._client.query(prompt)
-        async for message in self._client.receive_response():
-            if isinstance(message, sdk.AssistantMessage):
-                if message.error:
-                    raise BrainUnavailable(f"Claude: {message.error}")
-                for block in message.content:
-                    if isinstance(block, sdk.TextBlock):
-                        yield block.text
-                    elif isinstance(block, sdk.ToolUseBlock):
-                        yield ToolCall(block.name.removeprefix(f"mcp__{SERVER}__"), dict(block.input))
-            elif isinstance(message, sdk.ResultMessage) and message.is_error:
-                raise BrainUnavailable(_result_error(message))
+        finished = False
+        streamed = ""  # Text des laufenden Blocks, den die Teilstücke schon geliefert haben
+        try:
+            await self._client.query(prompt)
+            async for message in self._client.receive_response():
+                if isinstance(message, sdk.types.StreamEvent):
+                    delta = _text_delta(message.event)
+                    if delta:
+                        streamed += delta
+                        yield delta
+                elif isinstance(message, sdk.AssistantMessage):
+                    if message.error:
+                        raise BrainUnavailable(f"Claude: {message.error}")
+                    for block in message.content:
+                        if isinstance(block, sdk.TextBlock):
+                            if block.text.startswith(streamed):
+                                rest = block.text[len(streamed) :]
+                                if rest:
+                                    yield rest
+                            streamed = ""
+                        elif isinstance(block, sdk.ToolUseBlock):
+                            yield ToolCall(block.name.removeprefix(f"mcp__{SERVER}__"), dict(block.input))
+                elif isinstance(message, sdk.ResultMessage) and message.is_error:
+                    raise BrainUnavailable(_result_error(message))
+            finished = True
+        finally:
+            if not finished:
+                await self._abandon()
+
+    async def _abandon(self) -> None:
+        """Die Antwort wurde nicht zu Ende gelesen: laufende Anfrage unterbrechen und bis zum Ergebnis weglesen. Gelingt
+        das nicht, ist die Sitzung unbrauchbar (`respond` meldet es, Toni öffnet eine frische)."""
+        client = self._client
+        if client is None:
+            return
+        try:
+            async with asyncio.timeout(ABANDON_TIMEOUT_S):
+                await client.interrupt()
+                async for _ in client.receive_response():
+                    pass
+        except BaseException as exc:
+            self._stale = True
+            if isinstance(exc, asyncio.CancelledError):
+                raise
 
     async def summarize(self, prompt: str) -> str:
         env = sdk_env(self._brain, self._data_dir)
@@ -166,6 +209,15 @@ def _sdk_tools(sdk, tools: ToolHandler) -> list:
         return run
 
     return [sdk.tool(name, description, schema)(handler(name)) for name, description, schema in TOOLS]
+
+
+def _text_delta(event) -> str:
+    """Text eines `content_block_delta` mit `text_delta` aus einem rohen Stream-Ereignis der Claude-API, sonst leer."""
+    if isinstance(event, dict) and event.get("type") == "content_block_delta":
+        delta = event.get("delta")
+        if isinstance(delta, dict) and delta.get("type") == "text_delta":
+            return delta.get("text") or ""
+    return ""
 
 
 def _result_error(message) -> str:
