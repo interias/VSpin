@@ -15,7 +15,7 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | Begriff | Bedeutung |
 |---|---|
 | **JC312** | Das konkrete Indoor-Bike (Wenoker JC312). |
-| **Trainer (FTMS)** | Rad-Trainer (z. B. Wahoo KICKR CORE 2) als Gerät der Bridge: liest Leistung, Kadenz und Tempo per BLE Fitness Machine Service `0x1826` (Indoor Bike Data `0x2AD2`, Features `0x2ACC`); fehlt die Kadenz dort, kommt sie aus Cycling Power `0x2A63`. Bus-`source` ist `ble` (`vspin-bridge --source ble`), die Watt sind **measured**. Gesteuert wird er in dieser Stufe noch nicht. |
+| **Trainer (FTMS)** | Rad-Trainer (z. B. Wahoo KICKR CORE 2) als Gerät der Bridge: liest Leistung, Kadenz und Tempo per BLE Fitness Machine Service `0x1826` (Indoor Bike Data `0x2AD2`, Features `0x2ACC`); fehlt die Kadenz dort, kommt sie aus Cycling Power `0x2A63`. Bus-`source` ist `ble` (`vspin-bridge --source ble`), die Watt sind **measured**. Kann er Indoor Bike Simulation, steuert die Bridge ihn: die virtuelle Steigung wird zum Widerstand (**Steuerung**). |
 | **Telemetrie** | Vom Rad gelieferte Messwerte: Kadenz, Geschwindigkeit, ggf. Leistung. |
 | **Kadenz** | Kurbelumdrehungen pro Minute (rpm). Primärer Game-Input. |
 | **FTMS** | Bluetooth Fitness Machine Service (UUID `0x1826`), u. a. Indoor Bike Data `0x2AD2`, Control Point `0x2AD9`. |
@@ -29,15 +29,18 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **Prototyp-Game** | Das eine Spiel in v1: ein 3D-Radsimulator (Kadenz → Geschwindigkeit), siehe ADR-0005. |
 | **Teststrecke** | Die Insel-Strecke des Radsimulators – abwechslungsreich, möglichst an ein reales Vorbild angelehnt. |
 | **Rundkurs** | Die ca. 8–10 km lange Mallorca-Stil-Strecke: Hafen → Küste → Serpentinen → Pinienhain → Bergdorf → Abfahrt. |
-| **virtuelle Steigung** | Steigung der Strecke, die nur die Spielgeschwindigkeit beeinflusst, nicht den echten Widerstand. |
+| **virtuelle Steigung** | Steigung der Strecke an der Fahrerposition. Sie wirkt auf die Spielgeschwindigkeit und – per `set_grade` – am Trainer als Widerstand (Spec #75); ohne Trainer mit Steuerung (Simulator, Replay, Nur-lesen-Modus) nur im Spiel. |
 | **Bridge** (`vspin-bridge`) | Python-Prozess, der als einziger BLE spricht und Telemetrie auf den Bus publiziert. |
 | **Bus** | Lokaler WebSocket (`ws://127.0.0.1:8765`, JSON), über den Bridge und Clients kommunizieren. |
 | **Client** | Alles, was am Bus hängt: Games, Logger, Dashboard. |
 | **measured / estimated** | Herkunft eines Werts: gemessen vom Gerät bzw. hochgerechnet. Geschätzte Watt werden als „~142 W“ angezeigt. Die Herkunft hängt am Gerät: der Trainer (FTMS) misst, JC312-Replay und Simulator schätzen. |
 | **stale** | Verbindungsstatus: verbunden, aber > 3 s keine Daten. Games pausieren. |
-| **set_grade** | Bus-Nachricht vom Game an die Bridge mit der aktuellen virtuellen Steigung; ab v1 gesendet, bis zum ESP32 mit `not_supported` beantwortet. |
+| **set_grade** | Bus-Nachricht vom Game an die Bridge mit der aktuellen virtuellen Steigung (Anteil, 0.07 = 7 %). Die Bridge antwortet dem Absender mit einem **ack**: `ok: true`, wenn die Steigung angenommen ist (am Trainer gedrosselt umgesetzt), sonst mit Grund – `not_supported` (Quelle ohne `RESISTANCE_CONTROL`), `read_only`, `control_lost`, `source_error`. |
+| **Steuerung** | Die Bridge steuert den Trainer über den FTMS Control Point; es gibt immer nur einen Steuerer. Stand auf dem Bus in `status.trainer.control` (`none`, `requesting`, `active`, `lost`, `read_only`, `not_supported`, `error`). `lost` = eine andere App (z. B. Zwift) steuert; die Bridge schreibt dann bis zum Neuverbinden nichts und das Spiel zeigt einen Hinweis. |
+| **Nur-lesen-Modus** | Bridge mit `--read-only` (Spiel: `config.cfg [bridge] trainer_read_only`): liest den Trainer, fordert keine Steuerung an und schreibt nichts auf ihn – damit sich zwei Apps nicht um die Steuerung streiten. |
+| **Grundlast** | Sichere Last am Trainer: Steigung 0. Das Spiel sendet sie beim Verlassen der Fahrt (Pause, Verbindungspause, Ziel, Menü), die Bridge setzt sie, wenn alle Clients weg sind oder der Client der letzten Steigung geht, und beim Beenden (dann zusätzlich Reset). Nie gedrosselt. |
 | **ESP32-Retrofit** | Spätere Ausbaustufe: Stepper am Widerstandsknopf + Hall-Sensor; meldet sich als FTMS-Smart-Bike mit Control Point. |
-| **Control Point** | FTMS-Characteristic `0x2AD9` zum Steuern des Geräts; wir nutzen Op `0x11` (Indoor Bike Simulation). |
+| **Control Point** | FTMS-Characteristic `0x2AD9` zum Steuern des Geräts (Write + Indicate); wir nutzen `0x00` Request Control, `0x07` Start, `0x11` Indoor Bike Simulation und beim Beenden `0x01` Reset. Machine Status `0x2ADA` meldet u. a. den Verlust der Steuerung (`0xFF`). |
 | **Session** | Ein Bridge-Lauf; erzeugt `sessions/<zeit>.csv` und `sessions/<zeit>.raw.jsonl`. |
 | **HeartRateSource** | Zweite Quelle der Bridge neben der Radquelle: Puls per BLE Heart Rate Service `0x180D`. Gemerkte Geräte haben die Rolle Gurt (Brustgurt) oder Uhr (Garmin-Uhr mit „Herzfrequenz übertragen“); ihre Reihenfolge ist der Vorrang, ein verbundenes Gerät mit geringerem Vorrang wird gegen eines mit höherem getauscht. |
 

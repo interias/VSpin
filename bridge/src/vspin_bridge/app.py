@@ -1,5 +1,11 @@
 """Bridge-Ablauf: DeviceSource → (Parser) → Datenaufbereitung → Bus + Session,
-Statuszeile im Terminal, Tastatur für den Simulator."""
+Statuszeile im Terminal, Tastatur für den Simulator.
+
+Widerstand (Spec #75): `set_grade` geht an die Quelle; der Trainer (`TrainerSource`) setzt ihn gedrosselt um und
+meldet den Stand der Steuerung (`status.trainer`). Sichere Grundlast, nie gedrosselt: Verlassen alle Clients den Bus
+(Spiel abgestürzt oder geschlossen) oder der Client, der zuletzt `set_grade` schickte (z. B. Spiel weg, Begleiter
+bleibt), setzt die Bridge sofort Steigung 0; beim Beenden Steigung 0 und Reset, bevor die
+Verbindung schließt. Bei einem harten Absturz der Bridge selbst entscheidet die Trainer-Firmware."""
 
 import asyncio
 import contextlib
@@ -28,6 +34,7 @@ from .processing import CADENCE_MAX, CADENCE_MIN, CadenceProcessor
 from .session import Session, open_session
 from .sources.base import (
     Capability,
+    ControlRefusedError,
     DeviceSource,
     NotSupportedError,
     RawNotification,
@@ -36,6 +43,8 @@ from .sources.base import (
 )
 from .sources.heart_rate import HeartRateStatus
 from .sources.sim import SimulatorSource
+from .sources.trainer import TrainerSource
+from .sources.trainer_control import ControlState
 
 # Verbindungsstatus (ADR-0004). Jede Änderung geht genau einmal als `status` auf den Bus.
 CONNECTED = "connected"
@@ -47,6 +56,8 @@ CLOCK_RESOLUTION_S = time.get_clock_info("monotonic").resolution  # Takt von Bri
 RECONNECT_INTERVAL_S = 3.0  # nach einem Abbruch alle 3 s neu verbinden (ADR-0004)
 
 CADENCE_STEP = 5.0
+
+RELEASE_TIMEOUT_S = 4.5  # höchstens so lange dauert das Freigeben des Trainers beim Beenden (Spiel: 5 s bis zum harten Ende)
 
 DEFAULT_SESSIONS_DIR = Path("sessions")  # relativ zum Arbeitsverzeichnis der Bridge
 
@@ -78,6 +89,7 @@ class Bridge:
         self._state = DISCONNECTED
         self._cadence: float | None = None
         self._grade: float | None = None
+        self._grade_client: object | None = None  # Client des letzten `set_grade` (Grundlast, wenn er geht)
         self._bus = BusServer(
             self._status_message,
             on_clients_changed=self._on_clients_changed,
@@ -94,6 +106,10 @@ class Bridge:
         self._stale_timer: asyncio.TimerHandle | None = None
         self._stale_since_ms = 0  # Bridge-Zeit des letzten Samples (bzw. der Verbindung)
         self._first_client = asyncio.Event()
+        self._tasks: set[asyncio.Task[None]] = set()  # laufende Grundlast-Aufträge
+        if isinstance(source, TrainerSource):
+            source.on_control_changed = self._on_trainer_control
+            source.on_info = console.info
 
     async def run(self, stop: asyncio.Event) -> None:
         """Läuft, bis `stop` gesetzt wird. Wirft `BusStartError`, wenn der Bus-Port belegt ist,
@@ -131,6 +147,7 @@ class Bridge:
             if pump.done() and pump.exception() is not None:
                 raise pump.exception()
             await stop.wait()  # Quelle beendet → Bus bleibt bis zum Stopp erreichbar
+            await self._release_trainer()  # Grundlast und Reset, solange die Verbindung noch steht
             for task in (pump, stopped):
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -276,6 +293,7 @@ class Bridge:
 
     async def _set_grade(self, message: SetGrade) -> str:
         self._grade = message.grade
+        self._grade_client = self._bus.sender()
         # Andockpunkt Widerstandssteuerung: eine Quelle mit RESISTANCE_CONTROL setzt die
         # Steigung um, alle anderen werfen NotSupportedError (ADR-0003, ADR-0007) – der
         # Simulator wertet sie vorher trotzdem aus.
@@ -284,6 +302,8 @@ class Bridge:
             await self._source.set_grade(message.grade)
         except NotSupportedError:
             ok, reason = False, "not_supported"
+        except ControlRefusedError as exc:  # read_only | control_lost (Spec #75)
+            ok, reason, detail = False, exc.reason, f" ({exc})"
         except Exception as exc:  # Quelle scheitert anders: Absender bekommt ack, Verbindung bleibt
             ok, reason, detail = False, "source_error", f" ({exc})"
         else:
@@ -295,8 +315,51 @@ class Bridge:
 
     def _status_message(self) -> str:
         return status_message(
-            bridge_time_ms(), self._state, self._source.name, self._source.capabilities, self._heart_rate.status
+            bridge_time_ms(),
+            self._state,
+            self._source.name,
+            self._source.capabilities,
+            self._heart_rate.status,
+            self._trainer_control(),
         )
+
+    def _trainer_control(self) -> ControlState:
+        """Stand der Steuerung für `status.trainer`; Simulator und Replay steuern nichts."""
+        if isinstance(self._source, TrainerSource):
+            return self._source.control
+        return ControlState.NOT_SUPPORTED
+
+    def _on_trainer_control(self, state: ControlState, reason: str) -> None:
+        """Änderung der Steuerung ist eine Statusänderung: genau ein `status` an alle."""
+        self._bus.publish(self._status_message())
+        self._console.info(f"Trainer-Steuerung: {state} ({reason})")
+
+    def _start_safe_load(self, why: str) -> None:
+        if not isinstance(self._source, TrainerSource):
+            return
+        task = asyncio.create_task(self._safe_load(why))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _safe_load(self, why: str) -> None:
+        """Alle Clients weg oder der Client der letzten Steigung weg: sofort Steigung 0 (nie gedrosselt)."""
+        assert isinstance(self._source, TrainerSource)
+        try:
+            written = await self._source.reset_grade()
+        except Exception as exc:
+            self._console.info(f"Grundlast (Steigung 0) gescheitert: {exc}")
+            return
+        if written:
+            self._console.info(f"{why}: Grundlast, Steigung 0 am Trainer")
+
+    async def _release_trainer(self) -> None:
+        """Beim Beenden: Steigung 0, dann Reset (gibt die Steuerung zurück), bevor die Verbindung schließt."""
+        if not isinstance(self._source, TrainerSource):
+            return
+        try:
+            await asyncio.wait_for(self._source.release(), RELEASE_TIMEOUT_S)
+        except Exception as exc:
+            self._console.info(f"Trainer beim Beenden nicht freigegeben: {exc}")
 
     def _on_heart_rate_status(self, status: HeartRateStatus) -> None:
         """Änderung des Pulszustands ist eine Statusänderung: genau ein `status` an alle."""
@@ -310,6 +373,10 @@ class Bridge:
 
     def _on_client_left(self, client: object) -> None:
         self._heart_rate.client_left(client)  # seine Suche auf Anfrage endet
+        if client is self._grade_client:  # z. B. Spiel abgestürzt, der Begleiter bleibt verbunden
+            self._grade_client = None
+            if self._bus.client_count > 0:  # sonst setzt `_on_clients_changed` die Grundlast (genau einmal)
+                self._start_safe_load("Client der letzten Steigung weg")
 
     def _set_state(self, state: str, reason: str) -> None:
         if state == self._state:
@@ -324,6 +391,8 @@ class Bridge:
     def _on_clients_changed(self, count: int) -> None:
         if count > 0:
             self._first_client.set()
+        else:  # Spiel abgestürzt oder geschlossen: sichere Grundlast
+            self._start_safe_load("Alle Clients weg")
         self._render()
 
     def _on_key(self, key: Key) -> None:

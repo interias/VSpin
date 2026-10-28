@@ -2,21 +2,24 @@
 (Little Endian) und ein Fake-Trainer hinter `fake_ble.py`. Kein Test spricht echte Hardware an."""
 
 import struct
+from collections.abc import Callable, Mapping
 
 from fake_ble import FakeBleAdapter
 from vspin_bridge.parsers import FITNESS_MACHINE_FEATURE
 from vspin_bridge.sources.trainer import CYCLING_POWER_SERVICE, FTMS_SERVICE
+from vspin_bridge.sources.trainer_control import CONTROL_POINT, OP_RESPONSE, RESULT_SUCCESS
 
 KICKR = "AA:00:00:00:10:01"
 KICKR_NAME = "KICKR CORE 2 1234"
 
 FEATURES_CADENCE_POWER = 0x4002  # Bit 1 Cadence, Bit 14 Power Measurement
 FEATURES_POWER_ONLY = 0x4000
+TARGET_SIMULATION = 1 << 13  # Target Setting Features: Indoor Bike Simulation Parameters
 
 
-def features(bits: int) -> bytes:
+def features(bits: int, targets: int = 0) -> bytes:
     """Fitness Machine Feature `0x2ACC`: Fitness Machine Features, dann Target Setting Features."""
-    return struct.pack("<II", bits, 0)
+    return struct.pack("<II", bits, targets)
 
 
 def bike(speed_kmh: float | None = None, cadence_rpm: float | None = None, power_w: int | None = None) -> bytes:
@@ -48,8 +51,44 @@ def kickr(
     rssi: int = -55,
     bits: int = FEATURES_CADENCE_POWER,
     services: tuple[str, ...] = (FTMS_SERVICE, CYCLING_POWER_SERVICE),
+    targets: int = 0,
 ) -> str:
-    """Ein Trainer, der sendet, mit lesbaren Features."""
+    """Ein Trainer, der sendet, mit lesbaren Features (`targets`: Target Setting Features, Standard keine)."""
     adapter.appear(address, KICKR_NAME, rssi, services=services)
-    adapter.set_readable(address, FITNESS_MACHINE_FEATURE, features(bits))
+    adapter.set_readable(address, FITNESS_MACHINE_FEATURE, features(bits, targets))
     return address
+
+
+def control_responder(results: Mapping[int, int | None] | None = None) -> Callable[[bytes], bytes | None]:
+    """Antworten des Control Points nach FTMS: `0x80 <Op-Code> <Ergebnis>`, Ergebnis je Op-Code aus `results`
+    (Standard Erfolg `0x01`; `None` = keine Antwort)."""
+    results = dict(results or {})
+
+    def respond(data: bytes) -> bytes | None:
+        result = results.get(data[0], RESULT_SUCCESS)
+        return None if result is None else bytes([OP_RESPONSE, data[0], result])
+
+    return respond
+
+
+def sim_kickr(
+    adapter: FakeBleAdapter,
+    address: str = KICKR,
+    respond: Callable[[bytes], bytes | None] | None = None,
+    **kickr_args,
+) -> str:
+    """Ein Trainer mit Indoor Bike Simulation, dessen Control Point `0x2AD9` antwortet (Standard: immer Erfolg). Wie am
+    echten Gerät lehnt er Schreibzugriffe ab, solange die Indications von `0x2AD9` nicht abonniert sind."""
+    kickr(adapter, address, targets=TARGET_SIMULATION, **kickr_args)
+    adapter.answer(address, CONTROL_POINT, CONTROL_POINT, respond or control_responder())
+    return address
+
+
+def control_writes(adapter: FakeBleAdapter, address: str = KICKR) -> list[bytes]:
+    """Alles, was auf den Control Point dieses Trainers geschrieben wurde, in Reihenfolge."""
+    return [data for to, char, data in adapter.writes if to == address and char == CONTROL_POINT]
+
+
+def simulation(grade_hundredths: int) -> bytes:
+    """Erwartete Bytes von `0x11`: Wind 0, Steigung in 0,01 %, Crr 0,0040 (40), Cw 0,51 kg/m (51)."""
+    return bytes([0x11]) + struct.pack("<hhBB", 0, grade_hundredths, 40, 51)

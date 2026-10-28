@@ -44,7 +44,12 @@
 ## Verbindungspause hat Vorrang vor der manuellen; eine manuelle Pause bleibt über einen Abbruch hinweg bestehen.
 ##
 ## Virtuelle Steigung (ADR-0007): das Spiel meldet die Steigung an der Fahrerposition per `set_grade`
-## (Drosselung siehe GradeReporter), nicht in der Verbindungspause; danach wird sie neu gemeldet.
+## (Drosselung siehe GradeReporter), nur beim Fahren (`riding`). Am Trainer wird sie zum Widerstand (Spec #75).
+## Sichere Grundlast: Verlässt die Fahrt `riding` – Pause per Taste, Verbindungspause, Ziel, zurück ins Menü –, geht
+## einmal `set_grade 0` raus (nie gedrosselt), damit der Fahrer nie gegen einen festen Berg tritt; beim Weiterfahren
+## meldet `grade_reporter.reset()` die echte Steigung neu. Spielabsturz und Beenden deckt die Bridge ab.
+## Steuert eine andere App den Trainer (`status.trainer.control` `lost`) oder läuft die Bridge im Nur-lesen-Modus
+## (`read_only`, `config.cfg [bridge] trainer_read_only`), zeigt das HUD einen Hinweis (`resistance_text()`).
 ##
 ## Runden (#31): Start an `start_distance_m`, jede Runde endet beim Überfahren der Start/Ziel-Linie (Streckenposition
 ## = Vielfaches der Rundenlänge), das Ziel nach `laps` Runden (0 = endlos). Rundenzeiten und Bestzeit führt die
@@ -191,6 +196,8 @@ const LOOT_AHEAD_M := ArcadeStage.LOOT_AHEAD_M
 
 const BRIDGE_START_HINT := "Bridge starten: vspin-bridge --source sim"
 const RESISTANCE_NOT_SUPPORTED := "Widerstand: nicht unterstützt"
+const RESISTANCE_CONTROL_LOST := "Trainer wird von einer anderen App gesteuert – Widerstand aus VSpin pausiert"
+const RESISTANCE_READ_ONLY := "Trainer im Nur-lesen-Modus – Widerstand aus VSpin aus"
 
 ## Konfiguration; wenn vor `_ready` nicht gesetzt, wird `res://config.cfg` geladen.
 var config: RideConfig = null
@@ -274,6 +281,8 @@ var state := STATE_PAUSED_CONNECTION
 ## Hinweis aus der letzten `ack` auf `set_grade` ("" = umgesetzt oder noch keine Antwort).
 var resistance_hint := ""
 var grade_reporter := GradeReporter.new()
+## In `riding` schon eine Steigung gemeldet: beim Verlassen von `riding` geht dann die Grundlast raus.
+var _grade_reported := false
 ## Fahrzeit, Strecke und Durchschnitte der laufenden Fahrt (ohne Pausen).
 var stats := RideStats.new()
 ## Ø-Puls, Max-Puls und Zeit je Zone der laufenden Fahrt (mit den Zonen des Profils beim Start; nur Fahrzeit, #64).
@@ -439,6 +448,7 @@ func _process(delta: float) -> void:
 	bus.poll(delta)
 	bridge_launcher.poll(delta)
 	_update_state()
+	_report_rest_load()
 	if state == STATE_MENU:
 		_fly_title(delta)
 		start_menu.show_wheel_status(bus, bridge_launcher.hint())
@@ -1375,14 +1385,26 @@ func _ride(delta: float) -> void:
 
 
 ## Meldet die Steigung per `set_grade`, wenn sie sich genug geändert hat (gedrosselt, siehe GradeReporter).
-## In der Verbindungspause nicht – Senden wäre sinnlos.
+## Nur beim Fahren – in jeder Pause gilt die Grundlast (`_report_rest_load`).
 func _report_grade(delta: float) -> void:
 	grade_reporter.tick(delta)
-	if state == STATE_PAUSED_CONNECTION:
+	if state != STATE_RIDING:
 		return
 	var grade := GradeReporter.quantize(current_grade())
 	if grade_reporter.wants_to_send(grade) and bus.send_message({"type": "set_grade", "grade": grade}) == OK:
 		grade_reporter.sent(grade)
+		_grade_reported = true
+
+
+## Sichere Grundlast (Spec #75): Hat die Fahrt `riding` verlassen, nachdem sie eine Steigung gemeldet hat, geht einmal
+## `set_grade 0` raus – ungedrosselt, am GradeReporter vorbei. Beim Weiterfahren meldet der zurückgesetzte Reporter die
+## echte Steigung sofort neu. Ist der Bus weg, scheitert das Senden; dann setzt die Bridge die Grundlast selbst.
+func _report_rest_load() -> void:
+	if state == STATE_RIDING or not _grade_reported:
+		return
+	_grade_reported = false
+	grade_reporter.reset()
+	bus.send_message({"type": "set_grade", "grade": 0.0})
 
 
 ## Speichert die gemerkten Pulsgeräte und schickt sie sofort an die Bridge (für die Geräteseite).
@@ -1399,8 +1421,23 @@ func _on_ack(message: Dictionary) -> void:
 		resistance_hint = ""
 	elif message.get("reason") == "not_supported":
 		resistance_hint = RESISTANCE_NOT_SUPPORTED
+	elif message.get("reason") == "control_lost":
+		resistance_hint = RESISTANCE_CONTROL_LOST
+	elif message.get("reason") == "read_only":
+		resistance_hint = RESISTANCE_READ_ONLY
 	else:
 		resistance_hint = "Widerstand: Fehler (%s)" % message.get("reason")
+
+
+## Hinweis zum Widerstand im HUD: Steuert eine andere App den Trainer oder läuft die Bridge im Nur-lesen-Modus
+## (`status.trainer.control`), steht das da – unabhängig von der letzten `ack`; sonst der Hinweis aus der `ack`.
+func resistance_text() -> String:
+	match bus.trainer_control:
+		BusClient.TRAINER_CONTROL_LOST:
+			return RESISTANCE_CONTROL_LOST
+		BusClient.TRAINER_CONTROL_READ_ONLY:
+			return RESISTANCE_READ_ONLY
+	return resistance_hint
 
 
 func _on_telemetry(_message: Dictionary) -> void:
@@ -1547,7 +1584,7 @@ func _update_view() -> void:
 	hud.show_segment(segment.get("name", ""), format_time(segment["time_s"], true) if not segment.is_empty() else "")
 	if debug_label.visible:
 		debug_label.text = debug_text()
-	hint_label.text = resistance_hint
+	hint_label.text = resistance_text()
 	var message := status_message()
 	message_label.text = message
 	message_label.visible = not message.is_empty()

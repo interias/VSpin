@@ -2,7 +2,7 @@
 (Spec #75, ADR-0003, ADR-0004).
 
 Eine `DeviceSource` mit Bus-`source` = `ble`, hinter der BLE-Nahtstelle `ble/` (bleak, in Tests der Fake).
-Sie liest nur; Schreibzugriffe auf den Trainer (Control Point `0x2AD9`) gibt es hier nicht.
+Sie liest den Trainer und steuert ihn über den Control Point `0x2AD9`, wenn er Indoor Bike Simulation kann (unten).
 
 - **Suche:** nach FTMS `0x1826` und Cycling Power `0x1818` zugleich (ein Trainer kündigt beides an). Mit
   Adresse (`--trainer`) gilt nur dieses Gerät, sonst das stärkste Gerät mit FTMS, ersatzweise das stärkste
@@ -19,13 +19,31 @@ Sie liest nur; Schreibzugriffe auf den Trainer (Control Point `0x2AD9`) gibt es 
   `SourceDisconnectedError`; die Bridge meldet `disconnected` und ruft alle 3 s `connect` neu auf (ADR-0004).
 - **Gemessene Watt:** `power_estimated = False` – die Bridge legt den `Decoder` danach an.
 
-Andockpunkt Widerstandssteuerung (ADR-0007): `connect` hält die Verbindung in `self._connection`; dort kommen
-der Control Point und die Capability `RESISTANCE_CONTROL` hinzu, `set_grade` setzt dann um.
+Widerstand (ADR-0007, Nachtrag Spec #75; Bausteine in `trainer_control.py`):
+- **Übernehmen:** Melden die Target Setting Features (`0x2ACC`, zweites `uint32`) Indoor Bike Simulation (Bit 13) und
+  lässt sich `0x2AD9` abonnieren, kommt `RESISTANCE_CONTROL` dazu. Dann im Verbinden: `0x2ADA` abonnieren,
+  `0x00` Request Control → Antwort, `0x07` Start → Antwort; danach ist die Steuerung `active`, und eine schon gemeldete
+  Steigung geht sofort als `0x11` hinterher (auch nach jedem Neuverbinden). Scheitert das Übernehmen, liest die Quelle
+  trotzdem weiter (Zustand `lost`, `not_supported` oder `error`).
+- **`set_grade`:** `0x11` mit der Steigung, gedrosselt gegenüber dem zuletzt **geschriebenen** Wert: nur bei einer
+  Änderung ab `GRADE_STEP` (0,1 %) und höchstens alle `GRADE_INTERVAL_S` (2 Hz). Eine gedrosselte Änderung holt die
+  Quelle nach Ablauf des Intervalls mit dem dann aktuellen Wert nach; der Endwert geht nie verloren.
+- **Kontrollverlust:** `0x2ADA` `0xFF` (Control Permission Lost) oder `0x01` (Reset durch jemand anderen) oder eine
+  Antwort `0x05` → `lost`. Ab dann schreibt die Quelle nichts mehr, bis der Trainer neu verbunden ist; erst dann fordert
+  sie die Steuerung neu an (Regel: angefordert wird nur beim Verbinden, nie im Streit mit einer anderen App).
+- **Grundlast:** `reset_grade()` (Bridge: alle Clients weg oder der Client der letzten Steigung weg) schreibt sofort
+  Steigung 0, `release()` (Bridge endet) Steigung 0 und danach `0x01` Reset, der die Steuerung zurückgibt – beide nie
+  gedrosselt. `release()` gibt auch nach `error` frei, wenn `0x00` in dieser Verbindung bestätigt war, nie nach `lost`.
+  Ab `release()` schreibt weder `set_grade` noch das Nachholen etwas, auch wenn das Reset scheitert.
+- **Nur lesen** (`read_only`, CLI `--read-only`): kein Abo von `0x2AD9`, keine Anforderung, kein Schreibzugriff;
+  `set_grade` → `ControlRefusedError("read_only")`.
+- Stand der Steuerung in `control` (`ControlState`); jede Änderung meldet `on_control_changed(state, grund)`.
 """
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator, Iterable
+import math
+from collections.abc import AsyncIterator, Callable, Iterable
 
 from ..ble import Advertisement, BleAdapter, BleConnection, BleError
 from ..clock import bridge_time_ms
@@ -37,7 +55,23 @@ from ..parsers import (
     parse_fitness_machine_features,
 )
 from ..parsers.ftms import parse_indoor_bike_data
-from .base import Capability, NotSupportedError, RawNotification, SourceDisconnectedError
+from .base import Capability, ControlRefusedError, NotSupportedError, RawNotification, SourceDisconnectedError
+from .trainer_control import (
+    MACHINE_STATUS,
+    OP_REQUEST_CONTROL,
+    OP_RESET,
+    OP_SIMULATION,
+    OP_START,
+    RESPONSE_TIMEOUT_S,
+    RESULT_CONTROL_NOT_PERMITTED,
+    RESULT_NOT_SUPPORTED,
+    STATUS_CONTROL_PERMISSION_LOST,
+    STATUS_RESET,
+    ControlPoint,
+    ControlPointError,
+    ControlState,
+    simulation_parameters,
+)
 
 FTMS_SERVICE = "00001826-0000-1000-8000-00805f9b34fb"
 CYCLING_POWER_SERVICE = "00001818-0000-1000-8000-00805f9b34fb"
@@ -45,6 +79,9 @@ CYCLING_POWER_SERVICE = "00001818-0000-1000-8000-00805f9b34fb"
 SCAN_S = 10.0  # so lange sucht ein Verbindungsversuch, dann gilt der Trainer als nicht da
 SETTLE_S = 1.0  # nach dem ersten Fund ohne Adresse: so lange noch auf ein stärkeres Gerät warten
 NO_CADENCE_AFTER = 3  # so viele 0x2AD2-Notifications ohne Kadenzfeld, dann kommt 0x2A63 dazu
+
+GRADE_STEP = 0.001  # Drosselung: neue Steigung erst ab 0,1 % Abstand zum zuletzt geschriebenen Wert …
+GRADE_INTERVAL_S = 0.5  # … und höchstens alle 0,5 s (2 Hz)
 
 _LOST = object()  # Marke in der Warteschlange: die Verbindung ist weg
 
@@ -60,11 +97,28 @@ class TrainerSource:
         *,
         scan_s: float = SCAN_S,
         settle_s: float = SETTLE_S,
+        read_only: bool = False,
+        response_timeout_s: float = RESPONSE_TIMEOUT_S,
+        grade_interval_s: float = GRADE_INTERVAL_S,
     ) -> None:
         self._adapter = adapter
         self._address = address
         self._scan_s = scan_s
         self._settle_s = settle_s
+        self._read_only = read_only
+        self._response_timeout_s = response_timeout_s
+        self._grade_interval_s = grade_interval_s
+        # Steuerung (Spec #75): Stand, Rückrufe der Bridge (Bus-`status`, Terminal), Control Point der Verbindung.
+        self.control = ControlState.READ_ONLY if read_only else ControlState.NONE
+        self.on_control_changed: Callable[[ControlState, str], None] = lambda state, reason: None
+        self.on_info: Callable[[str], None] = lambda text: None
+        self._control_point: ControlPoint | None = None
+        self._grade: float | None = None  # zuletzt gemeldete Steigung – wird nach dem (Neu-)Verbinden nachgesendet
+        self._written: float | None = None  # zuletzt an den Trainer geschriebene Steigung (dieser Verbindung)
+        self._written_at = -math.inf  # Loop-Zeit des letzten Schreibens von 0x11
+        self._catch_up: asyncio.Task[None] | None = None  # Nachholen einer gedrosselten Änderung
+        self._releasing = False  # `release()` läuft: eigenes Reset ist kein Kontrollverlust, kein `set_grade` mehr
+        self._granted = False  # `0x00` in dieser Verbindung bestätigt: der Trainer führt VSpin als Steuerer
         # Vor der ersten Verbindung ist nur die Kadenz sicher (ADR-0004: einziger Game-Input); nach dem
         # Verbinden stehen hier die Fähigkeiten laut Features.
         self.capabilities: set[Capability] = {Capability.CADENCE}
@@ -84,9 +138,17 @@ class TrainerSource:
         self._cycling_power = False
         self._bike_without_cadence = 0
         self._cadence_seen = False
+        self._releasing = False
+        self._granted = False
         connection: BleConnection | None = None
+        control_point: ControlPoint | None = None
+
+        def on_disconnect() -> None:
+            queue.put_nowait(_LOST)
+            self._end_control(queue, control_point)  # eine offene Anfrage scheitert sofort, nicht erst am Zeitlimit
+
         try:
-            connection = await self._adapter.connect(address, lambda: queue.put_nowait(_LOST))
+            connection = await self._adapter.connect(address, on_disconnect)
             services = connection.service_uuids
             self._cycling_power_available = CYCLING_POWER_SERVICE in services
             if FTMS_SERVICE in services:
@@ -100,23 +162,31 @@ class TrainerSource:
                 await self._subscribe(connection, queue, INDOOR_BIKE_DATA)
                 if not features.cadence and self._cycling_power_available:
                     await self._subscribe_cycling_power(connection, queue)
+                if not features.simulation:
+                    self._set_control(ControlState.NOT_SUPPORTED, "Trainer meldet keine Indoor Bike Simulation")
+                elif not self._read_only:
+                    control_point = ControlPoint(connection, self._response_timeout_s)
+                    await self._take_control(connection, control_point)
             elif self._cycling_power_available:
                 # Leistungsmesser ohne FTMS: Leistung und Kadenz kommen allein aus 0x2A63.
                 self.capabilities = {Capability.POWER, Capability.CADENCE}
                 await self._subscribe_cycling_power(connection, queue)
+                self._set_control(ControlState.NOT_SUPPORTED, "Gerät ohne FTMS")
             else:
                 raise BleError(f"{address} hat weder FTMS noch Cycling Power")
         except (BleError, ParseError) as exc:
+            self._end_control(queue, control_point)
             await self._close(connection)
             raise SourceDisconnectedError(f"Trainer {address}: {exc}") from exc
         except BaseException:  # abgebrochen (Bridge endet) mitten im Verbinden: nichts offen lassen
+            self._end_control(queue, control_point)
             await self._close(connection)
             raise
         self._connection = connection
 
     async def samples(self) -> AsyncIterator[RawNotification]:
         """Rohe Notifications, bis die Verbindung abreißt (dann `SourceDisconnectedError`)."""
-        connection, queue = self._connection, self._queue
+        connection, queue, control_point = self._connection, self._queue, self._control_point
         if connection is None:
             raise SourceDisconnectedError("nicht verbunden")
         try:
@@ -131,10 +201,189 @@ class TrainerSource:
         finally:
             if self._connection is connection:
                 self._connection = None
+            self._end_control(queue, control_point)
             await self._close(connection)
 
     async def set_grade(self, grade: float) -> None:
-        raise NotSupportedError("Der Trainer wird noch nicht gesteuert (Capability RESISTANCE_CONTROL fehlt)")
+        """Steigung an den Trainer (gedrosselt, siehe oben). Wirft `ControlRefusedError` (`read_only`,
+        `control_lost`), `NotSupportedError` (Trainer kann keine Simulation oder antwortet `0x02`), `ControlPointError`
+        (andere Antwort, keine Antwort), `BleError`, `ValueError` (Steigung nicht darstellbar) oder `RuntimeError`
+        (gerade keine Steuerung, z. B. nicht verbunden – die Steigung folgt dann nach dem Verbinden)."""
+        simulation_parameters(grade)  # nicht darstellbar → ValueError, bevor sie als Ziel gilt
+        self._grade = grade
+        if self._read_only:
+            raise ControlRefusedError("read_only", "Nur-lesen-Modus (--read-only): VSpin steuert den Trainer nicht")
+        if self.control is ControlState.LOST:
+            raise ControlRefusedError("control_lost", "eine andere App steuert den Trainer")
+        if self._releasing:  # nach der Grundlast beim Beenden nichts mehr, auch wenn das Reset noch aussteht
+            raise RuntimeError("Bridge endet: Trainer wird freigegeben")
+        if self.control is not ControlState.ACTIVE or self._control_point is None:
+            if Capability.RESISTANCE_CONTROL not in self.capabilities:
+                raise NotSupportedError("Der Trainer nimmt keine Steigung an (Capability RESISTANCE_CONTROL fehlt)")
+            raise RuntimeError(f"Trainer gerade nicht gesteuert ({self.control})")
+        if self._written is not None and abs(grade - self._written) < GRADE_STEP - 1e-9:
+            return  # unter der Schwelle: am Trainer ändert sich nichts
+        wait_s = self._written_at + self._grade_interval_s - asyncio.get_running_loop().time()
+        if wait_s > 0:
+            if self._catch_up is None:
+                self._catch_up = asyncio.create_task(self._catch_up_after(wait_s))
+            return  # gedrosselt: das Nachholen schreibt den dann aktuellen Wert
+        self._cancel_catch_up()
+        await self._write_grade(grade)
+
+    async def reset_grade(self) -> bool:
+        """Sichere Grundlast (Bridge: alle Clients weg): sofort Steigung 0, nie gedrosselt. `True`, wenn sie an den
+        Trainer ging; ohne aktive Steuerung wird sie nur das Ziel fürs nächste Verbinden. Wirft wie `set_grade`."""
+        self._grade = 0.0
+        self._cancel_catch_up()
+        if self.control is not ControlState.ACTIVE or self._control_point is None:
+            return False
+        await self._write_grade(0.0)
+        return True
+
+    async def release(self) -> None:
+        """Beim Beenden der Bridge, vor dem Trennen: Steigung 0, dann `0x01` Reset (gibt die Steuerung zurück) – beides
+        nie gedrosselt. Auch ohne `active`, wenn `0x00` in dieser Verbindung bestätigt wurde (z. B. `error`, weil `0x07`
+        scheiterte): dann Steigung 0 nur, falls eine geschrieben wurde, und das Reset. Bei `lost` nichts (eine andere App
+        steuert), ebenso ohne Verbindung. Wirft `RuntimeError` mit den Fehlern, versucht aber beides."""
+        self._cancel_catch_up()
+        control_point = self._control_point
+        active = self.control is ControlState.ACTIVE
+        if control_point is None or self.control is ControlState.LOST or not (active or self._granted):
+            return
+        self._releasing = True
+        errors = []
+        if active or self._written is not None:
+            try:
+                await self._write_grade(0.0)
+            except Exception as exc:  # Reset trotzdem versuchen
+                errors.append(f"Steigung 0: {exc}")
+        # `0x05` auf die Steigung 0: die Steuerung hat jetzt eine andere App; Verbindung weg: nichts mehr zu senden
+        if self.control is not ControlState.LOST and not control_point.closed:
+            try:
+                await control_point.request(OP_RESET)
+            except (ControlPointError, BleError) as exc:
+                errors.append(f"Reset: {exc}")
+            else:
+                self._granted = False
+                self._set_control(ControlState.NONE, "Steuerung zurückgegeben (Reset)")
+        if errors:
+            raise RuntimeError("; ".join(errors))
+
+    # --- Steuerung -----------------------------------------------------------------------
+
+    async def _take_control(self, connection: BleConnection, control_point: ControlPoint) -> None:
+        """Steuerung übernehmen (im Verbinden). Scheitert es, bleibt die Verbindung zum Lesen (nur `BleError` beim
+        Abo von `0x2ADA` ist egal, Abbruch geht weiter)."""
+        try:
+            await control_point.subscribe()  # Indications vor dem ersten Schreiben (sonst lehnt der Trainer ab)
+        except BleError as exc:
+            self._set_control(ControlState.NOT_SUPPORTED, f"Control Point nicht abonnierbar: {exc}")
+            return
+        self.capabilities.add(Capability.RESISTANCE_CONTROL)
+        self._control_point = control_point
+        with contextlib.suppress(BleError):  # Machine Status ist optional; ohne ihn meldet sich ein Verlust per 0x05
+            await connection.subscribe(MACHINE_STATUS, lambda data: self._on_machine_status(control_point, data))
+        self._set_control(ControlState.REQUESTING, "fordere die Steuerung an")
+        try:
+            await control_point.request(OP_REQUEST_CONTROL)
+            self._granted = True  # scheitert gleich `0x07`, gibt `release()` die Steuerung trotzdem zurück
+            await control_point.request(OP_START)
+        except ControlPointError as exc:
+            if exc.result == RESULT_NOT_SUPPORTED:
+                self.capabilities.discard(Capability.RESISTANCE_CONTROL)
+                self._set_control(ControlState.NOT_SUPPORTED, str(exc))
+            elif exc.result == RESULT_CONTROL_NOT_PERMITTED:
+                self._lose(control_point, str(exc))
+            else:
+                self._set_control(ControlState.ERROR, str(exc))
+            return
+        except BleError as exc:  # z. B. Windows ohne gebondetes Pairing: lesen geht, schreiben nicht
+            self._set_control(ControlState.ERROR, f"Control Point nicht beschreibbar: {exc}")
+            return
+        self._set_control(ControlState.ACTIVE, "VSpin steuert den Trainer")
+        # zuletzt gemeldete Steigung nachsenden (Neuverbinden) – nicht, wenn `release()` schon läuft (`0x07` kam spät)
+        if self._grade is not None and not self._releasing:
+            try:
+                await self._write_grade(self._grade)
+            except Exception as exc:  # Steuerung steht; der Fehler gehört ins Terminal (lost meldet der Zustand)
+                self.on_info(f"Steigung {self._grade * 100:+.1f} % nach dem Verbinden nicht gesetzt: {exc}")
+
+    async def _write_grade(self, grade: float) -> None:
+        """`0x11` mit `grade`, ohne Drosselung. `0x05` → Kontrollverlust (`ControlRefusedError`)."""
+        control_point = self._control_point
+        if control_point is None:
+            raise RuntimeError("Trainer gerade nicht gesteuert")
+        self._written_at = asyncio.get_running_loop().time()  # vor dem Warten: gleichzeitige Aufrufe drosseln
+        try:
+            await control_point.request(OP_SIMULATION, simulation_parameters(grade))
+        except ControlPointError as exc:
+            if exc.result == RESULT_CONTROL_NOT_PERMITTED:
+                self._lose(control_point, str(exc))
+                raise ControlRefusedError("control_lost", str(exc)) from exc
+            if exc.result == RESULT_NOT_SUPPORTED:
+                raise NotSupportedError(str(exc)) from exc
+            raise
+        if control_point is self._control_point:
+            self._written = grade
+
+    async def _catch_up_after(self, delay_s: float) -> None:
+        """Gedrosselte Änderung nachholen: nach `delay_s` den dann aktuellen Wert schreiben (falls er weit genug weg
+        ist). Fehler gehen ins Terminal – einen Client, der ein `ack` bekäme, gibt es hier nicht."""
+        await asyncio.sleep(delay_s)
+        self._catch_up = None
+        grade = self._grade
+        if grade is None or self._releasing or self.control is not ControlState.ACTIVE:
+            return
+        if self._written is not None and abs(grade - self._written) < GRADE_STEP - 1e-9:
+            return
+        try:
+            await self._write_grade(grade)
+        except Exception as exc:
+            self.on_info(f"set_grade {grade:+.3f} nachgeholt -> {exc}")
+
+    def _cancel_catch_up(self) -> None:
+        if self._catch_up is not None:
+            self._catch_up.cancel()
+            self._catch_up = None
+
+    def _on_machine_status(self, control_point: ControlPoint, data: bytes) -> None:
+        if control_point is not self._control_point or not data or self._releasing:
+            return  # Nachzügler einer alten Verbindung bzw. das eigene Reset beim Beenden
+        if data[0] == STATUS_CONTROL_PERMISSION_LOST:
+            self._lose(control_point, "Machine Status: Control Permission Lost (0xFF)")
+        elif data[0] == STATUS_RESET:
+            self._lose(control_point, "Machine Status: Reset (0x01) durch eine andere App")
+
+    def _lose(self, control_point: ControlPoint, reason: str) -> None:
+        """Eine andere App steuert: ab jetzt kein Schreiben mehr bis zum Neuverbinden."""
+        if control_point is not self._control_point:
+            return
+        self._granted = False  # auch bei `error`: `release()` funkt nicht in die fremde Steuerung
+        if self.control in (ControlState.REQUESTING, ControlState.ACTIVE):
+            self._cancel_catch_up()
+            self._set_control(ControlState.LOST, reason)
+
+    def _end_control(self, queue: asyncio.Queue[object], control_point: ControlPoint | None) -> None:
+        """Verbindung weg: Control Point schließen (eine offene Anfrage scheitert), Nachholen abbrechen, Zustand `none`.
+        Nur für die aktuelle Verbindung (`queue`); ein Nachzügler einer alten Verbindung ändert nichts. Ein Trainer ohne
+        Simulation bleibt `not_supported` – das ändert ein Abbruch nicht (kein `status` je Neuverbinden)."""
+        if control_point is not None:
+            control_point.close()
+        if queue is not self._queue:
+            return
+        if self._control_point is control_point:
+            self._control_point = None
+        self._cancel_catch_up()
+        self._written = None
+        if self.control is not ControlState.NOT_SUPPORTED:
+            self._set_control(ControlState.NONE, "Trainer nicht verbunden")
+
+    def _set_control(self, state: ControlState, reason: str) -> None:
+        if self._read_only or state is self.control:
+            return  # im Nur-lesen-Modus bleibt es `read_only`
+        self.control = state
+        self.on_control_changed(state, reason)
 
     # --- Hilfen --------------------------------------------------------------------------
 
