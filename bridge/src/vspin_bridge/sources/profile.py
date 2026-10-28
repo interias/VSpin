@@ -4,6 +4,7 @@ Format (Beispiele unter `bridge/profiles/`)::
 
     name = "Abbruch"     # optional, nur fürs Terminal
     repeat = true        # optional: am Ende von vorn beginnen (Standard: false → Quelle endet)
+    heart_rate = false   # optional: false schaltet den Simulator-Puls ab (`heart_rate` bleibt null)
 
     [[steps]]            # Fahren: konstante Kadenz …
     duration_s = 3
@@ -14,6 +15,17 @@ Format (Beispiele unter `bridge/profiles/`)::
     cadence = 60
     cadence_to = 90
 
+    [[steps]]            # Zielpuls statt der Formel des Simulators (`sim_heart_rate.py`): konstant …
+    duration_s = 30
+    cadence = 110
+    heart_rate = 165
+
+    [[steps]]            # … oder linear von `heart_rate` nach `heart_rate_to`
+    duration_s = 30
+    cadence = 60
+    heart_rate = 165
+    heart_rate_to = 110
+
     [[steps]]            # keine Daten, Verbindung bleibt stehen (> 3 s → stale)
     duration_s = 4
     action = "pause"
@@ -21,6 +33,13 @@ Format (Beispiele unter `bridge/profiles/`)::
     [[steps]]            # Verbindung reißt ab; Gerät ist `duration_s` lang nicht erreichbar,
     duration_s = 2       # danach verbindet sich die Bridge selbst neu (alle 3 s, ADR-0004)
     action = "disconnect"
+
+Der Puls ist je Schritt steuerbar, weil sich Belastung und Erholung von Schritt zu Schritt
+ändern: `heart_rate` (50–190 bpm) ist der **Zielpuls** des Schritts, `heart_rate_to` lässt ihn
+linear wandern wie `cadence_to` die Kadenz. Der gemeldete Puls läuft dem Ziel mit der
+Zeitkonstante des Simulators nach, er springt nicht. Ohne `heart_rate` gilt die Formel aus
+Kadenz und Steigung. Der Kopfschlüssel `heart_rate = false` schaltet den Puls für das ganze Profil
+ab (Rad ohne Puls: `telemetry.heart_rate` bleibt `null`); zusammen mit einem Schritt-Puls ist er ein Fehler.
 
 Die Wiedergabe ist deterministisch: ein Fahr-Schritt liefert genau
 `round(duration_s / Takt)` Samples, deren Kadenz nur vom Index im Schritt abhängt –
@@ -34,6 +53,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 CADENCE_MAX = 200.0  # Plausibilitätsgrenze aus ADR-0004
+HEART_RATE_MIN = 50.0  # plausibler Pulsbereich des Simulators (bpm)
+HEART_RATE_MAX = 190.0
 
 PAUSE = "pause"
 DISCONNECT = "disconnect"
@@ -49,6 +70,8 @@ class Ride:
     duration_s: float
     cadence: float
     cadence_to: float | None = None
+    heart_rate: float | None = None  # Zielpuls des Schritts (None: Formel des Simulators)
+    heart_rate_to: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +88,7 @@ class Profile:
     name: str
     steps: tuple[Step, ...]
     repeat: bool = False
+    heart_rate: bool = True  # False: der Simulator liefert keinen Puls
 
 
 # --- Ereignisse der Wiedergabe ------------------------------------------------
@@ -72,9 +96,11 @@ class Profile:
 
 @dataclass(frozen=True, slots=True)
 class Tick:
-    """Ein Sample mit dieser Kadenz (`None`: die manuell eingestellte, nur im Simulator)."""
+    """Ein Sample mit dieser Kadenz (`None`: die manuell eingestellte, nur im Simulator)
+    und ggf. diesem Zielpuls (`None`: Formel des Simulators)."""
 
     cadence: float | None
+    heart_rate: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +139,11 @@ def _ride(step: Ride, interval_s: float) -> Iterator[Tick]:
     end = step.cadence if step.cadence_to is None else step.cadence_to
     for i in range(count):
         fraction = i / (count - 1) if count > 1 else 0.0
-        yield Tick(round(step.cadence + (end - step.cadence) * fraction, 1))
+        target = None
+        if step.heart_rate is not None:
+            target_end = step.heart_rate if step.heart_rate_to is None else step.heart_rate_to
+            target = round(step.heart_rate + (target_end - step.heart_rate) * fraction, 1)
+        yield Tick(round(step.cadence + (end - step.cadence) * fraction, 1), target)
 
 
 # --- Laden ------------------------------------------------------------------
@@ -134,20 +164,27 @@ def load_profile(path: Path) -> Profile:
 
 
 def _profile(data: dict, default_name: str) -> Profile:
-    _known_keys(data, {"name", "repeat", "steps"}, "Profil")
+    _known_keys(data, {"name", "repeat", "heart_rate", "steps"}, "Profil")
     name = data.get("name", default_name)
     if not isinstance(name, str):
         raise ProfileError("'name' muss ein Text sein")
     repeat = data.get("repeat", False)
     if not isinstance(repeat, bool):
         raise ProfileError("'repeat' muss true oder false sein")
+    heart_rate = data.get("heart_rate", True)
+    if not isinstance(heart_rate, bool):
+        raise ProfileError("'heart_rate' im Profilkopf muss true oder false sein (Zielpulse stehen in den Schritten)")
     raw_steps = data.get("steps")
     if not isinstance(raw_steps, list) or not raw_steps:
         raise ProfileError("mindestens ein [[steps]]-Eintrag nötig")
     steps = tuple(_step(raw, i) for i, raw in enumerate(raw_steps, start=1))
     if not any(isinstance(step, Ride) for step in steps):
         raise ProfileError("mindestens ein Schritt mit 'cadence' nötig")
-    return Profile(name=name, steps=steps, repeat=repeat)
+    if not heart_rate and any(isinstance(step, Ride) and step.heart_rate is not None for step in steps):
+        raise ProfileError(
+            "'heart_rate = false' schaltet den Puls ab und verträgt sich nicht mit einem Schritt-'heart_rate'"
+        )
+    return Profile(name=name, steps=steps, repeat=repeat, heart_rate=heart_rate)
 
 
 def _step(raw: object, index: int) -> Step:
@@ -162,12 +199,20 @@ def _step(raw: object, index: int) -> Step:
         if raw["action"] not in ACTIONS:
             raise ProfileError(f"{where}: 'action' muss eins von {', '.join(ACTIONS)} sein, war {raw['action']!r}")
         return Action(duration_s=duration, action=raw["action"])
-    _known_keys(raw, {"duration_s", "cadence", "cadence_to"}, where)
+    _known_keys(raw, {"duration_s", "cadence", "cadence_to", "heart_rate", "heart_rate_to"}, where)
     if "cadence" not in raw:
         raise ProfileError(f"{where}: 'cadence' oder 'action' nötig")
     cadence = _cadence(raw["cadence"], f"{where}: 'cadence'")
     cadence_to = None if "cadence_to" not in raw else _cadence(raw["cadence_to"], f"{where}: 'cadence_to'")
-    return Ride(duration_s=duration, cadence=cadence, cadence_to=cadence_to)
+    if "heart_rate_to" in raw and "heart_rate" not in raw:
+        raise ProfileError(f"{where}: 'heart_rate_to' braucht 'heart_rate'")
+    heart_rate = None if "heart_rate" not in raw else _heart_rate(raw["heart_rate"], f"{where}: 'heart_rate'")
+    heart_rate_to = (
+        None if "heart_rate_to" not in raw else _heart_rate(raw["heart_rate_to"], f"{where}: 'heart_rate_to'")
+    )
+    return Ride(
+        duration_s=duration, cadence=cadence, cadence_to=cadence_to, heart_rate=heart_rate, heart_rate_to=heart_rate_to
+    )
 
 
 def _cadence(value: object, what: str) -> float:
@@ -175,6 +220,15 @@ def _cadence(value: object, what: str) -> float:
     if not 0 <= cadence <= CADENCE_MAX:
         raise ProfileError(f"{what} muss zwischen 0 und {CADENCE_MAX:.0f} rpm liegen, war {value!r}")
     return cadence
+
+
+def _heart_rate(value: object, what: str) -> float:
+    bpm = _number(value, what)
+    if not HEART_RATE_MIN <= bpm <= HEART_RATE_MAX:
+        raise ProfileError(
+            f"{what} muss zwischen {HEART_RATE_MIN:.0f} und {HEART_RATE_MAX:.0f} bpm liegen, war {value!r}"
+        )
+    return bpm
 
 
 def _number(value: object, what: str) -> float:

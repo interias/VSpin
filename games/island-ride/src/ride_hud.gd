@@ -2,7 +2,9 @@
 ##
 ##   oben links   Werte-Panel: Abschnitt, Kadenz groß mit Bogen (Wohlfühlbereich 80–100 rpm), Tempo, Steigung
 ##                (Keil und Farbe: bergauf warm, steil rot, bergab kühl), Strecke, Zeit (der Fahrt), Rundenzeit,
-##                Leistung – nur wenn die Quelle Watt liefert, geschätzt immer mit „~“ (ADR-0004)
+##                Leistung – nur wenn die Quelle Watt liefert, geschätzt immer mit „~“ (ADR-0004); Puls (#64) in bpm in der
+##                Farbe seiner Zone mit „Z1“–„Z5“, ohne Zonen weiß ohne Zone, ohne Wert „--“; fehlt jede Pulsquelle, bleibt
+##                die Anzeige weg. Darunter, nur im vollen Layout, die Verlaufskurve der letzten 3 Minuten (HudPulse)
 ##   oben rechts  Minikarte (HudMinimap): Insel, Strecke, Landmarken, Fahrer-Pfeil
 ##   unten        Runde („Runde 2 / 3“, endlos „Runde 2“, bei einer Runde nur „Runde“), Rundenfortschritt (Balken,
 ##                Prozent, Restdistanz; mit Ghost (#32) der Abstand zu ihm in Sekunden: „+1.4 s“ = dahinter, rot;
@@ -31,9 +33,10 @@
 ## Niedrige Fenster (Nacharbeit #26): Ansage und Ergebnis skalieren mit der Fensterhöhe (Höhe/1080, mindestens
 ## MIN_TEXT_SCALE) und liegen im freien Streifen zwischen den Panels; das Ergebnis wird so weit verkleinert, dass es
 ## hineinpasst. Unter COMPACT_BELOW_PX klappen die Panels zu Leisten zusammen: oben die Werte in einer Zeile ohne
-## Minikarte, unten Runde (und Training) ohne Höhenprofil (`compact`).
+## Minikarte, unten Runde (und Training) ohne Höhenprofil (`compact`); der Puls bleibt in der Leiste (Zahl, Zone, Farbe), nur die
+## Verlaufskurve entfällt.
 ##
-## Die Hauptszene übergibt pro Frame die Werte (`show_ride`, `show_lap`); Labels und Zeichnungen ändern sich nur,
+## Die Hauptszene übergibt pro Frame die Werte (`show_ride`, `show_pulse`, `show_lap`); Labels und Zeichnungen ändern sich nur,
 ## wenn sich der angezeigte Wert ändert. `readout()` liefert genau die sichtbaren Werte als Textzeilen.
 class_name RideHud
 extends CanvasLayer
@@ -59,6 +62,9 @@ const CAMERA_VIEW_S := 1.5
 ## Farbe des Ghost-Abstands: hinter dem Ghost bzw. vor ihm (#32).
 const COLOR_BEHIND := Color(1.0, 0.55, 0.45)
 const COLOR_AHEAD := Color(0.5, 0.92, 0.55)
+## Anzeige ohne Pulswert (Gerät weg, `stale`, kein Puls) und ihre Farbe; mit Wert ohne Zonen ist die Zahl weiß (#64).
+const PULSE_NONE_TEXT := "--"
+const COLOR_PULSE_NONE := Color(0.74, 0.8, 0.85)
 ## Unter dieser Fensterhöhe (px) klappen die Panels zu Leisten zusammen.
 const COMPACT_BELOW_PX := 760.0
 ## Kleinster Faktor für Ansage und Ergebnis (Fensterhöhe/1080); das Ergebnis schrumpft bis MIN_MESSAGE_FONT_PX weiter.
@@ -66,7 +72,13 @@ const MIN_TEXT_SCALE := 0.6
 const MIN_MESSAGE_FONT_PX := 11
 ## Werte-Raster: Spalten normal und als Leiste.
 const GRID_COLUMNS := 2
-const GRID_COLUMNS_COMPACT := 6
+const GRID_COLUMNS_COMPACT := 7
+## Abstände (px) zwischen den Werten und zwischen Kadenz und Werten, normal und in der Leiste: dort enger, damit mit
+## Leistung und Puls (#64) alle in eine Zeile passen, auch bei 1152 px und einer Fahrzeit über eine Stunde.
+const GRID_SEPARATION_PX := 24
+const GRID_SEPARATION_COMPACT_PX := 12
+const MAIN_SEPARATION_PX := 20
+const MAIN_SEPARATION_COMPACT_PX := 12
 ## Kadenz-Bogen (px) normal und als Leiste, dort mit kleinerer Zahl.
 const GAUGE_PX := 150.0
 const GAUGE_COMPACT_PX := 120.0
@@ -95,6 +107,11 @@ const COLOR_POPUP := Color(1.0, 0.86, 0.35)
 @onready var _lap_time_value: Label = %LapTimeValue
 @onready var _segment: Label = %Segment
 @onready var _power: Control = %Power
+@onready var _pulse: Control = %Pulse
+@onready var _pulse_value: Label = %PulseValue
+@onready var _pulse_unit: Label = %Unit
+@onready var _pulse_zone: Label = %PulseZone
+@onready var _pulse_graph: HudPulse = %PulseGraph
 @onready var _ghost: Control = %Ghost
 @onready var _ghost_value: Label = %GhostValue
 @onready var _power_value: Label = %PowerValue
@@ -134,6 +151,10 @@ var compact := false
 ## Wofür die Meldung zuletzt eingepasst wurde ([Text, Streifenhöhe, Fensterhöhe]).
 var _message_fitted_for := []
 var _grade_color := COLOR_FLAT
+## Pulsanzeige gerade sichtbar (`show_pulse`), mit Wert, und ihre Farbe.
+var _pulse_shown := false
+var _pulse_has_value := false
+var _pulse_color := Color.TRANSPARENT  # durchsichtig = noch keine Farbe gesetzt
 ## Laufendes Segment für `readout()` („Bergwertung: 3:12.4“, "" = keins).
 var _segment_line := ""
 var _celebration_tween: Tween
@@ -185,6 +206,33 @@ func show_ride(cadence_rpm: float, speed_kmh: float, distance_m: float, time_tex
 	_section_value.text = station
 	_power.visible = not power_text.is_empty()
 	_power_value.text = power_text
+
+
+## Puls (#64): `bpm` (NAN, 0 oder negativ = kein Wert → „--“), `zones` sind die der laufenden Fahrt (null oder ohne Zonen:
+## nur bpm), `shown` blendet die Anzeige ein – die Hauptszene blendet sie aus, solange es weder ein Pulsgerät noch einen
+## Wert gibt. `time_s` ist die Fahrzeit (für die Verlaufskurve; sie steht in Pausen).
+func show_pulse(bpm: float, zones: HeartRateZones, shown: bool, time_s: float) -> void:
+	_pulse_shown = shown
+	_pulse.visible = shown
+	_update_pulse_graph()
+	if not shown:
+		return
+	_pulse_has_value = pulse_valid(bpm)
+	_pulse_value.text = pulse_text(bpm)
+	_update_pulse_unit()
+	var zone := pulse_zone(bpm, zones)
+	_pulse_zone.text = "Z%d" % zone if zone > 0 else ""
+	var color := pulse_color(bpm, zones)
+	if color != _pulse_color:
+		_pulse_color = color
+		_pulse_value.add_theme_color_override("font_color", color)
+		_pulse_zone.add_theme_color_override("font_color", color)
+	_pulse_graph.push(time_s, bpm if _pulse_has_value else NAN, zones)
+
+
+## Verlaufskurve leeren (neue Fahrt).
+func reset_pulse() -> void:
+	_pulse_graph.reset()
 
 
 ## Rundenfortschritt: Streckenposition `distance_m` (wie das Fahrmodell, nicht umgerechnet) zwischen Start
@@ -306,6 +354,30 @@ func show_camera_view(perspective: String) -> void:
 ## Eingeblendete Kameraperspektive („Kamera: Nah“, "" = keine).
 func camera_view() -> String:
 	return _camera_view.text if _camera_view.visible else ""
+
+
+## Hat `bpm` einen Pulswert? NAN, 0 und negative Werte sind kein Puls.
+static func pulse_valid(bpm: float) -> bool:
+	return is_finite(bpm) and bpm > 0.0
+
+
+## Pulswert für die Anzeige: ganze bpm, ohne Wert „--“.
+static func pulse_text(bpm: float) -> String:
+	return "%d" % roundi(bpm) if pulse_valid(bpm) else PULSE_NONE_TEXT
+
+
+## Zone (1–5) des Pulses `bpm`; 0 ohne Wert oder ohne Zonen (null oder keine LTHR/kein Maximalpuls).
+static func pulse_zone(bpm: float, zones: HeartRateZones) -> int:
+	if not pulse_valid(bpm) or zones == null:
+		return 0
+	return zones.zone_for(bpm)
+
+
+## Farbe der Pulsanzeige: Zonenfarbe, ohne Zonen weiß, ohne Wert gedämpft.
+static func pulse_color(bpm: float, zones: HeartRateZones) -> Color:
+	if not pulse_valid(bpm):
+		return COLOR_PULSE_NONE
+	return HeartRateZones.color_for(pulse_zone(bpm, zones))
 
 
 ## Beschriftung des Rundenfortschritts: „Runde“ bei einer Runde, „Runde 2 / 3“, endlos „Runde 2“.
@@ -432,7 +504,7 @@ static func grade_direction(grade: float) -> int:
 
 
 ## Die sichtbaren Werte als Textzeilen „Name: Wert Einheit“, genau wie angezeigt (Tests, Logs), z. B.
-## "Kadenz: 90 rpm", "Steigung: +6.0 %", "Leistung: ~142 W", "Rundenzeit: 3:05", "Ghost: +1.4 s", "Bergwertung: 1:12.4",
+## "Kadenz: 90 rpm", "Steigung: +6.0 %", "Leistung: ~142 W", "Puls: 148 bpm · Z3" (in der Leiste ohne „bpm“, ohne Zonen ohne „· Z3“, ohne Wert „Puls: --“), "Rundenzeit: 3:05", "Ghost: +1.4 s", "Bergwertung: 1:12.4",
 ## "Runde 2 / 3: 34 % (noch 6.08 km)"; im Training "Phase: Hart 3/10", "Zielkadenz: 95–105 rpm", "Restzeit: 0:23",
 ## "Danach: Locker 3/10 · 80–90 rpm", "Zone: im Bereich (95–105 rpm, 98 rpm)", "Treffer: 87 %", "Ansage: In 8 s: …";
 ## in Arcade "Herausforderung: Zone halten", "Ziel: 80–100 rpm", "Noch: 0:12", "Punkte: 100", "Fortschritt: 60 %".
@@ -448,6 +520,12 @@ func readout() -> String:
 		if unit != null and not unit.text.is_empty():
 			text += " " + unit.text
 		lines.append(text)
+	if _pulse.is_visible_in_tree():
+		var pulse := "Puls: %s" % _pulse_value.text
+		if _pulse_has_value:
+			pulse += " bpm" if _pulse_unit.is_visible_in_tree() else ""
+			pulse += " · " + _pulse_zone.text if not _pulse_zone.text.is_empty() else ""
+		lines.append(pulse)
 	if _segment.is_visible_in_tree():
 		lines.append(_segment_line)
 	if _training.is_visible_in_tree():
@@ -498,21 +576,35 @@ func _viewport_height() -> float:
 	return _top.get_viewport_rect().size.y
 
 
-## Leisten an/aus: oben ohne Minikarte und Abschnitt-Überschrift, kleinerer Kadenz-Bogen, die Werte in einer Zeile;
-## unten ohne Höhenprofil.
+## Leisten an/aus: oben ohne Minikarte, Abschnitt-Überschrift und Pulskurve, kleinerer Kadenz-Bogen, die Werte in einer
+## Zeile; unten ohne Höhenprofil.
 func _set_compact(on: bool) -> void:
 	if on == compact:
 		return
 	compact = on
 	_minimap.get_parent().visible = not on
 	_profile.visible = not on
+	_update_pulse_graph()
 	_grid.columns = GRID_COLUMNS_COMPACT if on else GRID_COLUMNS
+	_grid.add_theme_constant_override("h_separation", GRID_SEPARATION_COMPACT_PX if on else GRID_SEPARATION_PX)
+	_grid.get_parent().add_theme_constant_override("separation", MAIN_SEPARATION_COMPACT_PX if on else MAIN_SEPARATION_PX)
+	_update_pulse_unit()
 	_section.get_node("Caption").visible = not on
 	_gauge.custom_minimum_size = Vector2.ONE * (GAUGE_COMPACT_PX if on else GAUGE_PX)
 	if on:
 		_cadence_value.add_theme_font_size_override("font_size", CADENCE_COMPACT_FONT_PX)
 	else:
 		_cadence_value.remove_theme_font_size_override("font_size")
+
+
+## „bpm“ steht nur neben einem Wert und nicht in der Leiste (dort fehlt der Platz; die Beschriftung „Puls“ bleibt).
+func _update_pulse_unit() -> void:
+	_pulse_unit.visible = _pulse_has_value and not compact
+
+
+## Die Verlaufskurve gibt es nur im vollen Layout und solange die Pulsanzeige da ist.
+func _update_pulse_graph() -> void:
+	_pulse_graph.visible = _pulse_shown and not compact
 
 
 ## Zustandsmeldung mittig im freien Streifen zwischen den Panels; die Schrift folgt der Fensterhöhe und wird so weit
