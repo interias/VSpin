@@ -39,3 +39,16 @@ Drei getrennte Prozesse/Schichten:
 
 - **C#/.NET:** nur Windows, keine Bridge-Entwicklung/CI ohne Windows.
 - **BLE im Game-Engine-Plugin:** harte Kopplung, nur ein Game gleichzeitig.
+
+## Nachtrag (2026-10-28, #76): Begleiter als zweiter eigener Prozess am Bus
+
+- **`vspin-companion`** (Toni, der Begleiter) ist ein zweiter eigener Python-Prozess am Bus, als Paket
+  `vspin_companion` im Projekt `bridge/` neben `vspin_bridge` (Einstieg `python -m vspin_companion`). Er ist ein
+  Bus-Client wie das Spiel; seine schweren Abhängigkeiten (Claude Agent SDK, Spracherkennung, Audio) stehen im
+  optionalen Extra `companion` und werden nur in den echten Adaptern importiert – die Tests der Bridge prüfen ihn mit
+  Fakes ohne neue Installationen.
+- **Die Bridge leitet weiter:** `ride_state`, `ride_event`, `companion_ptt` und `companion_status` gehen unverändert
+  an alle anderen Clients, nie an den Sender und ohne Antwort; die Bridge prüft nur den Umschlag (`v`, `type`), die
+  Felder gehören Spiel und Begleiter (docs/bus-protocol.md). Der Bus bleibt bei Version 0.
+- **Die Bridge bleibt der einzige Prozess, der BLE spricht.** Der Begleiter liest nur, was das Spiel ihm über den Bus
+  schickt, und steuert nichts (ADR-0010, ADR-0011).
