@@ -2,6 +2,9 @@
 
 Modi: manuell (Kadenz per Tastatur) oder Profil (`profile.py`); Rauschen/Jitter
 zuschaltbar (`Noise`). Mit festem Seed ist auch das Rauschen reproduzierbar.
+
+Jedes Sample trägt auch einen Puls, der der Belastung träge folgt (`sim_heart_rate.py`);
+ein Profil kann ihn vorgeben oder abschalten (`profile.py`).
 """
 
 import asyncio
@@ -17,6 +20,7 @@ from .base import (
     TelemetrySample,
 )
 from .profile import Disconnect, Event, Pause, Profile, Tick, play
+from .sim_heart_rate import HeartRateModel
 
 CADENCE_MIN = 0.0
 CADENCE_MAX = 200.0  # Plausibilitätsgrenze aus ADR-0004
@@ -71,6 +75,8 @@ class SimulatorSource:
         # Ein Ereignisstrom für den ganzen Lauf: nach einem Abbruch geht es dort weiter.
         self._events: Iterator[Event] = _manual() if profile is None else play(profile, interval_s)
         self._offline_until = 0.0  # loop.time(), bis zu der `connect` scheitert
+        # Puls wie ihn ein FTMS-Rad mitliefert; ein Profil mit `heart_rate = false` hat keinen.
+        self._pulse = None if profile is not None and not profile.heart_rate else HeartRateModel(interval_s)
 
     @property
     def cadence(self) -> float:
@@ -116,7 +122,9 @@ class SimulatorSource:
                 jitter = 0.0 if self._noise is None else self._noise.jitter()
                 await asyncio.sleep(max(0.0, next_tick + jitter - loop.time()))
                 base = self._cadence if event.cadence is None else event.cadence
-                yield TelemetrySample(t_ms=bridge_time_ms(), cadence=self._effective_cadence(base))
+                cadence = self._effective_cadence(base)
+                heart_rate = None if self._pulse is None else self._pulse.step(cadence, self._grade, event.heart_rate)
+                yield TelemetrySample(t_ms=bridge_time_ms(), cadence=cadence, heart_rate=heart_rate)
                 next_tick += self._interval_s
         await asyncio.sleep(max(0.0, next_tick - loop.time()))  # auch der letzte Takt dauert voll
 

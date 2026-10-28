@@ -19,6 +19,10 @@ FAST = ("--speed", "20")
 CSC = "00002a5b-0000-1000-8000-00805f9b34fb"
 NULL_FIELDS = ("speed_kmh", "power_w", "power_estimated", "heart_rate")
 
+# `--wait-client` gibt beim ersten Client frei: ein fremder Client am Bus (ein laufendes Spiel) startete das
+# Replay vor dem Test-Client.
+pytestmark = pytest.mark.usefixtures("isolated_bus")
+
 
 def fixture(name: str):
     return FIXTURES_DIR / name

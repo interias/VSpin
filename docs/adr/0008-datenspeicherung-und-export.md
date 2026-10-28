@@ -42,3 +42,25 @@ Spalte bleibt bis dahin leer.
 (`user://`): Fahrtenbuch, Bestzeiten, Ghosts (Strecke über Zeit einer Runde), Medaillen, Erfolge, Fahrerlevel und
 Arcade-Fortschritt. Das Spiel schreibt keine Rohtelemetrie; wer Kadenzverläufe braucht, liest die Session-CSV der
 Bridge.
+
+## Nachtrag (2026-10-09, #64): Puls als zweite Quelle
+
+Die `HeartRateSource` ist umgesetzt und läuft in der Bridge **neben** der Radquelle, nie an ihrer Stelle:
+
+- **Zwei Quellen:** Die Radquelle bestimmt weiter den Telemetrie-Takt und `status.state`. Die Pulsquelle hält
+  eine eigene BLE-Verbindung zu einem Brustgurt oder einer Uhr (Heart Rate Service `0x180D`) und meldet ihren
+  Zustand im eigenen Block `status.heart_rate`. Die Folge „Bridge muss mehrere BLE-Verbindungen parallel halten
+  können (Rad + Puls)“ ist damit eingelöst: Die Pulsquelle hat ihre eigene Verbindung hinter der BLE-Nahtstelle
+  `vspin_bridge/ble/`, die die `BleSource` fürs Rad (#9) wiederverwenden soll.
+- **Vorrang Gurt vor Uhr** ergibt sich allein aus der Reihenfolge der gemerkten Geräte. Eine verbundene Uhr wird
+  gegen den Gurt getauscht, sobald er sendet; ihr Wert gilt, bis der Gurt den ersten liefert.
+- **`telemetry.heart_rate` / `hr_bpm`:** Wert der Pulsquelle, solange ein Pulsgerät verbunden ist oder ihr Wert
+  jünger als 5 s ist; älter als 5 s ist er `null` (`stale`). Liefert das Rad selbst Puls (FTMS), zählt das nur
+  ohne verbundenes Pulsgerät. Die CSV-Spalte `hr_bpm` ist derselbe Wert wie am Bus; die rohen
+  `0x2A37`-Notifications stehen wie die des Rads in der Session-Rohdatei.
+- **Bus-Erweiterung (Version 0, additiv):** Block `heart_rate` in `status`; Befehle `set_heart_rate_devices`,
+  `start_heart_rate_search`, `stop_heart_rate_search`; Suchergebnisse `heart_rate_found` nur an den anfragenden
+  Client (docs/bus-protocol.md).
+- **Die gemerkten Geräte gehören dem Spiel** (`user://settings.cfg`), nicht der Bridge: Das Spiel schickt sie nach
+  jedem (Neu-)Verbinden mit dem Bus. Die Bridge speichert nichts dauerhaft und startet mit dem Puls `off`; der
+  Launcher braucht keine neuen Startparameter.

@@ -55,7 +55,7 @@ def test_set_grade_is_acked_not_supported_and_logged(bridge_process, bus_client)
     assert "set_grade +0.070 (+7.0 %) -> not_supported" in bridge.log()
 
 
-def test_simulator_cadence_drops_uphill_and_recovers_at_zero(bridge_process, bus_client):
+def test_simulator_cadence_drops_uphill_and_recovers_at_zero(bridge_process, bus_client, isolated_bus):
     start_sim(bridge_process, cadence="80")
     client = connect(bus_client)
     assert settled_cadence(client) == 80
@@ -106,7 +106,7 @@ def test_broken_message_gets_error_and_connection_stays_usable(bridge_process, b
     assert reply_to(client, {"v": 0, "type": "set_grade", "grade": 0.03}) == NOT_SUPPORTED_ACK
 
 
-def test_replies_go_only_to_the_sender_and_others_keep_receiving_telemetry(bridge_process, bus_client):
+def test_replies_go_only_to_the_sender_and_others_keep_receiving_telemetry(bridge_process, bus_client, isolated_bus):
     start_sim(bridge_process)
     sender, other = connect(bus_client), connect(bus_client)
 
@@ -140,7 +140,7 @@ class FailingGradeSource(SimulatorSource):
         raise RuntimeError("Gerät antwortet nicht")
 
 
-def test_source_failure_on_set_grade_is_acked_and_connection_stays_open(in_process_bridge, bus_client):
+def test_source_failure_on_set_grade_is_acked_and_connection_stays_open(in_process_bridge, bus_client, isolated_bus):
     bridge = in_process_bridge(FailingGradeSource(cadence=80))
     sender, other = connect(bus_client), connect(bus_client)
 
