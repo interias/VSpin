@@ -15,6 +15,7 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | Begriff | Bedeutung |
 |---|---|
 | **JC312** | Das konkrete Indoor-Bike (Wenoker JC312). |
+| **Trainer (FTMS)** | Rad-Trainer (z. B. Wahoo KICKR CORE 2) als Gerät der Bridge: liest Leistung, Kadenz und Tempo per BLE Fitness Machine Service `0x1826` (Indoor Bike Data `0x2AD2`, Features `0x2ACC`); fehlt die Kadenz dort, kommt sie aus Cycling Power `0x2A63`. Bus-`source` ist `ble` (`vspin-bridge --source ble`), die Watt sind **measured**. Gesteuert wird er in dieser Stufe noch nicht. |
 | **Telemetrie** | Vom Rad gelieferte Messwerte: Kadenz, Geschwindigkeit, ggf. Leistung. |
 | **Kadenz** | Kurbelumdrehungen pro Minute (rpm). Primärer Game-Input. |
 | **FTMS** | Bluetooth Fitness Machine Service (UUID `0x1826`), u. a. Indoor Bike Data `0x2AD2`, Control Point `0x2AD9`. |
@@ -32,7 +33,7 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **Bridge** (`vspin-bridge`) | Python-Prozess, der als einziger BLE spricht und Telemetrie auf den Bus publiziert. |
 | **Bus** | Lokaler WebSocket (`ws://127.0.0.1:8765`, JSON), über den Bridge und Clients kommunizieren. |
 | **Client** | Alles, was am Bus hängt: Games, Logger, Dashboard. |
-| **measured / estimated** | Herkunft eines Werts: gemessen vom Gerät bzw. hochgerechnet. Geschätzte Watt werden als „~142 W“ angezeigt. |
+| **measured / estimated** | Herkunft eines Werts: gemessen vom Gerät bzw. hochgerechnet. Geschätzte Watt werden als „~142 W“ angezeigt. Die Herkunft hängt am Gerät: der Trainer (FTMS) misst, JC312-Replay und Simulator schätzen. |
 | **stale** | Verbindungsstatus: verbunden, aber > 3 s keine Daten. Games pausieren. |
 | **set_grade** | Bus-Nachricht vom Game an die Bridge mit der aktuellen virtuellen Steigung; ab v1 gesendet, bis zum ESP32 mit `not_supported` beantwortet. |
 | **ESP32-Retrofit** | Spätere Ausbaustufe: Stepper am Widerstandsknopf + Hall-Sensor; meldet sich als FTMS-Smart-Bike mit Control Point. |

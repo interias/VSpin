@@ -82,3 +82,20 @@ den der Fahrer tritt; das Spiel hält den letzten Wert bis zum nächsten.
   geglättet wie ungeglättet. Liefert das JC312 nur CSC, braucht Innehalten eine andere Stopp-Regel (z. B. aus dem
   letzten Kurbel-Intervall) – eine Änderung dieser ADR, nicht von #45. Die Schwellen der Muster kalibriert #50
   (Spec #27: konfigurierbar, endgültig mit #1).
+
+## Nachtrag (2026-10-28, Spec #75): Watt sind je Gerät gemessen oder geschätzt
+
+Die Entscheidung „Watt nur als `estimated` markiert“ galt dem JC312, das den Widerstandsknopf nicht kennt. Mit dem
+FTMS-Trainer (Wahoo KICKR CORE 2) ändert sich die Herkunft, nicht die Regel „ehrlich kennzeichnen“:
+
+- **Die Herkunft ist eine Eigenschaft des Geräts bzw. der Quelle, nicht der Characteristic.** Der Trainer misst die
+  Leistung (laut Hersteller ±2 %): seine Watt gehen als `measured` auf den Bus (`power_estimated: false`). Das
+  Replay einer JC312-Aufnahme, das Kadenzmodell und der Simulator schätzen weiter (`power_estimated: true`);
+  bestehende Aufnahmen und ihre Fixtures behalten ihr Ergebnis.
+- **Umsetzung:** Die Quelle trägt die Herkunft (`power_estimated`), die Bridge legt den `Decoder` danach an
+  (`Decoder(power_estimated=…)`). Das gilt für `0x2AD2` und `0x2A63`.
+- **Unverändert:** Kadenz bleibt der einzige Game-Input, keine Spielmechanik hängt an den Watt; Glättung,
+  Kadenz 0, Ausreißer und Verbindungsstatus gelten für den Trainer wie für jede Quelle. Bricht die Verbindung
+  zum Trainer ab, meldet die Bridge `disconnected` und verbindet alle 3 s neu; die Session läuft weiter.
+- **Tempo:** Der Tempowert des KICKR beruht auf einem angenommenen Radumfang (mit Zwift Cog ohne Aussage). Er wird
+  durchgereicht; das Spiel bildet sein Tempo weiter selbst aus der Kadenz.

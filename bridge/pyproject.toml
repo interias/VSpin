@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
     "websockets>=13",  # neue asyncio-API (websockets.asyncio.server)
-    "bleak",           # BLE-Quelle (Folgeticket)
+    "bleak",           # BLE-Quellen (Trainer, Puls)
 ]
 
 [project.optional-dependencies]

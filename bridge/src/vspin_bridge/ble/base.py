@@ -1,7 +1,7 @@
 """Nahtstelle zum BLE-Stack: suchen, verbinden, lesen, schreiben, Notifications, Abbruch, trennen.
 
 Allgemein gehalten, nicht pulsspezifisch: Die `HeartRateSource` nutzt sie als Erste, die
-`BleSource` fürs Rad (#9) soll sie wiederverwenden. Was ein Gerät bedeutet (Rolle, Vorrang,
+Trainerquelle fürs Rad (`sources/trainer.py`) nutzt sie ebenfalls. Was ein Gerät bedeutet (Rolle, Vorrang,
 Parser), gehört der Quelle, nicht hierher.
 
 Erweiterung (Spec #75): Eine Suche nimmt mehrere Services und/oder Hersteller-IDs; ein Gerät

@@ -2,7 +2,8 @@
 
 Python-Prozess, der als einziger BLE spricht und Telemetrie auf den Bus publiziert
 (ADR-0002, ADR-0003). Bisher implementiert: Quellen `sim` (Simulator: manuell, Profile,
-Rauschen) und `replay` (aufgezeichnete Roh-Notifications durch die Parser: CSC und FTMS),
+Rauschen), `replay` (aufgezeichnete Roh-Notifications durch die Parser: CSC und FTMS) und `ble`
+(Trainer per FTMS, siehe Trainer),
 die Datenaufbereitung (Glättung, Kadenz 0, Ausreißer – ADR-0004), Verbindungsstatus
 `connected | stale | disconnected`, Session-Dateien und der Bus nach
 [`docs/bus-protocol.md`](../docs/bus-protocol.md) – nur `ws://127.0.0.1:8765`.
@@ -23,6 +24,8 @@ vspin-bridge --source sim                  # oder: python -m vspin_bridge --sour
 vspin-bridge --source sim --sim-cadence 80 # Start-Kadenz in rpm (Standard 0)
 vspin-bridge --source replay DATEI.raw.jsonl --speed 10   # Aufnahme abspielen (siehe Replay)
 vspin-bridge --source sim --hr-replay DATEI.raw.jsonl      # Pulsquelle spielt die Pulszeilen ab (siehe Puls)
+vspin-bridge --source ble                                  # Trainer per BLE (FTMS): das stärkste Gerät mit FTMS
+vspin-bridge --source ble --trainer AA:BB:CC:DD:EE:FF      # bestimmter Trainer (siehe Trainer)
 ```
 
 Im Terminal: Pfeil hoch/`+` = Kadenz +5, Pfeil runter/`-` = Kadenz −5 (0–200 rpm), `q` oder
@@ -58,6 +61,28 @@ Scheitert die Quelle mit einem anderen Fehler, lautet die Antwort `reason: "sour
 Der Simulator senkt bergauf die Kadenz (um 2 × Steigung, höchstens auf die Hälfte);
 bei Steigung 0 oder bergab gilt wieder die per Tastatur eingestellte Kadenz.
 Kaputte oder unbekannte Nachrichten werden mit `error` beantwortet (docs/bus-protocol.md).
+
+## Trainer
+
+`--source ble` startet die Trainerquelle (`sources/trainer.py`, Spec #75) mit bleak hinter der BLE-Nahtstelle `ble/`:
+ein Rad-Trainer wie der Wahoo KICKR CORE 2 per Fitness Machine Service `0x1826`. Die Quelle liest nur, sie steuert
+den Trainer (noch) nicht.
+
+- **Suche:** nach FTMS `0x1826` und Cycling Power `0x1818` zugleich. Ohne `--trainer ADRESSE` nimmt die Bridge das
+  **stärkste Gerät mit FTMS**, ersatzweise das stärkste mit Cycling Power; mit Adresse gilt nur dieses Gerät. Der
+  Trainer darf nicht noch bei Zwift, der Hersteller-App o. Ä. verbunden sein (BLE hält eine Verbindung).
+- **Werte:** Features `0x2ACC` → Capabilities (`SPEED`, `POWER`, `CADENCE`); Indoor Bike Data `0x2AD2` liefert Tempo,
+  Leistung und Kadenz. Fehlt die Kadenz dort (laut Features oder in den ersten drei Notifications), kommt Cycling
+  Power Measurement `0x2A63` dazu (Kadenz aus den Kurbeldaten). Die Watt sind **gemessen** (`power_estimated: false`,
+  ADR-0004). Das Tempo beruht auf einem angenommenen Radumfang und wird nur durchgereicht.
+- **Rohdaten:** Jede Notification steht in der Session-Rohdatei, im Format des Replays; die Aufnahme einer Fahrt
+  lässt sich später mit `--source replay` abspielen (dort gelten die Watt wie bei jedem Replay als geschätzt).
+- **Abbruch:** Reißt die Verbindung ab oder ist der Trainer beim Start nicht da, meldet die Bridge `disconnected`
+  und sucht und verbindet alle 3 s neu (ADR-0004). Die Session läuft weiter, es gibt keine neue Datei.
+- **Windows:** Ein gebondetes Gerät fragt WinRT beim ersten geschützten Zugriff (dem Lesen der Features) nach dem
+  Pairing; das ist am Gerät noch nicht belegt.
+- **Tests:** `tests/test_trainer_source.py`, `tests/test_bus_trainer.py` (Fake hinter `tests/fake_ble.py`, kein
+  echtes Gerät).
 
 ## Puls
 
