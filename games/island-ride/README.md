@@ -420,6 +420,7 @@ gegen den Uhrzeigersinn (#34; `--shots` dann in Metern dieser Richtung, Torböge
 | `P` oder Leertaste | Pause an/aus (jederzeit) |
 | `C` | Kameraperspektive wechseln: Nah → Verfolger → Weit (in der Fahrt, nicht bei offenem Menü; #59) |
 | `V` | Verbindungsfenster auf/zu (in der Fahrt, nicht bei offenen Einstellungen; auch Knopf „Verbindungen (V)“ im HUD; #75) |
+| `↑` / `↓`, Ziffernblock `+` / `−` | virtuell schalten: schwerer / leichter (nur mit gesteuertem Trainer, nicht bei offenem Menü, Einstellungen oder Verbindungsfenster; #75) |
 | `Esc` oder `F2` | Menü „Grafik und Fenster“ auf/zu (jederzeit, auch aus der Pause); **Beenden** über den Knopf „Beenden“ im Menü (nicht im Browser), in der Fahrt „Fahrt beenden“ zurück ins Startmenü |
 | `Enter` | im Ziel: zurück ins Startmenü |
 | `F3` | Debug-Anzeige an/aus |
@@ -1434,6 +1435,16 @@ Wetter und Tageslicht; Hörer ist die Kamera. Ton ist nur Ausgabe (ADR-0010).
 Im Browser startet der Ton erst nach der ersten Nutzergeste (Regel der Browser); ohne Audio-Gerät (oder wenn die
 Audio-Worklets nicht laden) läuft das Spiel gleich, nur still.
 
+### Virtuelle Gänge (#75)
+
+Mit einem gesteuerten Trainer (`status.trainer.control` = `active`) schaltet der Fahrer mit `↑`/`↓` bzw. Ziffernblock
+`+`/`−` (Logik `src/gears.gd`). Der Gang verschiebt nur den Widerstand: Gemeldet wird die effektive Steigung =
+Streckensteigung + (Gang − neutraler Gang) × Schritt, über denselben `set_grade`-Weg; das Fahrmodell bleibt gleich,
+das Zwift-Protokoll auf dem Trainer wird nicht benutzt. `config.cfg [gears]`: `count=24`, `neutral=12`, `step_pp=0.5`
+(−5,5 … +6 Prozentpunkte; ein Schritt entspricht der Meldeschwelle, jeder Gangwechsel wird gesendet). Jede Fahrt beginnt
+im neutralen Gang, die Grundlast bleibt 0 in jedem Gang. Das HUD zeigt „Gang 12/24“ in der Rundenzeile nur, solange
+VSpin den Trainer steuert; ohne Steuerung (Simulator, nur lesen, Kontrollverlust) gilt die reine Streckensteigung.
+
 ### Virtuelle Steigung (`set_grade`)
 
 Das Spiel meldet die Steigung an der Fahrerposition per `{"v": 0, "type": "set_grade", "grade": 0.06}`
@@ -1724,6 +1735,7 @@ src/ability_hud.gd      AbilityHud: Leiste „bereit / aktiv / Abklingzeit“ un
 trainings/              Trainingseinheiten als Dateien (JSON): Intervalle kurz, Pyramide, Tempo-Blöcke
 src/medals.gd           Medals: Medaillen-Schwellen aus dem Fahrmodell (70/85/95 rpm), Medaille einer Zeit – reine Logik
 src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik
+src/gears.gd            Gears: virtuelle Gänge, effektive Steigung = Strecke + f(Gang), Sperre für ERG – reine Logik (#75)
 src/ride_model.gd       RideModel: reine Logik (Kadenz, Steigung, Δt, Konfig → Geschwindigkeit, Position)
 src/rider_motion.gd     RiderMotion: Kurbel-/Radwinkel, Schräglage, Vorbeuge, Glieder-IK – reine Logik
 src/rider_model.gd      RiderModel: Fahrer und Rennrad aus Grundkörpern, Pose aus RiderMotion; Garderobe und Arcade-Ausrüstung mit Talisman (#36, #49)
