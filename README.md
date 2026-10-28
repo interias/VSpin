@@ -72,7 +72,7 @@ Verbindung zum echten JC312 unter Windows; dafür braucht es zuerst einen Mitsch
 |---|---|
 | [`bridge/`](bridge/) | Bridge in Python: Bluetooth-, Simulator- und Replay-Quellen, Parser, Bus, Aufzeichnung |
 | [`games/island-ride/`](games/island-ride/) | Spiel „Inselfahrt“ (Godot 4) |
-| [`tools/`](tools/) | Hilfsskripte, z. B. Bluetooth-Mitschnitt des Rads |
+| [`tools/`](tools/) | Hilfsskripte, z. B. die Geräteprüfung für Trainer und Zwift-Controller (`tools\geraete-pruefen.cmd`) |
 | [`docs/`](docs/) | [Anleitung](docs/anleitung.md), [Bus-Protokoll](docs/bus-protocol.md), [Architekturentscheidungen](docs/adr/), [Marke](docs/brand/) |
 | [`CONTEXT.md`](CONTEXT.md) | Glossar |
 
