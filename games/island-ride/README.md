@@ -632,7 +632,8 @@ Kosmetik** frei (`DriverLevel.unlock_level(teil)` für die Garderobe, #36) und w
 Bestzeit oder Medaille (ADR-0010).
 
 **Garderobe** (`scenes/wardrobe.gd`, Teile und Auswahl in `src/wardrobe.gd`, aus dem Startmenü): links eine Vorschau
-(der Fahrer dreht sich langsam auf dem Rad und tritt), rechts je **Trikot**, **Radfarbe** und **Helm** sechs Teile –
+(der Fahrer dreht sich langsam auf dem Rad und tritt; `scenes/rider_preview.gd`, auch im Charakterblatt der Ausrüstung,
+#68), rechts je **Trikot**, **Radfarbe** und **Helm** sechs Teile –
 Farbvarianten am vorhandenen Fahrermodell, keine neuen Dateien. Je Kategorie ist der bisherige Look ab Level 1 frei
 (Inselblau, Rennrot, weißer Helm), die übrigen kommen über die Levelkurve bis Level 20 dazu; gesperrte Teile sind
 ausgegraut und zeigen, ab welchem Level sie frei werden („Nachtschwarz · ab Level 15“). Ein Klick (oder Enter/Leertaste)
@@ -1196,9 +1197,19 @@ Teile wirken wie bei allen anderen. Das Ausrüstungsmenü nennt den Effekt eines
 verwaltet wird. Oben Splitter und Zahl der Teile; links die Teile nach Platz, darin die neuesten zuerst (Name in
 Seltenheitsfarbe, Werte, angelegte mit „· angelegt“), rechts das gewählte Teil mit dem **Vergleich** gegen das angelegte
 Teil desselben Platzes (je Wert besser grün, schlechter rot, sonst „gleich“), **Anlegen** und **Verwerten
-(+n Splitter)** – angelegte Teile lassen sich nicht verwerten –, darunter „Angelegt je Platz“. Jede Änderung wird sofort
+(+n Splitter)** – angelegte Teile lassen sich nicht verwerten. Links steht das **Charakterblatt** (#68, unten). Jede Änderung wird sofort
 gespeichert. Splitter werden nur gesammelt (kein Handwerk). Bedienung mit Maus oder Tastatur (Pfeiltasten/Tab,
 Enter/Leertaste); **Esc** oder **Zurück** führt auf die Seite „Arcade“.
+
+**Charakterblatt (#68):** Links in der Ausrüstung steht der Fahrer in der Mitte (die Vorschau der Garderobe,
+`scenes/rider_preview.gd`, mit Garderobe und angelegter Ausrüstung), drumherum die sechs Plätze (Helm, Trikot, Schuhe
+links; Rahmen, Laufräder, Talisman rechts). Jeder Platz zeigt das angelegte Teil mit Werten in der Farbe der Seltenheit
+oder „leer“. Ein Klick (Enter/Leertaste) auf einen Platz zeigt in der Liste nur die passenden Teile, gewählt ist das
+neueste nicht angelegte, rechts steht der Vergleich; **Anlegen** tauscht das Teil, ein zweiter Klick auf den Platz zeigt
+wieder alle. Darunter stehen die Summe der Werte und die **Stärke** neben der **Empfohlenen Stärke** der gewählten Stufe
+(grün, wenn sie reicht; eine Empfehlung, keine Sperre). Reine Darstellung über Inventory, Loot und ArcadeTiers: keine
+neuen Werte, keine Wirkung außerhalb des Arcade (ADR-0010). Passt in 960 × 1040, 1920 × 1080 und 1152 × 648; Fahrer und
+Plätze scrollen, wenn die Höhe nicht reicht. Test: `tests/test_character_sheet.gd`.
 
 **Am Fahrer:** Im Arcade-Lauf trägt der Fahrer die angelegten Teile in der Farbe ihrer Seltenheit – Rahmen, Felgen,
 Trikot (Brustband dunkler), Helm (Streifen dunkler), Schuhe und den Talisman am Sattel. Jedes angelegte Teil überdeckt
@@ -1604,9 +1615,10 @@ src/ride_config.gd      RideConfig: liest config.cfg
 src/graphics_settings.gd GraphicsSettings: Grafik-/Fenstereinstellungen, Tageszeit/Wetter (user://settings.cfg), Anwenden, Fensterhälften
 scenes/settings_menu.*  Menü „Grafik und Fenster“ (F2, F11), von der Hauptszene eingehängt
 scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt-, Training- und Arcade-Auswahl (mit „Ausrüstung“, „Talente“, Arcade-Level, gesperrten Stufen und Empfohlener Stärke), Radstatus (#30, #31, #37, #46, #49, #53, #54)
-scenes/gear_menu.gd     Ausrüstung: Inventar der Beute mit Vergleich, Anlegen und Verwerten, Effekt legendärer Teile, aus „Fahren → Arcade“ (#49, #53)
+scenes/gear_menu.gd     Ausrüstung: Inventar der Beute mit Vergleich, Anlegen und Verwerten, Effekt legendärer Teile, aus „Fahren → Arcade“; Charakterblatt mit sechs Plätzen, Summe und Stärke (#49, #53, #68)
 scenes/talent_menu.gd   Talente: Talentbaum mit drei Ästen, Erlernen, kostenloses Zurücksetzen, Arcade-Level, aus „Fahren → Arcade“ (#53)
 scenes/wardrobe.gd      Garderobe: Trikot, Radfarbe, Helm mit Vorschau (SubViewport), gesperrte mit Level (#36)
+scenes/rider_preview.gd Fahrer-Vorschau (SubViewport, dreht sich, tritt) für Garderobe und Charakterblatt (#36, #68)
 src/wardrobe.gd         Wardrobe: Teile und Farben, Auswahl prüfen und wählen, Standard je Kategorie – reine Logik
 src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Bestzeiten, Segment-Bestzeiten, Medaillen, Ghosts, Erfolge, Garderobe, Kamera, Arcade, Hochstufung
 src/camera_views.gd     CameraViews: Kameraperspektiven Nah/Verfolger/Weit als Daten, Durchblättern, Auswahl im Spielstand (#59) – reine Logik
