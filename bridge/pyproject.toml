@@ -11,6 +11,8 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest"]
+fit = ["fit-tool>=0.9"]
+garmin = ["garminconnect>=0.3.20"]
 
 [project.scripts]
 vspin-bridge = "vspin_bridge.cli:main"
