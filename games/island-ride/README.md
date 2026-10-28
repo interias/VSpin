@@ -1215,9 +1215,12 @@ Plätze scrollen, wenn die Höhe nicht reicht. Test: `tests/test_character_sheet
 
 **Ausrüstungssymbole (#83):** Jedes Teil hat ein kleines Bild, das zeigt, was es ist und wie gut es ist. Jeder Platz hat
 eine eigene Low-Poly-Form: Diamantrahmen mit Sattel und Lenker, Speichenrad mit Felgenflanke, Trikot mit Kragen,
-Reißverschluss und Brustband, Aerohelm mit Lüftungsschlitzen und Visier, Radschuh mit Drehverschluss und Pedalplatte,
+Reißverschluss und Brustband, schlanker Aerohelm mit langer Heckspitze, Längsschlitzen und Visier, Radschuh im Profil mit Sohle, Drehverschluss und
+Pedalplatte samt Cleat,
 Talisman als Amulett mit Drac, Tramuntana oder Dimonis (gewöhnliche als Kiesel). Rahmen und Hintergrund stehen in der
-Farbe der Seltenheit, legendäre Teile leuchten mit Puls und Schimmer. Farbe (aus einer Inselpalette), Muster (Streifen,
+Farbe der Seltenheit, legendäre Teile leuchten mit Puls und Schimmer. Selten und legendär behalten die Rahmenfarben
+aus der Beute (Gelb, Orange), sind im Symbol aber auch ohne Leuchten zu trennen: selten mit hellem goldgelbem Hintergrund
+und silbergoldener Zier, legendär mit Strahlenkranz von Glutorange bis Blutrot und goldener Zier. Farbe (aus einer Inselpalette), Muster (Streifen,
 Karo, Verlauf) und Detail folgen dem **Inhalt** des Teils (Platz, Seltenheit, Werte, Effekt), nicht seiner id – ein Fund
 sieht beim Einblenden so aus wie später im Inventar. Talisman-Motiv legendärer Teile aus dem Effekt (Rückstoß, Auf dem
 Sprung → Tramuntana; Tiefer Atem, Im Fluss → Drac; Kombo-Ernte → Dimonis), sonst aus dem Inhalt. Leere Plätze zeigen die
