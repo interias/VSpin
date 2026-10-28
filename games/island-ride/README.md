@@ -1463,8 +1463,12 @@ Einstellungen, Gelände-Cache). Testdateien legen Tests über `TestIsolation.pat
 Engine selbst schreibt (`logs/`, `.recovery_mode_lock`, `shader_cache/`, `vulkan/`, `objectdb_snapshots/` – etwa wenn
 gleichzeitig das Spiel oder `view_probe` rendert). Wer während eines Testlaufs spielt und dabei speichert, lässt den
 Lauf ebenfalls scheitern. **Mehrere Läufe gleichzeitig** (z. B. je Worktree): jedem Lauf eine eigene Zahl
-`VSPIN_PORT_BASE=n` (0–466) geben – Fake-Bus ab Port 18765 + 100·n, eigenes Testverzeichnis; ohne Variable gilt
-n = 0. Ein ungültiger Wert bricht den Lauf ab. Die Bridge-Tests nutzen denselben Wert (`bridge/README.md`, „Testen“).
+`VSPIN_PORT_BASE=n` geben (jede ganze Zahl ≥ 0, etwa die Paketnummer). Daraus folgt ein Platz p = 1 + (n − 1) mod 300
+(für n = 0 gilt p = 0, für n = 1–300 ist p = n; #72): Fake-Bus ab Port 18765 + 100·p, eigenes Testverzeichnis
+`.godot/test_user/<n>/`; ohne Variable gilt n = 0. Alle Testports liegen in 8765–48864, unter dem dynamischen Bereich
+49152–65535, aus dem Windows (Hyper-V, WinNAT) Ports ausschließt. Zahlen, die sich um ein Vielfaches von 300
+unterscheiden, teilen die Ports und laufen nie gleichzeitig. Ein ungültiger Wert bricht den Lauf ab. Die Bridge-Tests
+nutzen denselben Platz (`bridge/README.md`, „Testen“).
 
 ```
 VSPIN_PORT_BASE=2 godot --headless --path games/island-ride -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit
@@ -1524,16 +1528,17 @@ func test_more_cadence_is_faster() -> void:
 
 ### End-to-End mit echter Bridge (manuell)
 
-`tools/e2e.sh` startet je Kadenz die echte Bridge mit Simulator (`--sim-cadence N`, Port 8765 bzw. 8765 + n
+`tools/e2e.sh` startet je Kadenz die echte Bridge mit Simulator (`--sim-cadence N`, Port 8765 bzw. 8765 + p
 muss frei sein), fährt das Spiel headless (`tools/e2e_probe.gd`) und vergleicht die Geschwindigkeiten:
 
 ```
 GODOT=godot PYTHON=python games/island-ride/tools/e2e.sh 60 90
 ```
 
-Mit gesetztem `VSPIN_PORT_BASE=n` fahren `e2e.sh`, `e2e_probe.gd` und `view_probe.gd` gegen Port 8765 + n (statt
+Mit gesetztem `VSPIN_PORT_BASE=n` fahren `e2e.sh`, `e2e_probe.gd` und `view_probe.gd` gegen Port 8765 + p (Platz p wie unter „Testisolation“,
+`TestIsolation.bus_port()`; statt
 `config.cfg [bus] url`) – parallel zu anderen Läufen und ohne die Bridge des Spielers; `e2e.sh` startet die Bridge
-selbst mit `--port`, beim `set_grade`-Handtest die Bridge entsprechend mit `vspin-bridge … --port <8765+n>` starten.
+selbst mit `--port`, beim `set_grade`-Handtest die Bridge entsprechend mit `vspin-bridge … --port <8765+p>` starten.
 Den Gelände-Cache legen die Prüfhilfen nach `.godot/test_user/<n>/`. Ein ungültiger Wert bricht auch die Prüfhilfen mit
 Exit-Code 1 ab, statt still auf 8765 zu fahren (Nacharbeit #27).
 
