@@ -182,8 +182,9 @@ py -3.12 -m venv .venv-companion
 - Der Begleiter fügt die DLL-Ordner der beiden NVIDIA-Pakete selbst hinzu. Ob das unter Windows reicht, ist ungeprüft;
   die Alternative laut faster-whisper sind die Standalone-Bibliotheken im `PATH`.
 - Claude Code braucht man nur für `claude setup-token`, das Agent SDK bringt seine CLI mit.
-- Der Launcher des Spiels startet den Begleiter mit `[bridge] program`, also dem Python der Bridge. Für den echten
-  Betrieb muss dieses Python die Pakete des Extras haben; sonst wird Toni heiser.
+- Der Launcher des Spiels startet den Begleiter mit dem Programm aus `config.cfg [companion] program`. Standard ist
+  `../../bridge/.venv-companion/Scripts/pythonw.exe`, also genau das venv oben. Fehlt es, startet das Spiel keinen
+  Begleiter; Fahrt und Bridge laufen weiter.
 - Die Tests brauchen das Extra nicht.
 
 ## Profile
