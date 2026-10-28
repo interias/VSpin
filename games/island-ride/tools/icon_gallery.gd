@@ -2,7 +2,7 @@
 ## Fenster außerhalb des sichtbaren Bereichs) und schreibt PNGs; misst die Erzeugungszeit je neues Symbol und für ein
 ## volles Inventar. Spiel, Bus und `user://` bleiben unberührt (nur Beispielteile im Speicher).
 ##   godot --path games/island-ride --position -32000,-32000 -s res://tools/icon_gallery.gd -- --out=C:/tmp/icons
-##         [--compat] [--count=40]
+##         [--compat] [--count=40] [--gear]
 ## Browser-Profil: `--compat` baut die Symbole wie im Compatibility-Renderer (ohne MSAA); für den echten Renderer dazu
 ## Godots `--rendering-method gl_compatibility` übergeben (die Ausgabe nennt den laufenden Renderer).
 ## Bilder in `--out`:
@@ -13,6 +13,10 @@
 ##   talismans.png            Stein und die drei Sagenmotive, legendäre nach Effekt
 ##   glow_on.png, glow_off.png   legendäre Teile aller Plätze mit Leuchten an bzw. aus (128 px)
 ##   inventory_50.png         das Inventar mit 50 Teilen aus der Messung
+## `--gear`: nur das Ausrüstungsmenü (scenes/gear_menu.gd) mit einem Beispielstand nur im Speicher (angelegte Teile
+##   verschiedener Seltenheit mit einem leeren Platz, rund 20 Teile im Inventar, ein gewähltes Teil mit Vergleich) in den
+##   Fenstergrößen 960×1040, 1920×1080 und 1152×648 (je ein SubViewport dieser Größe): `gear_<breite>x<höhe>.png`,
+##   dazu `gear_<breite>x<höhe>_legendary.png` mit gewähltem legendärem Teil; keine Messung, keine anderen Bilder.
 ## Messung (je eine Zeile `MEASURE …`, „offscreen“: das Fenster liegt außerhalb des Bildschirms, VSync aus):
 ##   baseline     mittlere Bildzeit ohne neue Symbole
 ##   warmup       die ersten Symbole des Programmlaufs (je Platz eins und eine Silhouette): einmalig Shader/Pipelines
@@ -27,6 +31,7 @@ const BACKGROUND := Color(0.09, 0.1, 0.12)
 
 var _out := ""
 var _count := 40
+var _gear := false
 var _canvas: Control
 
 
@@ -38,6 +43,8 @@ func _initialize() -> void:
 			ItemIcons.compatibility = true
 		elif arg.begins_with("--count="):
 			_count = maxi(int(arg.trim_prefix("--count=")), 1)
+		elif arg == "--gear":
+			_gear = true
 	if _out.is_empty():
 		push_error("icon_gallery: --out=<ordner> fehlt")
 		quit(1)
@@ -57,6 +64,12 @@ func _run() -> void:
 	print("GALLERY renderer=%s compat_profile=%s out=%s" % [RenderingServer.get_current_rendering_method(),
 			ItemIcons.compatibility, _out])
 	await _frames(5)
+	if _gear:
+		for size in [Vector2i(960, 1040), Vector2i(1920, 1080), Vector2i(1152, 648)]:
+			await _gear_menu(size)
+		ItemIcons.clear_cache()
+		quit(0)
+		return
 	await _measure()
 	await _sheet_all()
 	for slot in Loot.SLOTS:
@@ -259,6 +272,49 @@ func _glow() -> void:
 			await RenderingServer.frame_post_draw
 		_save_canvas("glow_on.png" if glow else "glow_off.png")
 	ItemIcons.glow_enabled = true
+
+
+## Beispielstand fürs Ausrüstungsmenü, nur im Speicher: angelegt Helm (magisch), Trikot (selten), Rahmen (gewöhnlich) und
+## Schuhe (magisch), Laufräder und Talisman leer; im Inventar rund 20 Teile, darunter legendäre.
+func _gear_save() -> Dictionary:
+	var save := SaveGame.new()
+	var data := {"save": save}
+	var worn := [["helm", Loot.MAGIC], ["trikot", Loot.RARE], ["rahmen", Loot.COMMON], ["schuhe", Loot.MAGIC]]
+	for entry in worn:
+		Inventory.equip(save, int(Inventory.add(save, sample(entry[0], entry[1], 1))["id"]))
+	var slots := Loot.SLOTS.keys()
+	var rarities := Loot.RARITIES.keys()
+	for k in range(16):
+		Inventory.add(save, sample(slots[k % slots.size()], rarities[(k * 2 + k / 3) % rarities.size()], 10 + k))
+	data["legendary_helm"] = Inventory.add(save, sample("helm", Loot.LEGENDARY, 3))
+	data["rare_helm"] = Inventory.add(save, sample("helm", Loot.RARE, 7))
+	data["legendary_talisman"] = Inventory.add(save, sample("talisman", Loot.LEGENDARY, 4))
+	return data
+
+
+## Ausrüstungsmenü in einem SubViewport der Größe `size`: ein Bild mit gewähltem seltenen Helm (Vergleich mit dem
+## magischen angelegten), eins mit gewähltem legendärem Talisman (Platz leer: Silhouette im Vergleich).
+func _gear_menu(size: Vector2i) -> void:
+	var data := _gear_save()
+	var viewport := SubViewport.new()
+	viewport.size = size
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(viewport)
+	var wall := ColorRect.new()  # statt des Startmenüs dahinter
+	wall.color = Color(0.16, 0.3, 0.38)
+	wall.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	viewport.add_child(wall)
+	var gear: CanvasLayer = load("res://scenes/gear_menu.gd").new()
+	viewport.add_child(gear)
+	gear.open(data["save"])
+	for shot in [["", "rare_helm"], ["_legendary", "legendary_talisman"]]:
+		gear.select(int(data[shot[1]]["id"]))
+		await _settle()
+		await _frames(30)  # RiderPreview und Schimmer
+		var file := "gear_%dx%d%s.png" % [size.x, size.y, shot[0]]
+		viewport.get_texture().get_image().save_png(_out.path_join(file))
+		print("SHOT %s %dx%d" % [_out.path_join(file), size.x, size.y])
+	viewport.free()
 
 
 func _clear_canvas() -> MarginContainer:
