@@ -74,6 +74,14 @@ Bluetooth-Adapter (Docker, CI) läuft die Bridge normal weiter; eine Suche liefe
 jede Änderung, z. B. `Puls: connected, HRM-Pro (strap)`. Tests nutzen statt bleak einen skriptbaren Fake
 (`tests/fake_ble.py`, `tests/heart_rate_harness.py`).
 
+**BLE-Nahtstelle (`ble/base.py`, Spec #75):** `start_scan(on_found, services=…, manufacturer_ids=…)` sucht in einer
+Suche nach Geräten, die einen von mehreren Services ankündigen oder Herstellerdaten einer der Firmen senden (ein
+Gerät, das nur Herstellerdaten sendet, ist über Services nie zu finden; dann filtert die Nahtstelle selbst statt
+bleak). `Advertisement` trägt `service_uuids` und `manufacturer_data` mit. Die Verbindung kann außerdem `read`,
+`write` (mit Antwort, mit Zeitlimit; Fehler sind `BleError`) und nennt mit `service_uuids` die Services der
+Gerätedatenbank; `subscribe` gilt für Notify und Indicate gleich. Der Fake bildet das nach (Schreibprotokoll,
+Antwort als Indication, Fehlerinjektion).
+
 **Simulator-Puls:** Der Simulator liefert in jedem Sample einen Puls, wie ein FTMS-Rad ihn mitliefert; er gilt
 daher nur, solange kein Pulsgerät verbunden ist (die Regel oben). Ein Ruhepuls von 60 bpm läuft einem Ziel nach,
 das mit Kadenz und virtueller Steigung wächst:

@@ -239,7 +239,7 @@ class HeartRateSource:
         if self._scan_wanted():
             if self._scan is None and loop.time() >= self._scan_retry_at:
                 try:
-                    self._scan = await self._adapter.start_scan(HEART_RATE_SERVICE, self._on_advertisement)
+                    self._scan = await self._adapter.start_scan(self._on_advertisement, services=[HEART_RATE_SERVICE])
                 except BleError:
                     self._scan_retry_at = loop.time() + self._retry_s
         elif self._scan is not None:

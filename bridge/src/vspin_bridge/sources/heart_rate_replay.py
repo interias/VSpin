@@ -20,7 +20,7 @@ Bridge-Zeit; nur die Abstände zählen.
 
 import asyncio
 import contextlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from ..ble import Advertisement, BleError
@@ -55,16 +55,22 @@ class ReplayBleAdapter:
         """Sendet das Gerät? Nicht mehr nach dem Ende, und nicht, solange es verbunden ist."""
         return not self._finished and self._connection is None
 
-    async def start_scan(self, service: str, on_found: Callable[[Advertisement], None]) -> "_ReplayScan":
+    async def start_scan(
+        self,
+        on_found: Callable[[Advertisement], None],
+        *,
+        services: Iterable[str] = (),
+        manufacturer_ids: Iterable[int] = (),
+    ) -> "_ReplayScan":
         scan = _ReplayScan()
-        if service.lower() == HEART_RATE_SERVICE:
+        if HEART_RATE_SERVICE in {service.lower() for service in services}:
             scan.task = asyncio.create_task(self._advertise(on_found))
         return scan
 
     async def _advertise(self, on_found: Callable[[Advertisement], None]) -> None:
         while True:
             if self._present:
-                on_found(Advertisement(REPLAY_ADDRESS, REPLAY_NAME, REPLAY_RSSI))
+                on_found(Advertisement(REPLAY_ADDRESS, REPLAY_NAME, REPLAY_RSSI, (HEART_RATE_SERVICE,)))
             await asyncio.sleep(ADVERT_INTERVAL_S)
 
     async def connect(self, address: str, on_disconnect: Callable[[], None]) -> "_ReplayConnection":
@@ -98,6 +104,16 @@ class _ReplayConnection:
         self._on_disconnect = on_disconnect
         self._task: asyncio.Task[None] | None = None
         self._open = True
+
+    @property
+    def service_uuids(self) -> frozenset[str]:
+        return frozenset({HEART_RATE_SERVICE})
+
+    async def read(self, char: str) -> bytes:
+        raise BleError(f"{REPLAY_ADDRESS}: {char} nicht lesbar (Replay)")
+
+    async def write(self, char: str, data: bytes) -> None:
+        raise BleError(f"{REPLAY_ADDRESS}: {char} nicht beschreibbar (Replay)")
 
     async def subscribe(self, char: str, on_notify: Callable[[bytes], None]) -> None:
         if char.lower() != HEART_RATE_MEASUREMENT:

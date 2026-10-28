@@ -26,7 +26,7 @@ def test_scanner_that_cannot_be_built_is_a_ble_error(monkeypatch, error):
     built: list = []
     monkeypatch.setattr(bleak_adapter, "BleakScanner", failing_scanner(error, built))
     with pytest.raises(BleError, match="Suche startet nicht"):
-        asyncio.run(BleakAdapter().start_scan(HEART_RATE_SERVICE, lambda advertisement: None))
+        asyncio.run(BleakAdapter().start_scan(lambda advertisement: None, services=[HEART_RATE_SERVICE]))
     assert built[0]["service_uuids"] == [HEART_RATE_SERVICE]
 
 
