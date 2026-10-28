@@ -8,6 +8,7 @@ var TEMP_PATH := TestIsolation.path("test_graphics_settings.cfg")
 func after_each() -> void:
 	if FileAccess.file_exists(TEMP_PATH):
 		DirAccess.remove_absolute(TEMP_PATH)
+	ItemIcons.glow_enabled = true
 
 
 func test_defaults() -> void:
@@ -75,6 +76,33 @@ func test_wind_volume_saved_and_old_file_without_it_loads_default() -> void:
 	file.store_string("[sound]\nwind_volume=7.0\n")
 	file.close()
 	assert_eq(GraphicsSettings.load_file(TEMP_PATH).wind_volume, 1.0, "auf 0..1 begrenzt")
+
+
+## Leuchten der Ausrüstungssymbole (#83): Standard an, gespeichert in `[graphics]`, alte Datei ohne Schlüssel → an;
+## Anwenden gibt den Wert an ItemIcons weiter (Positiv- und Gegenprobe).
+func test_item_glow_saved_and_applied_to_item_icons() -> void:
+	var settings := GraphicsSettings.new()
+	assert_true(settings.item_glow, "Standard: an")
+	settings.item_glow = false
+	assert_eq(settings.save_file(TEMP_PATH), OK)
+	var file := ConfigFile.new()
+	file.load(TEMP_PATH)
+	assert_eq(file.get_value("graphics", "item_glow"), false, "in [graphics]")
+	var loaded := GraphicsSettings.load_file(TEMP_PATH)
+	assert_false(loaded.item_glow, "Aus gespeichert und geladen")
+	loaded.apply_engine(false)
+	assert_false(ItemIcons.glow_enabled, "Anwenden schaltet das Leuchten aus")
+	loaded.item_glow = true
+	loaded.apply_engine(false)
+	assert_true(ItemIcons.glow_enabled, "… und wieder an")
+	var old := FileAccess.open(TEMP_PATH, FileAccess.WRITE)
+	old.store_string("[graphics]
+panorama=false
+")
+	old.close()
+	var legacy := GraphicsSettings.load_file(TEMP_PATH)
+	assert_true(legacy.item_glow, "alte Datei ohne Schlüssel: an")
+	assert_false(legacy.panorama, "andere Werte unberührt")
 
 
 func test_old_file_without_keys_loads_without_engine_errors() -> void:
