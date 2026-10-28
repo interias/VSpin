@@ -433,7 +433,8 @@ Physische Tastenposition (gleich auf QWERTZ/QWERTY); definiert in `scenes/main.g
 | `riding` – fahren | Bus verbunden, Quelle `connected` und seit dem letzten Abbruch Telemetrie empfangen | – |
 | `paused_manual` – pausiert (manuell) | `P`/Leertaste | „Pause“ |
 | `paused_connection` – pausiert (Verbindung) | Bridge nicht erreichbar, Quelle `stale`/`disconnected`, noch keine Daten oder Bridge schweigt bei offenem Bus | „Bridge nicht erreichbar … Bridge starten“ bzw. „Verbindung verloren (Rad: stale)“ / „(Bridge sendet seit 4 s nichts)“ |
-| `finished` – Ziel erreicht | Ziellinie nach der letzten Runde überfahren oder „Fahrt beenden“ nach mindestens einer vollen Runde (Endzustand der Fahrt, Pause-Taste wirkungslos) | „Ziel erreicht!“ bzw. „Fahrt beendet“ mit Zeit, allen Rundenzeiten, Bestzeit, Ø Kadenz, Ø Tempo; `Enter` zurück ins Menü |
+| `finished` – Ziel erreicht | Ziellinie nach der letzten Runde überfahren oder „Fahrt beenden“ nach mindestens einer vollen Runde (Endzustand der Fahrt, Pause-Taste wirkungslos) | „Ziel erreicht!“ bzw. „Fahrt beendet“ mit Zeit, allen Rundenzeiten, Bestzeit, Ø Kadenz, Ø Tempo; `Enter` zurück ins Menü – mit Bridge am Bus erst über den Dialog „Fahrt speichern?“ (#84) |
+| `saving` – Fahrt speichern (#84) | „Fahrt beenden“ ohne Ergebnis (keine volle Runde), Fahrzeit > 0, Bridge am Bus | Dialog „Fahrt speichern?“ über der angehaltenen Fahrt; danach ins Menü |
 | `menu` – Startmenü | nach dem Start und nach jeder Fahrt | Titelbild mit Menü und Radstatus (HUD aus) |
 
 In jeder Pause steht das Fahrmodell still: Position und Geschwindigkeit bleiben, wie sie waren. Ein
@@ -1460,6 +1461,39 @@ zeigt ihn nur an und wertet ihn aus; er verändert die Fahrt nicht.
   Wie viele BLE-Verbindungen der HRM 600 parallel hält, ist nicht verifiziert – die Anleitung empfiehlt, die Uhr per ANT+
   mit dem Gurt zu koppeln.
 
+### Fahrt speichern (#84)
+
+Am Ende einer Fahrt fragt das Spiel **„Fahrt speichern?“** – wie bei Zwift. Das gilt in Rundfahrt, Training und Arcade
+und auch bei „Fahrt beenden“. Exportieren kann nur die Bridge (ADR-0008 „nur die Bridge loggt“, Nachtrag #84), deshalb
+kommt der Dialog nur mit Bridge am Bus und nur, wenn gefahren wurde. Im Browser oder ohne Bus endet die Fahrt wie bisher.
+Mit Ergebnis (Ziel, volle Runde, Teilbewertung, Arcade-Zusammenfassung) steht erst das Ergebnis, `Enter` öffnet den
+Dialog. „Fahrt beenden“ ohne Ergebnis öffnet ihn sofort (Zustand `saving`).
+
+- **Speichern** schickt der Bridge `save_ride` (`docs/bus-protocol.md`, „Fahrt speichern“) mit Start, Ende, den Enden
+  der vollen Runden und einer Streckenspur. Die Spur ist die gefahrene Strecke etwa im Sekundentakt, alles in Bridge-Zeit
+  (`src/ride_trace.gd`). Strecke und Geschwindigkeit liefert das Spiel, weil der JC312 keine Geschwindigkeit sendet. Die
+  Bridge schreibt daraus und aus ihrer Session-CSV eine **FIT-Datei** in die Fahrtablage `bridge/sessions/rides/`. Der
+  Dialog zeigt den Pfad und den Import von Hand (Garmin Connect, Web: „Importieren“).
+- **Nach Garmin Connect hochladen:** Der Schalter steht auf an, wenn die Bridge angemeldet ist. Die Wahl merkt sich
+  `user://settings.cfg [garmin] upload`. Zeichnet die Uhr parallel auf (z. B. für die Trainingsbelastung), schaltet man
+  ihn für diese Fahrt ab, damit kein Duplikat entsteht.
+- **Anmeldezustand** aus `status.garmin` der Bridge, laufend aktualisiert:
+  - „angemeldet“;
+  - „nicht angemeldet – so geht's“ mit `python -m vspin_bridge.garmin login` im Ordner `bridge/`;
+  - „nicht installiert“ mit `pip install -e ".[garmin]"`;
+  - „unbekannt“ bei einer älteren Bridge.
+  Anmelden kann man sich nur selbst im Terminal (`bridge/README.md`, „Fahrt speichern / Garmin“).
+- **Ergebnis:** erst „speichert …“, dann die Meldung der Bridge zum Upload (hochgeladen, schon in Garmin, abgeschaltet,
+  nicht angemeldet, abgelaufen, abgelehnt, gescheitert). Scheitert der Upload, bleibt die Datei für den manuellen Import.
+  „Erneut speichern“ meint dieselbe Fahrt, die Bridge lädt sie nie doppelt hoch. Ohne Antwort binnen 60 s oder bei
+  Busverlust gibt es eine Meldung und „Weiter“ ins Menü.
+- **Verwerfen** sendet nichts. Spielstand, Fahrtenbuch und Session-CSV bleiben wie bisher.
+- Wird die Bridge mitten in der Fahrt neu gestartet (Bridge-Zeit läuft zurück), ist die Fahrt nicht exportierbar, und
+  der Dialog entfällt.
+
+Nur per Test belegt, nicht im Fenster gesichtet (`tests/test_ride_save_dialog.gd`, Layout in 960×1040, 1920×1080 und
+1152×648). Ebenso offen ist die Abnahme mit echter Bridge und echtem Garmin-Upload durch den Nutzer.
+
 ## Konfiguration
 
 `config.cfg` (ConfigFile/INI) – Änderungen wirken beim nächsten Start, ohne Codeänderung:
@@ -1608,7 +1642,9 @@ src/ride_hud.gd         RideHud: Anzeige der Werte, Rundenfortschritt, readout()
 src/hud_gauge.gd        HudGauge: Kadenz-Bogen · src/hud_grade_icon.gd HudGradeIcon: Steigungskeil
 src/hud_profile.gd      HudProfile: Höhenprofil mit Marker (profile_point() als reine Rechnung)
 src/hud_minimap.gd      HudMinimap: Inselkarte mit Strecke, Landmarken, Fahrer-Pfeil (map_point() als reine Rechnung)
-src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeout), status/telemetry parsen (`cadence` geglättet für HUD/Fahrmodell, `cadence_raw` ungeglättet für Kadenzmuster, #45; Puls und Pulsbefehle, #64), send_message
+src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeout), status/telemetry parsen (`cadence` geglättet für HUD/Fahrmodell, `cadence_raw` ungeglättet für Kadenzmuster, #45; Puls und Pulsbefehle, #64; `ride_saved` und `status.garmin`, #84), send_message
+src/ride_trace.gd       RideTrace: ride_id, Streckenspur, Rundenenden und save_ride-Befehl einer Fahrt in Bridge-Zeit – reine Logik (#84)
+scenes/ride_save_dialog.gd Dialog „Fahrt speichern?“: Anmeldezustand, Upload-Schalter, Ergebnis der Bridge (#84)
 src/ride_stats.gd       RideStats: Fahrzeit, Strecke, Ø Kadenz, Ø Tempo (ohne Pausen) – reine Logik
 src/heart_rate_zones.gd HeartRateZones: Pulszonen aus LTHR oder Maximalpuls, Grenzen und Farben je Zone – reine Logik (#64)
 src/heart_rate_stats.gd HeartRateStats: Ø-Puls, Max-Puls, Sekunden je Zone einer Fahrt – reine Logik (#64)
