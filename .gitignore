@@ -2,6 +2,9 @@
 sessions/
 *.fit
 
+# Ergebnisse der Geräteprüfung (tools/geraete-pruefen.cmd)
+pruefung/
+
 # Python
 __pycache__/
 *.py[cod]

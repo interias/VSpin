@@ -147,7 +147,7 @@ vspin-bridge --source replay aufnahme.raw.jsonl --speed 10   # zehnmal so schnel
 vspin-bridge --source replay aufnahme.raw.jsonl --wait-client
 ```
 
-Spielt rohe BLE-Notifications ab – aus `tools/ble_discovery.py` (`jc312_notify_*.raw.jsonl`)
+Spielt rohe BLE-Notifications ab – aus `tools/ble_discovery.py` (`trainer_<zeit>.raw.jsonl`)
 oder aus einer Session (`sessions/*.raw.jsonl`) – und schickt sie durch dieselben Parser wie
 später beim echten Rad. Format: eine Zeile pro Notification,
 
