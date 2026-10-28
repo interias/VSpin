@@ -1,6 +1,7 @@
 """Bus: WebSocket-Server auf 127.0.0.1:8765 (Standard), beliebig viele Clients."""
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 from websockets.asyncio.server import Server, ServerConnection, broadcast, serve
 from websockets.exceptions import ConnectionClosed
@@ -13,18 +14,26 @@ class BusStartError(Exception):
     """Der Bus konnte nicht auf Host:Port lauschen (z. B. Port belegt)."""
 
 
+@dataclass(frozen=True, slots=True)
+class ToOthers:
+    """Ergebnis von `on_message`: `message` geht an alle anderen Clients, der Absender bekommt nichts."""
+
+    message: str
+
+
 class BusServer:
     """Verteilt Nachrichten an alle Clients. Jeder neue Client bekommt zuerst `status`.
 
     Eingehende Client-Nachrichten gehen an `on_message`; dessen Antwort (`ack`/`error`)
-    bekommt nur der sendende Client, nie ein Broadcast.
+    bekommt nur der sendende Client, nie ein Broadcast. Liefert `on_message` ein `ToOthers`,
+    geht dessen Nachricht an alle anderen Clients, nie an den Absender.
     """
 
     def __init__(
         self,
         status: Callable[[], str],
         on_clients_changed: Callable[[int], None] = lambda n: None,
-        on_message: Callable[[str | bytes], Awaitable[str | None]] | None = None,
+        on_message: Callable[[str | bytes], Awaitable[str | ToOthers | None]] | None = None,
         host: str = HOST,
         port: int = PORT,
     ) -> None:
@@ -66,7 +75,9 @@ class BusServer:
                 if self._on_message is None:
                     continue
                 reply = await self._on_message(raw)
-                if reply is not None:
+                if isinstance(reply, ToOthers):
+                    broadcast(self._clients - {connection}, reply.message)
+                elif reply is not None:
                     await connection.send(reply)  # nur an den Absender
         except ConnectionClosed:
             pass  # Client ist ohne sauberen Close-Handshake weg – kein Fehler der Bridge

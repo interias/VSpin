@@ -65,6 +65,99 @@ wieder Daten, geht zuerst `status: connected` raus, dann die Telemetrie.
 endliche Zahl (kein String, kein `true`/`false`, kein NaN/Infinity). Einen Wertebereich
 prüft die Bridge nicht – Sicherheitsgrenzen liegen im Gerät (ADR-0007).
 
+## Clients → alle anderen Clients (Spiel ↔ Begleiter)
+
+Seit #77, additiv, `v` bleibt `0`. Spiel und Begleiter (`vspin-companion`, ADR-0002 Nachtrag #76) sprechen über
+die Bridge miteinander: `ride_state`, `ride_event`, `companion_ptt` und `companion_status` leitet die Bridge an
+**alle anderen** verbundenen Clients weiter, **nie an den Sender**.
+
+- **Unverändert:** Der empfangene Textframe geht Zeichen für Zeichen weiter. Die Bridge prüft nur den Umschlag wie
+  bei jeder Client-Nachricht – JSON-Objekt, `type` vorhanden, `v` gleich `0` –, sonst kommt das übliche `error`
+  (unten) und nichts wird weitergeleitet. Die übrigen Felder prüft sie nicht und kennt sie nicht; neue Felder
+  gehen ohne Änderung der Bridge durch.
+- **Keine Antwort:** Der Sender bekommt weder `ack` noch `error` (bei `ride_state` alle 5 s und der Sprechtaste
+  wäre jede Antwort nur Last). Ist sonst niemand verbunden, geht die Nachricht ins Leere.
+- Die Bridge speichert nichts davon und schreibt nichts davon in die Session.
+- Empfänger ignorieren unbekannte Typen, unbekannte Felder und unbekannte Werte (`kind`, `action`, `state`).
+- Fehlende Werte sind `null` (z. B. Puls ohne Pulsgerät, #64; Watt ohne Messung, #75).
+
+### `ride_state` (Spiel → Begleiter)
+
+Fahrtzustand, alle 5 s während einer Fahrt (nicht im Menü, nicht in der Pause):
+
+```json
+{"v": 0, "type": "ride_state",
+ "mode": "rundfahrt", "direction": "cw", "lap": 2, "laps": 3,
+ "km_done": 12.4, "km_left": 5.6,
+ "section": "Serpentinen", "next_sight": "Bergdorf", "next_sight_km": 1.8,
+ "grade": 0.07, "speed_kmh": 18.2, "cadence": 84.0, "power_w": null, "power_estimated": null,
+ "heart_rate": 142, "hr_zone": 2,
+ "ghost_gap_s": -3.2, "best_time_s": 1234.5}
+```
+
+| Feld | Bedeutung |
+|---|---|
+| `mode` | Spielmodus wie im Fahrtenbuch: `rundfahrt`, `training`, `arcade` |
+| `direction` | Richtung der Runde: `cw` (im Uhrzeigersinn), `ccw` |
+| `lap`, `laps` | aktuelle Runde (ab 1); geplante Runden, `null` = endlos |
+| `km_done`, `km_left` | km gefahren in dieser Fahrt; km bis zum Ziel, `null` = endlos |
+| `section`, `next_sight`, `next_sight_km` | aktueller Abschnitt des Rundkurses; nächste Sehenswürdigkeit und km bis dorthin (`null`, wenn keine mehr kommt) |
+| `grade` | virtuelle Steigung als Anteil (wie `set_grade`) |
+| `speed_kmh`, `cadence` | Spieltempo; Kadenz wie in `telemetry.cadence` |
+| `power_w`, `power_estimated` | wie in `telemetry` |
+| `heart_rate`, `hr_zone` | bpm und Pulszone 1–5; `null` ohne Puls |
+| `ghost_gap_s` | Abstand zum Ghost in Sekunden, negativ = vor dem Ghost; `null` ohne Ghost |
+| `best_time_s` | Bestzeit für Strecke und Richtung in Sekunden; `null` ohne Bestzeit |
+
+### `ride_event` (Spiel → Begleiter)
+
+Ereignis in der Fahrt, sofort beim Eintreten. Pflichtfeld `kind`, weitere Felder je `kind`:
+
+```json
+{"v": 0, "type": "ride_event", "kind": "medal", "medal": "gold", "for": "lap"}
+```
+
+| `kind` | weitere Felder |
+|---|---|
+| `ride_start` | `mode`, `direction`, `laps` (wie `ride_state`) und `logbook`: Kurzfassung des Fahrtenbuchs `{"rides": 42, "km_total": 812.5, "recent": [{"date": "2026-10-27T17:02:11Z", "mode": "rundfahrt", "distance_km": 18.2, "duration_s": 2700.0, "avg_cadence_rpm": 82.0}]}` (höchstens 5 letzte Fahrten, Felder wie im Fahrtenbuch) |
+| `ride_end` | `finished` (Ziel erreicht), `distance_km`, `duration_s` |
+| `lap` | `lap` (abgeschlossene Runde), `time_s` |
+| `medal` | `medal`: `bronze`/`silver`/`gold`; `for`: `lap` oder die Segment-ID (z. B. `bergwertung`) |
+| `best_time` | `time_s`, `previous_s` (`null` bei der ersten Bestzeit); `for`: `lap` oder die Segment-ID |
+| `achievement` | `id`, `name` des Erfolgs |
+| `boss_start`, `boss_end` | `boss` (Name); bei `boss_end` zusätzlich `defeated` (`true`/`false`) |
+| `interval_start` | `target_cadence` (rpm), `duration_s` |
+| `pause` | `paused`: `true` beim Anhalten, `false` beim Weiterfahren |
+
+### `companion_ptt` (Spiel → Begleiter)
+
+Sprechtaste (Leertaste in der Fahrt):
+
+```json
+{"v": 0, "type": "companion_ptt", "action": "down"}
+```
+`action`: `down` beim Drücken, `up` beim Loslassen. Der Begleiter hört nur zwischen `down` und `up` zu. Ein `up`
+ohne vorheriges `down` ignoriert er.
+
+### `companion_status` (Begleiter → Spiel)
+
+```json
+{"v": 0, "type": "companion_status", "state": "speaking", "speaking": true}
+```
+
+| `state` | Bedeutung |
+|---|---|
+| `idle` | bereit, schweigt |
+| `listening` | Sprechtaste gedrückt, Toni hört zu |
+| `thinking` | Toni denkt über die Antwort nach |
+| `speaking` | Toni spricht |
+| `hoarse` | **heiser**: ein Fehler (kein Netz, Anmeldung abgelaufen, Abo-Limit, Dienst gestört) – Toni schweigt, die Fahrt läuft weiter. Das nächste `companion_ptt down` versucht es neu. |
+
+`speaking` ist `true`, solange Toni spricht – das Spiel duckt dann seinen Ton. Der Begleiter sendet
+`companion_status` nach jedem (Neu-)Verbinden mit dem Bus, bei jeder Änderung von `state` (nie doppelt) und als
+Antwort auf jedes `ride_event` mit `kind: "ride_start"` – so kennt ein Spiel, das nach ihm an den Bus kam, seinen
+Stand spätestens zu Fahrtbeginn. Hat das Spiel noch kein `companion_status` gesehen, gilt: kein Begleiter am Bus.
+
 ## Antworten an den sendenden Client
 
 `ack` und `error` gehen **nur an den Client, der die Nachricht gesendet hat**, nie als

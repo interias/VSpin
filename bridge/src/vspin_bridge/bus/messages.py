@@ -1,7 +1,8 @@
 """Bus-Nachrichten nach docs/bus-protocol.md (Version 0). Jede hat `v` und `type`.
 
 Bridge → Clients: `status`, `telemetry`; Antworten an einen Client: `ack`, `error`.
-Clients → Bridge: `set_grade`.
+Clients → Bridge: `set_grade`. Clients → alle anderen Clients (die Bridge leitet nur weiter):
+`ride_state`, `ride_event`, `companion_ptt`, `companion_status`.
 """
 
 import json
@@ -50,6 +51,9 @@ def _encode(message: dict) -> str:
 # --- Clients → Bridge ------------------------------------------------------
 
 SET_GRADE = "set_grade"
+# Nachrichten zwischen Spiel und Begleiter: Die Bridge prüft nur den Umschlag (`v`, `type`) und leitet den Frame
+# unverändert an alle anderen Clients weiter – ihre Felder sind nicht ihr Vertrag (docs/bus-protocol.md).
+RELAYED_TYPES = frozenset({"ride_state", "ride_event", "companion_ptt", "companion_status"})
 
 
 class ClientMessageError(Exception):
@@ -66,7 +70,15 @@ class SetGrade:
     grade: float  # Anteil, 0.07 = 7 % (ADR-0007)
 
 
-def parse_client_message(raw: str | bytes) -> SetGrade:
+@dataclass(frozen=True, slots=True)
+class Relay:
+    """Client-Nachricht für alle anderen Clients; `raw` ist der empfangene Textframe, unverändert."""
+
+    type: str
+    raw: str
+
+
+def parse_client_message(raw: str | bytes) -> SetGrade | Relay:
     """Prüft eine Client-Nachricht. Wirft `ClientMessageError` mit `reason` aus docs/bus-protocol.md."""
     if not isinstance(raw, str):
         raise ClientMessageError("invalid_json", "Binärframe – erwartet UTF-8-JSON als Textframe")
@@ -85,6 +97,8 @@ def parse_client_message(raw: str | bytes) -> SetGrade:
             "unsupported_version", f"'v' muss {PROTOCOL_VERSION} sein, war {message.get('v')!r}"
         )
     kind = message["type"]
+    if isinstance(kind, str) and kind in RELAYED_TYPES:
+        return Relay(type=kind, raw=raw)
     if kind != SET_GRADE:
         raise ClientMessageError("unknown_type", f"unbekannter type {kind!r}")
     return SetGrade(grade=_grade(message.get("grade")))
