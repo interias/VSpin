@@ -12,16 +12,8 @@ signal closed
 ## Teil `item` gewählt (im Spielstand gesetzt, noch nicht auf der Platte).
 signal part_chosen(item: String)
 
+const RIDER_PREVIEW := preload("res://scenes/rider_preview.gd")
 const COLOR_HEADING := Color(1.0, 0.86, 0.45)
-## Vorschau: Drehung (rad/s), Kadenz und Tempo des Fahrers, Kamera und Blickpunkt (Modellkoordinaten).
-const PREVIEW_TURN_RAD_S := 0.45
-const PREVIEW_CADENCE_RPM := 70.0
-const PREVIEW_SPEED_MPS := 7.0
-## Die Vorschau ist quadratisch (mittig im freien Platz); die Kamera hält das ganze Rad in jeder Drehung im Bild.
-const PREVIEW_CAMERA := Vector3(2.9, 1.5, -1.4)
-const PREVIEW_LOOK := Vector3(0.0, 0.8, 0.0)
-const PREVIEW_FOV_DEG := 42.0
-const PREVIEW_BACKGROUND := Color(0.2, 0.27, 0.34)
 
 ## Knöpfe: je Teil (Teil-ID aus Wardrobe.PARTS) und „back“.
 var buttons := {}
@@ -30,7 +22,6 @@ var preview: RiderModel
 var _save: SaveGame
 var _level := 1
 var _level_label: Label
-var _turntable: Node3D
 
 
 func _ready() -> void:
@@ -69,12 +60,6 @@ func focus_default() -> void:
 static func part_text(item: String, level: int) -> String:
 	var label := Wardrobe.part_name(item)
 	return label if DriverLevel.unlocked(item, level) else "%s · ab Level %d" % [label, DriverLevel.unlock_level(item)]
-
-
-func _process(delta: float) -> void:
-	if visible:
-		_turntable.rotation.y += PREVIEW_TURN_RAD_S * delta
-		preview.update(PREVIEW_CADENCE_RPM, PREVIEW_SPEED_MPS, 0.0, 0.0, false, delta)
 
 
 func _input(event: InputEvent) -> void:
@@ -198,50 +183,12 @@ func _build() -> void:
 	_button(actions, "back", "Zurück", close)
 
 
-## Vorschau: eigene 3D-Welt mit Licht, Kamera und einem Fahrermodell auf einer Drehscheibe.
+## Vorschau: die Fahrer-Vorschau (scenes/rider_preview.gd) links im Körper.
 func _build_preview(parent: Container) -> void:
-	var frame := PanelContainer.new()
-	frame.name = "Preview"
+	var frame := RIDER_PREVIEW.new()
 	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	frame.custom_minimum_size = Vector2(220, 220)
-	frame.add_theme_stylebox_override("panel", _panel_style(0.78, 8))
 	parent.add_child(frame)
-	var square := AspectRatioContainer.new()
-	square.name = "Square"
-	frame.add_child(square)
-	var container := SubViewportContainer.new()
-	container.name = "View"
-	container.stretch = true
-	square.add_child(container)
-	var viewport := SubViewport.new()
-	viewport.name = "Viewport"
-	viewport.own_world_3d = true
-	viewport.msaa_3d = Viewport.MSAA_4X
-	container.add_child(viewport)
-	var environment := Environment.new()
-	environment.background_mode = Environment.BG_COLOR
-	environment.background_color = PREVIEW_BACKGROUND
-	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color(0.85, 0.88, 0.95)
-	environment.ambient_light_energy = 0.55
-	var world := WorldEnvironment.new()
-	world.environment = environment
-	viewport.add_child(world)
-	var sun := DirectionalLight3D.new()
-	sun.rotation = Vector3(deg_to_rad(-50.0), deg_to_rad(35.0), 0.0)
-	sun.light_energy = 1.1
-	viewport.add_child(sun)
-	var camera := Camera3D.new()
-	camera.fov = PREVIEW_FOV_DEG
-	camera.transform = Transform3D(Basis.looking_at(PREVIEW_LOOK - PREVIEW_CAMERA), PREVIEW_CAMERA)
-	viewport.add_child(camera)
-	_turntable = Node3D.new()
-	_turntable.name = "Turntable"
-	_turntable.rotation.y = deg_to_rad(-30.0)
-	viewport.add_child(_turntable)
-	preview = RiderModel.new()
-	preview.name = "Model"
-	_turntable.add_child(preview)
+	preview = frame.model
 
 
 func _button(parent: Container, key: String, text: String, action: Callable) -> Button:
