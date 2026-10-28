@@ -144,9 +144,47 @@ Begleiter aus VS Code im Repo, kann die Python-Erweiterung die Repo-`.env` in di
 - Vor dem ersten Schreiben je Fahrt sichert er die Datei als `.bak`.
 - Beide Dateien darf man von Hand bearbeiten; sie werden bei jeder Sitzung frisch gelesen.
 
-Hören und Sprechen fehlen noch (#79). Bis dahin wird Toni heiser, sobald er sprechen oder zuhören soll; der Prozess
-läuft weiter. Die Abhängigkeiten der echten Adapter stehen im optionalen Extra `companion` (`pyproject.toml`). Man
-installiert es in ein eigenes venv, nicht in das der Tests; die Tests brauchen es nicht.
+**Hören (#79):**
+- Das Mikrofon läuft nur, solange die Sprechtaste gedrückt ist, höchstens 15 s.
+- faster-whisper `large-v3-turbo` erkennt lokal auf der GPU (CUDA, `int8_float16`, Deutsch, VAD). Ohne brauchbares
+  CUDA fällt die Erkennung auf `small` auf der CPU zurück.
+- Das Modell lädt beim Start im Hintergrund. Beim ersten Mal kommt es aus dem Hugging-Face-Hub in den Cache des
+  Nutzers: rund 1,6 GB, `small` 0,5 GB. Scheitert das Laden, versucht es das nächste Drücken neu.
+- Kein Audio landet auf der Platte, die Stimme des Fahrers verlässt den PC nie.
+
+**Sprechen (#79):**
+- Die Stimme kommt von OpenRouter `/api/v1/audio/speech`: Modell und Stimme aus `companion.json`, Standard
+  `elevenlabs/eleven-v4-turbo`, `charlie`, als `mp3`.
+- Der Schlüssel `OPENROUTER_API_KEY` kommt aus der Umgebung oder aus der `.env` in der Ablage.
+- Toni spricht Satz für Satz, während Haiku noch schreibt, über das Windows-Standardgerät, mit der Lautstärke
+  `companion_volume` aus dem Spiel.
+- Drückt der Fahrer die Sprechtaste, bricht Toni Wiedergabe und offene Synthese ab und hört sofort zu.
+- Ohne Netz, ohne Schlüssel oder bei einem Fehler von OpenRouter wird er heiser; eine lokale Ersatzstimme gibt es nicht.
+- Gibt es die Umgebungsvariable `VSPIN_COMPANION_PARENT_PID` (setzt das Spiel) und lebt dieser Prozess nicht mehr,
+  beendet sich der Begleiter.
+
+**Protokoll:** `protocol.jsonl` in der Ablage.
+- Je Antwort: die Zeit vom Loslassen bis zum ersten Ton (`latency_s`, Ziel ≤ 2,5 s).
+- Je Fahrt bei `ride_end`: Antworten, Zeichen und Anfragen.
+- Danach die Kosten `total_cost_usd` aus der Generation-API von OpenRouter (`X-Generation-Id`). Was die API nicht
+  liefert, zählt als `unknown_generations`; geschätzt wird nie. Bei abgebrochenen Synthesen ist der Betrag eine
+  Untergrenze.
+
+**Installation (eigenes venv, nie das venv der Tests):**
+
+```
+cd bridge
+py -3.12 -m venv .venv-companion
+.venv-companion\Scripts\python -m pip install -e ".[companion]"
+.venv-companion\Scripts\python -m pip install nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"   # nur mit NVIDIA-GPU, rund 1,3 GB
+```
+
+- Der Begleiter fügt die DLL-Ordner der beiden NVIDIA-Pakete selbst hinzu. Ob das unter Windows reicht, ist ungeprüft;
+  die Alternative laut faster-whisper sind die Standalone-Bibliotheken im `PATH`.
+- Claude Code braucht man nur für `claude setup-token`, das Agent SDK bringt seine CLI mit.
+- Der Launcher des Spiels startet den Begleiter mit `[bridge] program`, also dem Python der Bridge. Für den echten
+  Betrieb muss dieses Python die Pakete des Extras haben; sonst wird Toni heiser.
+- Die Tests brauchen das Extra nicht.
 
 ## Profile
 
