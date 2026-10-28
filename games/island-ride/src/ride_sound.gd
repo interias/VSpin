@@ -17,6 +17,8 @@
 ##   UI          Klick bei jedem Knopfdruck in den Menüs und beim Öffnen/Schließen der Einstellungen, heller Doppelton
 ##               je sichtbarer HUD-Einblendung (RideHud.celebration_shown), weicher Ton bei einer Trainingsansage
 ##               (`announce`)
+##   Ducking     solange Toni spricht (Spec #76, `set_ducked`) liegt der ganze Bus um DUCK_GAIN tiefer – Musik, Effekte und
+##               Fahrtwind; die Stimme selbst spielt der Begleiter über das Windows-Standardgerät, nicht über diesen Bus
 ## Die Pegel rechnet `levels(context)` als reine Funktion aus Tempo, Kadenz, Ort, Wetter und Tageslicht (Tests ohne
 ## Audio-Ausgang); die Entfernungsregel ist überall dieselbe (`near`: voll bis x, still ab y). Die 3D-Spieler dämpfen nicht
 ## selbst (Dämpfung aus), sie verteilen nur links/rechts – den Pegel setzt diese Klasse. Ton ist nur Ausgabe: er liest
@@ -63,6 +65,11 @@ const UI_CLICK := "click"
 const UI_CELEBRATION := "chime"
 const UI_ANNOUNCEMENT := "announce"
 const UI_GAP_S := 0.08
+## Ducking (Spec #76): Spricht Toni (`companion_status.speaking`), sinkt der Pegel des Busses auf diesen Anteil (linear,
+## ≈ −10 dB) – genug, dass Musik und Fahrtwind die Stimme nicht überdecken, aber Meer und Wind nicht abreißen; die
+## Stimme selbst läuft im Begleiter, nicht über diesen Bus. Der Pegel gleitet in DUCK_FADE_S (s) hin und zurück.
+const DUCK_GAIN := 0.3
+const DUCK_FADE_S := 0.25
 ## Endlosklänge (ein AudioStreamPlayer je Klang) und UI-Klänge.
 const LOOPS := ["wind", "freewheel", "sea", "rain"]
 const UI := [UI_CLICK, UI_CELEBRATION, UI_ANNOUNCEMENT]
@@ -74,6 +81,10 @@ var world: IslandWorld
 var enabled := true
 ## Regler „Fahrtwind“ (#69, 0..1, 0 = aus): Anteil am Pegel des Fahrtwinds, zusätzlich zur Lautstärke des Busses.
 var wind_volume := 1.0
+## Spricht Toni gerade (die Hauptszene setzt es mit `set_ducked`)? `duck` ist der Anteil, auf den der Bus dabei gerade
+## gesenkt ist: 1 = nicht gesenkt, DUCK_GAIN = voll gesenkt.
+var ducked := false
+var duck := 1.0
 ## Erzeugte Klänge (SoundSynth-ID → AudioStreamWAV) und noch zu erzeugende.
 var streams := {}
 var pending: Array = SoundSynth.IDS.duplicate()
@@ -98,6 +109,8 @@ var _water_wait := 0.0
 var _click_s := -INF
 var _announced := ""
 var _phase := -1
+## Eingestellte Lautstärke des Busses (linear, ohne Ducking).
+var _volume := GraphicsSettings.DEFAULT_SOUND_VOLUME
 
 
 func setup(main_scene: Node3D) -> void:
@@ -135,6 +148,7 @@ func _process(delta: float) -> void:
 ## Ein Zeitschritt: nächsten Klang erzeugen, Pegel rechnen und setzen, Rufe und Geläut auslösen.
 func update(delta: float) -> void:
 	_build_next()
+	_fade_duck(delta)
 	if not enabled:
 		return
 	var listener := listener_position()
@@ -244,12 +258,35 @@ func listener_position() -> Vector3:
 func apply_settings(on: bool, volume: float, wind: float) -> void:
 	enabled = on
 	wind_volume = clampf(wind, 0.0, 1.0)
+	_volume = volume
 	var index := ensure_bus()
-	AudioServer.set_bus_volume_db(index, linear_to_db(maxf(volume, 0.0001)))
+	_apply_bus_volume()
 	AudioServer.set_bus_mute(index, not on)
 	if not on:
 		for player in find_children("*", "AudioStreamPlayer", true, false) + _3d_players():
 			player.stop()
+
+
+## Ducking an/aus (Toni spricht): der Pegel gleitet in `update` dorthin; danach wieder auf die eingestellte Lautstärke.
+func set_ducked(on: bool) -> void:
+	ducked = on
+
+
+## Pegel des Busses = eingestellte Lautstärke × Ducking.
+func bus_volume() -> float:
+	return maxf(_volume, 0.0001) * duck
+
+
+func _apply_bus_volume() -> void:
+	AudioServer.set_bus_volume_db(ensure_bus(), linear_to_db(maxf(bus_volume(), 0.0001)))
+
+
+func _fade_duck(delta: float) -> void:
+	var target := DUCK_GAIN if ducked else 1.0
+	if is_equal_approx(duck, target):
+		return
+	duck = move_toward(duck, target, delta * (1.0 - DUCK_GAIN) / DUCK_FADE_S)
+	_apply_bus_volume()
 
 
 ## Bus BUS (an Master), legt ihn beim ersten Mal an. Index.

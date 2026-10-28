@@ -159,7 +159,7 @@ Fahrtzustand, alle 5 s während einer Fahrt (nicht im Menü, nicht in der Pause)
  "section": "Serpentinen", "next_sight": "Bergdorf", "next_sight_km": 1.8,
  "grade": 0.07, "speed_kmh": 18.2, "cadence": 84.0, "power_w": null, "power_estimated": null,
  "heart_rate": 142, "hr_zone": 2,
- "ghost_gap_s": -3.2, "best_time_s": 1234.5}
+ "ghost_gap_s": -3.2, "best_time_s": 1234.5, "companion_volume": 0.8}
 ```
 
 | Feld | Bedeutung |
@@ -175,6 +175,7 @@ Fahrtzustand, alle 5 s während einer Fahrt (nicht im Menü, nicht in der Pause)
 | `heart_rate`, `hr_zone` | bpm und Pulszone 1–5; `null` ohne Puls |
 | `ghost_gap_s` | Abstand zum Ghost in Sekunden, negativ = vor dem Ghost; `null` ohne Ghost |
 | `best_time_s` | Bestzeit für Strecke und Richtung in Sekunden; `null` ohne Bestzeit |
+| `companion_volume` | Lautstärke der Stimme des Begleiters, 0–1, wie im Einstellungsmenü des Spiels („Toni-Lautstärke“). Der Begleiter spricht über das Windows-Standardgerät, nicht über das Spiel – deshalb gibt das Spiel den Wert weiter, und eine Änderung wirkt spätestens nach 5 s. Kommt auch bei `ride_start` |
 
 ### `ride_event` (Spiel → Begleiter)
 
@@ -186,7 +187,7 @@ Ereignis in der Fahrt, sofort beim Eintreten. Pflichtfeld `kind`, weitere Felder
 
 | `kind` | weitere Felder |
 |---|---|
-| `ride_start` | `mode`, `direction`, `laps` (wie `ride_state`) und `logbook`: Kurzfassung des Fahrtenbuchs `{"rides": 42, "km_total": 812.5, "recent": [{"date": "2026-10-27T17:02:11Z", "mode": "rundfahrt", "distance_km": 18.2, "duration_s": 2700.0, "avg_cadence_rpm": 82.0}]}` (höchstens 5 letzte Fahrten, Felder wie im Fahrtenbuch) |
+| `ride_start` | `mode`, `direction`, `laps` (wie `ride_state`), `companion_volume` (wie bei `ride_state`) und `logbook`: Kurzfassung des Fahrtenbuchs `{"rides": 42, "km_total": 812.5, "recent": [{"date": "2026-10-27T17:02:11Z", "mode": "rundfahrt", "distance_km": 18.2, "duration_s": 2700.0, "avg_cadence_rpm": 82.0}]}` (höchstens 5 letzte Fahrten, neueste zuerst, Felder wie im Fahrtenbuch; ohne die Fahrt, die gerade beginnt) |
 | `ride_end` | `finished` (Ziel erreicht), `distance_km`, `duration_s` |
 | `lap` | `lap` (abgeschlossene Runde), `time_s` |
 | `medal` | `medal`: `bronze`/`silver`/`gold`; `for`: `lap` oder die Segment-ID (z. B. `bergwertung`) |
