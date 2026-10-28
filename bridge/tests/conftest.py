@@ -71,13 +71,14 @@ def in_process_bridge(request, tmp_path) -> Iterator:
 
 
 @pytest.fixture
-def in_process_companion() -> Iterator:
-    """Fabrik: `in_process_companion(brain, ears, mouth, clock)` startet Toni mit Fakes im Testprozess
-    (`InProcessCompanion`); Stopp nach dem Test."""
+def in_process_companion(tmp_path) -> Iterator:
+    """Fabrik: `in_process_companion(brain, ears, mouth, clock, data_dir=None, config=None, rng=None)` startet Toni
+    mit Fakes im Testprozess (`InProcessCompanion`); Ablage standardmäßig `tmp_path/companion`. Stopp nach dem Test."""
     started: list[InProcessCompanion] = []
 
-    def start(brain, ears, mouth, clock) -> InProcessCompanion:
-        companion = InProcessCompanion(brain, ears, mouth, clock)
+    def start(brain, ears, mouth, clock, data_dir=None, config=None, rng=None) -> InProcessCompanion:
+        data_dir = data_dir or tmp_path / "companion"
+        companion = InProcessCompanion(brain, ears, mouth, clock, data_dir, config, rng)
         started.append(companion)
         companion.start()
         return companion

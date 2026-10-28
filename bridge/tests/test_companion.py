@@ -2,12 +2,14 @@
 jeder Fehler eines Ports macht Toni heiser, der Prozess läuft weiter. Kein Claude, OpenRouter, Mikrofon, GPU."""
 
 import json
+import os
 import subprocess
 import sys
 
 import pytest
 from bridge_harness import PORT, START_TIMEOUT_S, bridge_env, receive_json, wait_until
 from companion_harness import next_status, ptt
+from vspin_companion.claude_brain import API_KEY_ENV, OAUTH_TOKEN_ENV
 from vspin_companion.config import DATA_DIR_ENV, CompanionConfig, ConfigError, default_data_dir, load_config
 from vspin_companion.fakes import FakeBrain, FakeClock, FakeEars, FakeMouth
 from vspin_companion.ports import ToolCall
@@ -54,9 +56,10 @@ def test_ptt_question_is_heard_answered_and_spoken_with_status_on_the_bus(
     assert next_status(game) == status("speaking")  # `speaking: true` – das Spiel duckt den Ton
     assert next_status(game) == status("idle")
 
-    assert brain.prompts == ["Wie weit noch bis zum Bergdorf?"]
+    assert brain.prompts == ["Frage: Wie weit noch bis zum Bergdorf?"]  # vor der Fahrt: ohne Fahrtzustand
     assert mouth.spoken == ["Noch 5 km, easy peasy!"]  # Werkzeugaufrufe werden nicht gesprochen
-    assert "Werkzeug remember ignoriert" in companion.log()
+    assert "Werkzeug remember: gemerkt" in companion.log()  # seit #78 ausgeführt statt ignoriert
+    assert (companion.data_dir / "memory.md").read_text(encoding="utf-8") == "- fragt gern nach km\n"
 
 
 def test_status_goes_to_every_other_client_and_again_at_ride_start(bridge_process, bus_client, in_process_companion):
@@ -177,10 +180,12 @@ def test_companion_reconnects_when_the_bus_comes_and_goes(bridge_process, bus_cl
     assert companion.alive
 
 
-def _companion_process(tmp_path, *args: str) -> subprocess.Popen:
+def _companion_process(tmp_path, *args: str, extra_env: dict[str, str] | None = None) -> subprocess.Popen:
     env = bridge_env()
     env["APPDATA"] = str(tmp_path / "appdata")  # Sicherheitsnetz: nie das echte %APPDATA%
-    env.pop(DATA_DIR_ENV, None)
+    for name in (DATA_DIR_ENV, OAUTH_TOKEN_ENV, API_KEY_ENV):  # nie ein echtes Geheimnis des Nutzers
+        env.pop(name, None)
+    env.update(extra_env or {})
     with open(tmp_path / "companion.log", "w", encoding="utf-8") as log:  # der Prozess erbt seinen eigenen Griff
         return subprocess.Popen(
             [sys.executable, "-m", "vspin_companion", "--port", str(PORT), *args],
@@ -216,8 +221,57 @@ def test_entry_point_without_adapters_goes_hoarse_and_keeps_running(bridge_proce
     log = (tmp_path / "companion.log").read_text(encoding="utf-8")
     assert f"Ablage {data_dir} (Denken: api_key)" in log
     assert "Toni ist heiser – Ears: AdapterMissing" in log
-    assert sorted(p.name for p in data_dir.iterdir()) == ["companion.json"]  # schreibt nichts in die Ablage
+    assert "Toni ist heiser – Brain: BrainUnavailable: ANTHROPIC_API_KEY fehlt" in log  # #78: echtes Brain
+    # In die Ablage kommt nur die Vorgabe-Seele (#78); companion.json bleibt, wie sie war.
+    assert sorted(p.name for p in data_dir.iterdir()) == ["companion.json", "soul.md"]
+    assert (data_dir / "companion.json").read_text(encoding="utf-8") == '{"brain": "api_key", "kommt_spaeter": 1}'
     assert not (tmp_path / "appdata").exists()
+
+
+def test_entry_point_with_oauth_goes_hoarse_without_token_and_never_uses_the_api_key(
+    bridge_process, bus_client, tmp_path
+):
+    """ADR-0011: Standard `oauth`; fehlt das Token, wird Toni heiser – auch wenn ein API-Schlüssel da ist. Eine `.env`
+    im Arbeitsverzeichnis zählt nie, die in der Ablage schon (dort fehlt dann nur noch das SDK)."""
+    start_bus(bridge_process)
+    game = connect(bus_client)
+    data_dir, stop_file = tmp_path / "companion", tmp_path / "companion.stop"
+    data_dir.mkdir()
+    (tmp_path / ".env").write_text(f"{OAUTH_TOKEN_ENV}=aus-dem-arbeitsverzeichnis\n", encoding="utf-8")
+    # Ein Stub vor dem echten Paket scheitert beim Import: Der Test gilt auch mit installiertem Extra `companion`
+    # und startet nie die gebündelte CLI.
+    stub_dir = tmp_path / "stub"
+    stub_dir.mkdir()
+    (stub_dir / "claude_agent_sdk.py").write_text('raise ImportError("Stub: SDK im Test gesperrt")\n', encoding="utf-8")
+    pythonpath = os.pathsep.join([str(stub_dir), bridge_env()["PYTHONPATH"]])
+    proc = _companion_process(
+        tmp_path, "--data-dir", str(data_dir), "--stop-file", str(stop_file),
+        extra_env={API_KEY_ENV: "sk-ant-test-kein-echter-schluessel", "PYTHONPATH": pythonpath},
+    )
+    log_file = tmp_path / "companion.log"
+    try:
+        assert next_status(game, timeout_s=START_TIMEOUT_S) == status("idle")
+        game.send(json.dumps({"v": 0, "type": "ride_event", "kind": "ride_start"}))
+        assert next_status(game) == status("idle")  # Antwort auf ride_start
+        assert next_status(game) == status("hoarse")  # die Sitzung zur Fahrt scheitert an der Anmeldung
+        assert f"Toni ist heiser – Brain: BrainUnavailable: {OAUTH_TOKEN_ENV} fehlt" in log_file.read_text("utf-8")
+
+        (data_dir / ".env").write_text(f'{OAUTH_TOKEN_ENV}="test-token-aus-der-ablage"\n', encoding="utf-8")
+        game.send(json.dumps({"v": 0, "type": "ride_event", "kind": "ride_start"}))
+        assert next_status(game) == status("hoarse")
+        wait_until(
+            lambda: "claude-agent-sdk nicht installiert" in log_file.read_text("utf-8"), 5.0, "Token gefunden, SDK fehlt"
+        )
+        assert proc.poll() is None
+        stop_file.touch()
+        assert proc.wait(timeout=5) == 0
+    finally:
+        if proc.poll() is None:  # nur der eigene Prozess, über seine PID
+            proc.kill()
+            proc.wait()
+    log = log_file.read_text(encoding="utf-8")
+    assert "(Denken: oauth)" in log
+    assert log.count(f"{OAUTH_TOKEN_ENV} fehlt") == 1  # die .env im Arbeitsverzeichnis wurde nie gelesen
 
 
 def test_entry_point_stops_with_a_message_on_a_broken_config(tmp_path):

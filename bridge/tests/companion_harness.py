@@ -1,8 +1,9 @@
 """Test-Harness für den Begleiter (Spec #76, Testing Decisions): Toni mit Fakes an einem echten Bus.
 
 `InProcessCompanion` lässt `Companion` mit den vom Test gebauten Fakes in einem eigenen Thread laufen, verbunden mit
-der Bridge auf `BUS_URL` (8765 + Platz von VSPIN_PORT_BASE). Geprüft wird am Bus (`companion_status`) und an den
-Fakes – nie Claude, OpenRouter, Mikrofon oder GPU.
+der Bridge auf `BUS_URL` (8765 + Platz von VSPIN_PORT_BASE). Seele, Gedächtnis und `companion.json` liegen in
+`data_dir` unter `tmp_path` (`--basetemp`). Geprüft wird am Bus (`companion_status`), an den Fakes und an den
+Dateien – nie Claude, OpenRouter, Mikrofon oder GPU.
 """
 
 import asyncio
@@ -18,8 +19,9 @@ RECONNECT_INTERVAL_S = 0.2  # Tests warten nicht die volle Sekunde aufs Neuverbi
 
 
 class InProcessCompanion:
-    def __init__(self, brain, ears, mouth, clock) -> None:
+    def __init__(self, brain, ears, mouth, clock, data_dir, config=None, rng=None) -> None:
         self.brain, self.ears, self.mouth, self.clock = brain, ears, mouth, clock
+        self.data_dir, self.config, self.rng = data_dir, config, rng
         self.error: BaseException | None = None
         self.companion = None
         self._output = io.StringIO()
@@ -34,10 +36,20 @@ class InProcessCompanion:
 
     def _main(self) -> None:
         from vspin_companion.companion import Companion
+        from vspin_companion.config import CompanionConfig
 
         async def main() -> None:
             self.companion = Companion(
-                self.brain, self.ears, self.mouth, self.clock, BUS_URL, self._log, RECONNECT_INTERVAL_S
+                self.brain,
+                self.ears,
+                self.mouth,
+                self.clock,
+                BUS_URL,
+                self._log,
+                RECONNECT_INTERVAL_S,
+                data_dir=self.data_dir,
+                config=self.config or CompanionConfig(),
+                rng=self.rng,
             )
             self._stop = asyncio.Event()
             self._loop = asyncio.get_running_loop()
@@ -68,6 +80,10 @@ class InProcessCompanion:
     def log(self) -> str:
         return self._output.getvalue()
 
+    def advance(self, seconds: float) -> None:
+        """Rückt die `FakeClock` im Loop des Begleiters vor (dort leben die Schläfer des Weckers)."""
+        self._loop.call_soon_threadsafe(self.clock.advance, seconds)
+
 
 def next_status(client: ClientConnection, timeout_s: float = 5.0) -> dict:
     """Nächstes `companion_status` am Bus (spätestens nach `timeout_s`); Telemetrie und `status` der Bridge
@@ -82,6 +98,18 @@ def next_status(client: ClientConnection, timeout_s: float = 5.0) -> dict:
         if message["type"] == "companion_status":
             return message
     raise AssertionError(f"kein companion_status in {timeout_s:g} s")
+
+
+def assert_no_status(client: ClientConnection, timeout_s: float = 0.5) -> None:
+    """In `timeout_s` kommt kein `companion_status` – Toni hat nichts nach außen gegeben."""
+    deadline = time.monotonic() + timeout_s
+    while (remaining := deadline - time.monotonic()) > 0:
+        try:
+            raw = client.recv(timeout=remaining)
+        except TimeoutError:
+            return
+        message = json.loads(raw)
+        assert message["type"] != "companion_status", f"unerwartet: {message}"
 
 
 def ptt(client: ClientConnection, action: str) -> None:
