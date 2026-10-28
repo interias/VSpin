@@ -1495,7 +1495,10 @@ Ein guter Test prüft von außen: Drehbuch rein → beobachtbares Spielverhalten
   `quit_on_request = false` – „Beenden“ im Menü meldet dann nur `quit_requested`, statt den Testlauf zu beenden.
 - `tests/support/isolation.gd` (`TestIsolation`): `path(name)` für jede Datei, die ein Test schreibt (statt
   `user://`), `first_test_port()` für feste Testports (`TestIsolation.first_test_port() + 50`), `probe_bus_url()` für
-  Prüfhilfen gegen die echte Bridge.
+  Prüfhilfen gegen die echte Bridge. `VSPIN_PORT_BASE` nimmt nur Ziffern an (wie `tools/e2e.sh` und die Bridge-Tests).
+- `tests/support/settings_load_probe.gd`: lädt eine Einstellungsdatei in einem eigenen Godot-Prozess, damit
+  `tests/test_graphics_settings.gd` dessen Engine-Meldungen prüfen kann (alte `settings.cfg` ohne Schlüssel: keine
+  `ERROR`-Zeilen, Nacharbeit #74).
 
 Drehbuch = Array von Schritten, `at` = Sekunden ab Verbindungsaufbau des Clients; jede Verbindung
 spielt von vorn (so lässt sich auch Reconnect prüfen):
