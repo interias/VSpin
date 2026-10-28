@@ -77,6 +77,31 @@ func test_wind_volume_saved_and_old_file_without_it_loads_default() -> void:
 	assert_eq(GraphicsSettings.load_file(TEMP_PATH).wind_volume, 1.0, "auf 0..1 begrenzt")
 
 
+func test_old_file_without_keys_loads_without_engine_errors() -> void:
+	# Fehlt ein Schlüssel (alte settings.cfg), liest load_file den Standard, ohne dass ConfigFile „Couldn't find the given
+	# section … key …“ ins Log schreibt (Nacharbeit #74). Die Meldung sieht nur ein eigener Prozess.
+	var file := FileAccess.open(TEMP_PATH, FileAccess.WRITE)
+	file.store_string("[graphics]
+aa=\"msaa_4x\"
+
+[sound]
+enabled=true
+
+[sky]
+time_mode=\"real\"
+")
+	file.close()
+	var output := []
+	var code := OS.execute(OS.get_executable_path(), ["--headless", "--path", ProjectSettings.globalize_path("res://"),
+			"-s", "res://tests/support/settings_load_probe.gd", "--", ProjectSettings.globalize_path(TEMP_PATH)],
+			output, true)
+	var log := "
+".join(output)
+	assert_eq(code, 0, "Probe läuft")
+	assert_string_contains(log, "geladen", false)
+	assert_false(log.contains("Couldn't find"), "keine Meldung über fehlende Schlüssel: %s" % log)
+
+
 func test_broken_file_gives_defaults() -> void:
 	var file := FileAccess.open(TEMP_PATH, FileAccess.WRITE)
 	file.store_string("[graphics\naa = = msaa\n\"kaputt")

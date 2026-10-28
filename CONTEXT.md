@@ -38,7 +38,7 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **ESP32-Retrofit** | Spätere Ausbaustufe: Stepper am Widerstandsknopf + Hall-Sensor; meldet sich als FTMS-Smart-Bike mit Control Point. |
 | **Control Point** | FTMS-Characteristic `0x2AD9` zum Steuern des Geräts; wir nutzen Op `0x11` (Indoor Bike Simulation). |
 | **Session** | Ein Bridge-Lauf; erzeugt `sessions/<zeit>.csv` und `sessions/<zeit>.raw.jsonl`. |
-| **HeartRateSource** | Spätere zweite Quelle: Puls per BLE Heart Rate Service `0x180D` (Brustgurt oder Garmin-Uhr mit „Herzfrequenz übertragen“). |
+| **HeartRateSource** | Zweite Quelle der Bridge neben der Radquelle: Puls per BLE Heart Rate Service `0x180D`. Gemerkte Geräte haben die Rolle Gurt (Brustgurt) oder Uhr (Garmin-Uhr mit „Herzfrequenz übertragen“); ihre Reihenfolge ist der Vorrang, ein verbundenes Gerät mit geringerem Vorrang wird gegen eines mit höherem getauscht. |
 
 ### Spiel
 
@@ -65,6 +65,7 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **Elite-Gruppe** | Arcade: zufällig auftauchende Gegnergruppe mit 1–3 **Eigenschaften** (Affixen: Windschnell, Wankelmütig, Gegenwind, Zäh, Taktwechsel, Rudelführer); blau = Champions, gelb = Seltene mit **Gefolge** (kleine Herausforderung im Anschluss an den Anführer). Bessere Beute. |
 | **Kadenzmuster** | Aus dem Kadenzverlauf erkannte Geste: **Antritt** (schnell hochziehen), **Gleichmaß** (Kadenz ruhig halten), **Innehalten** (kurz nicht treten), **Rhythmus** (Takt treffen). _Vermeiden:_ „Antritt“ für die Herausforderung – die heißt **Durchbruch**. |
 | **Fähigkeit** | Arcade: Wirkung, die ein Kadenzmuster auslöst (Windböe, Fokus, Schild, Kombo); Talente und legendäre Beute verändern sie. |
+| **Charakterblatt** | Arcade: Ansicht in der Ausrüstung mit dem Fahrer in der Mitte und den sechs Plätzen (Rahmen, Laufräder, Trikot, Helm, Schuhe, Talisman) drumherum; zeigt die angelegten Teile, die Summe der Werte und die eigene Stärke neben der **Empfohlenen Stärke** der gewählten Stufe. Nur Darstellung (#68, ADR-0010). |
 | **Empfohlene Stärke** | Arcade: Wert aus Ausrüstung und Talenten, den eine Stufe voraussetzt; höhere Stufen brauchen Fitness und Build. |
 | **Arcade-Level** | Arcade: eigenes Level aus den Punkten aller Arcade-Läufe; gibt Talentpunkte. Getrennt vom **Fahrerlevel**, das nur Kosmetik freischaltet (ADR-0010). |
 | **Talent** | Arcade: Knoten im Talentbaum (Äste Sprinter, Kletterer, Ausdauer), gelernt mit Talentpunkten aus dem Arcade-Level; verändert Fähigkeiten und Ausrüstungswerte nur im Arcade. |

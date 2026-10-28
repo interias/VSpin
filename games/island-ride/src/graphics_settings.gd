@@ -107,17 +107,17 @@ static func load_file(path: String = DEFAULT_PATH) -> GraphicsSettings:
 		push_warning("GraphicsSettings: %s nicht lesbar (Fehler %d), nutze Standardwerte" % [path, err])
 		return settings
 	settings.aa = _choice(file.get_value("graphics", "aa", settings.aa), AA_MODES, settings.aa)
-	settings.render_scale = clampf(_number(file.get_value("graphics", "render_scale"), settings.render_scale), 0.25, 2.0)
+	settings.render_scale = clampf(_number(file.get_value("graphics", "render_scale", settings.render_scale), settings.render_scale), 0.25, 2.0)
 	settings.upscaler = _choice(file.get_value("graphics", "upscaler", settings.upscaler), UPSCALERS, settings.upscaler)
 	settings.vsync = bool(file.get_value("graphics", "vsync", settings.vsync))
-	settings.max_fps = maxi(int(_number(file.get_value("graphics", "max_fps"), settings.max_fps)), 0)
+	settings.max_fps = maxi(int(_number(file.get_value("graphics", "max_fps", settings.max_fps), settings.max_fps)), 0)
 	settings.shadows = _choice(file.get_value("graphics", "shadows", settings.shadows), SHADOW_QUALITIES,
 			settings.shadows)
 	settings.speed_effects = bool(file.get_value("graphics", "speed_effects", settings.speed_effects))
 	settings.panorama = bool(file.get_value("graphics", "panorama", settings.panorama))
 	settings.sound_enabled = bool(file.get_value("sound", "enabled", settings.sound_enabled))
-	settings.sound_volume = clampf(_number(file.get_value("sound", "volume"), settings.sound_volume), 0.0, 1.0)
-	settings.wind_volume = clampf(_number(file.get_value("sound", "wind_volume"), settings.wind_volume), 0.0, 1.0)
+	settings.sound_volume = clampf(_number(file.get_value("sound", "volume", settings.sound_volume), settings.sound_volume), 0.0, 1.0)
+	settings.wind_volume = clampf(_number(file.get_value("sound", "wind_volume", settings.wind_volume), settings.wind_volume), 0.0, 1.0)
 	settings.window_mode = _choice(file.get_value("window", "mode", settings.window_mode), WINDOW_MODES,
 			settings.window_mode)
 	var size = file.get_value("window", "size", settings.window_size)
@@ -130,8 +130,8 @@ static func load_file(path: String = DEFAULT_PATH) -> GraphicsSettings:
 	if settings.sky_saved:
 		settings.time_mode = _choice(file.get_value("sky", "time_mode", settings.time_mode), DayNight.MODES,
 				settings.time_mode)
-		settings.fixed_hour = fposmod(_number(file.get_value("sky", "fixed_hour"), settings.fixed_hour), 24.0)
-		var day_min := _number(file.get_value("sky", "timelapse_day_min"), settings.timelapse_day_min)
+		settings.fixed_hour = fposmod(_number(file.get_value("sky", "fixed_hour", settings.fixed_hour), settings.fixed_hour), 24.0)
+		var day_min := _number(file.get_value("sky", "timelapse_day_min", settings.timelapse_day_min), settings.timelapse_day_min)
 		settings.timelapse_day_min = day_min if day_min > 0.0 else settings.timelapse_day_min
 		settings.weather_mode = _choice(file.get_value("sky", "weather_mode", settings.weather_mode), Weather.MODES,
 				settings.weather_mode)
@@ -145,6 +145,11 @@ static func load_file(path: String = DEFAULT_PATH) -> GraphicsSettings:
 
 func save_file(path: String = DEFAULT_PATH) -> Error:
 	var file := ConfigFile.new()
+	var previous := ConfigFile.new()
+	if FileAccess.file_exists(path) and previous.load(path) == OK and previous.has_section(HeartRateDevices.SECTION):
+		# Die gemerkten Pulsgeräte (HeartRateDevices) liegen in derselben Datei und überstehen das Speichern.
+		for key in previous.get_section_keys(HeartRateDevices.SECTION):
+			file.set_value(HeartRateDevices.SECTION, key, previous.get_value(HeartRateDevices.SECTION, key))
 	file.set_value("graphics", "aa", aa)
 	file.set_value("graphics", "render_scale", render_scale)
 	file.set_value("graphics", "upscaler", upscaler)

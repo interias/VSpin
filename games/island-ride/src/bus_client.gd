@@ -8,6 +8,12 @@
 ##
 ## Kein Node: der Besitzer ruft `poll(delta)` regelmäßig auf (z. B. in `_process`).
 ## Senden an die Bridge (z. B. `set_grade`) läuft über `send_message`; Antworten kommen als `ack_received`.
+##
+## Puls (ADR-0008, docs/bus-protocol.md „Puls“): `heart_rate_state`/`heart_rate_device` aus `status.heart_rate`, der Wert
+## `heart_rate_bpm` aus `telemetry.heart_rate`. Anders als die Kadenz bleibt der Wert nicht stehen: ohne laufende
+## Telemetrie (Bus weg, Quelle `stale`/`disconnected`, Schweigen) ist er NAN – ein alter Puls wäre eine falsche Angabe.
+## Die gemerkten Geräte gehören dem Spiel: `set_heart_rate_devices` schickt sie sofort und nach jedem (Neu-)Verbinden
+## erneut, auch eine leere Liste (eine frisch gestartete Bridge kennt keine Geräte, eine geteilte die eines anderen).
 class_name BusClient
 extends RefCounted
 
@@ -19,6 +25,12 @@ signal status_changed(state: String)
 signal telemetry_received(message: Dictionary)
 ## Antwort der Bridge auf eine eigene Nachricht (`ack`, z. B. auf `set_grade`; geparstes JSON).
 signal ack_received(message: Dictionary)
+## Pulszustand oder -gerät hat sich geändert (`status.heart_rate`, auch wenn die Verbindung zum Bus abbricht).
+signal heart_rate_changed(state: String)
+## Suchergebnis (`heart_rate_found`) nach `start_heart_rate_search`; `device_name` ist "" ohne Namen.
+signal heart_rate_found(address: String, device_name: String, rssi: int)
+## Die Suche endete ohne eigenes `stop` (`heart_rate_search_ended`); `reason`: timeout | taken_over.
+signal heart_rate_search_ended(reason: String)
 
 const PROTOCOL_VERSION := 0
 const STATE_CONNECTED := "connected"
@@ -28,6 +40,11 @@ const STATE_DISCONNECTED := "disconnected"
 ## Timer genau 3 s nach dem letzten Sample (ADR-0004); 1 s Reserve, damit ihr `stale` bei laufender Bridge immer
 ## zuerst ankommt und nur eine hängende Bridge hier greift.
 const SILENCE_TIMEOUT_S := 4.0
+## Pulszustände laut `status.heart_rate.state`.
+const HEART_RATE_OFF := "off"
+const HEART_RATE_DISCONNECTED := "disconnected"
+const HEART_RATE_CONNECTED := "connected"
+const HEART_RATE_STALE := "stale"
 
 var url: String
 var reconnect_s: float
@@ -59,11 +76,21 @@ var last_telemetry := {}
 var last_telemetry_received_ms := -1
 ## Besteht die WebSocket-Verbindung zum Bus?
 var bus_connected := false
+## Pulszustand laut `status.heart_rate`: off | disconnected | connected | stale. Eine ältere Bridge ohne den Block und
+## ein Abbruch des Busses ergeben `off`.
+var heart_rate_state := HEART_RATE_OFF
+## Verbundenes Pulsgerät ({address, name, role}) bei `connected`/`stale`, sonst leer.
+var heart_rate_device := {}
+## Aktueller Puls in bpm; NAN = kein Wert (`null` in der Telemetrie, keine Telemetrie). Auch ohne Pulsgerät kann ein
+## Wert da sein: Rad oder Simulator liefern dann ihren eigenen.
+var heart_rate_bpm := NAN
 
 var _peer: WebSocketPeer = null
 var _retry_in_s := 0.0
 var _connecting_s := 0.0
 var _silent_s := 0.0
+## Zuletzt gesetzte Geräteliste (null = noch nie gesetzt: dann schickt der Client beim Verbinden nichts).
+var _heart_rate_devices = null
 
 
 func _init(bus_url: String, reconnect_interval_s: float = 2.0, connect_timeout: float = 5.0) -> void:
@@ -89,6 +116,11 @@ func power_w() -> float:
 ## Ist die Leistung geschätzt? Nur ein ausdrückliches `power_estimated: false` gilt als gemessen (ADR-0004).
 func power_estimated() -> bool:
 	return last_telemetry.get("power_estimated") != false
+
+
+## Gibt es einen aktuellen Pulswert?
+func has_heart_rate() -> bool:
+	return not is_nan(heart_rate_bpm)
 
 
 ## Alter der letzten Telemetrie in Millisekunden (-1 = noch keine).
@@ -117,6 +149,7 @@ func poll(delta_s: float) -> void:
 			if not bus_connected:
 				bus_connected = true
 				bus_connection_changed.emit(true)
+				_send_heart_rate_devices()
 			_silent_s += delta_s
 			while _peer.get_available_packet_count() > 0:
 				_handle(_peer.get_packet().get_string_from_utf8())
@@ -135,6 +168,26 @@ func send_message(message: Dictionary) -> Error:
 	var out := message.duplicate()
 	out["v"] = PROTOCOL_VERSION
 	return _peer.send_text(JSON.stringify(out))
+
+
+## Setzt die gemerkten Pulsgeräte der Bridge: `devices` = [{address, name, role}] in Vorrang-Reihenfolge, `[]` schaltet
+## den Puls aus. Geht sofort raus, wenn der Bus verbunden ist, und danach nach jedem (Neu-)Verbinden erneut.
+func set_heart_rate_devices(devices: Array) -> Error:
+	_heart_rate_devices = devices.duplicate(true)
+	return _send_heart_rate_devices()
+
+
+## Startet die Suche nach Pulsgeräten (Ergebnisse als `heart_rate_found`); ohne `duration_s` gilt die Dauer der Bridge.
+func start_heart_rate_search(duration_s: float = 0.0) -> Error:
+	var message := {"type": "start_heart_rate_search"}
+	if duration_s > 0.0:
+		message["duration_s"] = duration_s
+	return send_message(message)
+
+
+## Beendet die eigene Suche (danach kommt kein `heart_rate_search_ended`).
+func stop_heart_rate_search() -> Error:
+	return send_message({"type": "stop_heart_rate_search"})
 
 
 ## Trennt die Verbindung und hört auf, neu zu verbinden.
@@ -157,6 +210,12 @@ func _open() -> void:
 		_retry_in_s = reconnect_s
 
 
+func _send_heart_rate_devices() -> Error:
+	if _heart_rate_devices == null:
+		return OK
+	return send_message({"type": "set_heart_rate_devices", "devices": _heart_rate_devices})
+
+
 func _lost() -> void:
 	_peer = null
 	_retry_in_s = reconnect_s
@@ -170,12 +229,37 @@ func _set_bus_connected(connected: bool) -> void:
 	if not connected:
 		silent = false
 		_set_status(STATE_DISCONNECTED)
+		_set_heart_rate(HEART_RATE_OFF, {})  # ohne Bus weiß das Spiel nichts über den Puls
 
 
 func _set_status(state: String) -> void:
 	if status != state:
 		status = state
 		status_changed.emit(state)
+	if state != STATE_CONNECTED:
+		heart_rate_bpm = NAN  # Telemetrie gibt es nur bei `connected`: ein alter Puls bliebe sonst stehen
+
+
+func _set_heart_rate(state: String, device: Dictionary) -> void:
+	if heart_rate_state != state or heart_rate_device != device:
+		heart_rate_state = state
+		heart_rate_device = device
+		heart_rate_changed.emit(state)
+
+
+## `status.heart_rate` übernehmen; fehlt der Block (ältere Bridge) oder ist er kaputt, gilt `off`.
+func _read_heart_rate_status(block) -> void:
+	var state := HEART_RATE_OFF
+	var device := {}
+	if block is Dictionary:
+		var reported = block.get("state")
+		if reported in [HEART_RATE_DISCONNECTED, HEART_RATE_CONNECTED, HEART_RATE_STALE]:
+			state = reported
+		var info = block.get("device")
+		if info is Dictionary and state in [HEART_RATE_CONNECTED, HEART_RATE_STALE]:
+			device = {"address": str(info.get("address", "")), "name": str(info.get("name", "")),
+					"role": str(info.get("role", ""))}
+	_set_heart_rate(state, device)
 
 
 func _handle(text: String) -> void:
@@ -192,6 +276,7 @@ func _handle(text: String) -> void:
 			var caps = message.get("capabilities")
 			capabilities = PackedStringArray(caps) if caps is Array else PackedStringArray()
 			_set_status(str(message.get("state", STATE_DISCONNECTED)))
+			_read_heart_rate_status(message.get("heart_rate"))
 		"telemetry":
 			_silent_s = 0.0
 			if silent:  # Telemetrie gibt es nur bei `connected` (docs/bus-protocol.md)
@@ -203,6 +288,8 @@ func _handle(text: String) -> void:
 			var raw = message.get("cadence_raw", value)
 			if raw is float:
 				cadence_raw = raw
+			var bpm = message.get("heart_rate")
+			heart_rate_bpm = float(bpm) if (bpm is float or bpm is int) and bpm > 0 else NAN
 			if message.get("t_ms") is float:
 				last_telemetry_t_ms = int(message["t_ms"])
 			last_telemetry = message
@@ -210,6 +297,13 @@ func _handle(text: String) -> void:
 			telemetry_received.emit(message)
 		"ack":
 			ack_received.emit(message)
+		"heart_rate_found":
+			var found_name = message.get("name")
+			var rssi = message.get("rssi")
+			heart_rate_found.emit(str(message.get("address", "")), found_name if found_name is String else "",
+					int(rssi) if rssi is float or rssi is int else 0)
+		"heart_rate_search_ended":
+			heart_rate_search_ended.emit(str(message.get("reason", "")))
 		"error":
 			push_warning("BusClient: Bridge meldet Fehler %s: %s" % [message.get("reason"), message.get("detail")])
 		_:

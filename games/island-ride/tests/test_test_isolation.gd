@@ -101,7 +101,7 @@ func test_values_share_ports_only_a_multiple_of_300_apart() -> void:
 
 
 func test_invalid_value_is_reported_not_silently_shared() -> void:
-	for raw in ["x", "-1", "1.5", "4 6"]:
+	for raw in ["x", "-1", "1.5", "4 6", "+5", "5_0"]:
 		OS.set_environment(TestIsolation.PORT_BASE_ENV, raw)
 		assert_string_contains(TestIsolation.port_base_error(), TestIsolation.PORT_BASE_ENV)
 	for raw in ["7", "467", "1234"]:

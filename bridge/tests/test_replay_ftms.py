@@ -10,6 +10,10 @@ from bridge_harness import FIXTURES_DIR, read_jsonl, replay_to_end
 
 FAST = ("--speed", "20")
 
+# `--wait-client` gibt beim ersten Client frei: ein fremder Client am Bus (ein laufendes Spiel) startete das
+# Replay vor dem Test-Client.
+pytestmark = pytest.mark.usefixtures("isolated_bus")
+
 
 def replay(bridge_process, bus_client, tmp_path, name: str):
     run = replay_to_end(bridge_process, bus_client, FIXTURES_DIR / name, tmp_path, *FAST)
