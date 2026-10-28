@@ -5,7 +5,7 @@ from sim_pulse import is_window, simulator_pulse
 from vspin_bridge.cli import build_parser
 
 TELEMETRY_FIELDS = {"v", "type", "t_ms", "cadence", "cadence_raw", "speed_kmh", "power_w", "power_estimated", "heart_rate"}
-STATUS_FIELDS = {"v", "type", "t_ms", "state", "source", "capabilities", "heart_rate"}
+STATUS_FIELDS = {"v", "type", "t_ms", "state", "source", "capabilities", "heart_rate", "garmin"}
 
 
 def start_sim(bridge_process, cadence: str = "80"):

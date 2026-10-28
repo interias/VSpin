@@ -10,6 +10,9 @@ from types import ModuleType
 from typing import Protocol
 
 DEFAULT_TOKEN_DIR = Path.home() / ".garminconnect"
+# Das Token ist seit garminconnect 0.3 genau diese Datei im Token-Verzeichnis (README des Projekts); `logout()` der
+# Bibliothek entfernt nur sie und lässt das Verzeichnis stehen.
+TOKEN_FILE = "garmin_tokens.json"
 INSTALL_HINT = 'pip install -e ".[garmin]"'
 LOGIN_COMMAND = "python -m vspin_bridge.garmin login"
 
@@ -90,6 +93,10 @@ class GarminConnectUploader:
         self.token_dir = token_dir
         self._library = library
 
+    @property
+    def token_file(self) -> Path:
+        return self.token_dir / TOKEN_FILE
+
     def _load(self) -> ModuleType | None:
         try:
             return self._library()
@@ -99,21 +106,23 @@ class GarminConnectUploader:
     def login_state(self) -> LoginState:
         if self._load() is None:
             return LoginState.UNAVAILABLE
-        # Reine Existenzprüfung: das Token wird hier weder gelesen noch geprüft.
-        return LoginState.LOGGED_IN if self.token_dir.is_dir() else LoginState.NOT_LOGGED_IN
+        # Reine Existenzprüfung der Token-Datei: das Token wird hier weder gelesen noch geprüft. Das Verzeichnis
+        # allein zählt nicht – es bleibt nach `logout()` stehen und liegt während `login` schon leer da.
+        return LoginState.LOGGED_IN if self.token_file.is_file() else LoginState.NOT_LOGGED_IN
 
     def upload(self, fit_path: Path) -> UploadResult:
         lib = self._load()
         if lib is None:
             return UNAVAILABLE
-        if not self.token_dir.is_dir():
+        if not self.token_file.is_file():
             return NOT_LOGGED_IN
         if not fit_path.is_file():
             return UploadResult(UploadState.FAILED, f"FIT-Datei fehlt: {fit_path}")
 
-        # --- Gegen garminconnect 0.3.x ungeprüft (angenommen nach der 0.2.x-API): `Garmin()` ohne
-        # Zugangsdaten, `login(tokenstore=…)` lädt nur das gespeicherte Token, `import_activity(pfad)`
-        # (Spec #84) lädt hoch und wirft bei HTTP-Fehlern. -------------------------------------------
+        # --- Gegen garminconnect 0.3.x ungeprüft (Bibliothek nicht installiert): `Garmin()` ohne
+        # Zugangsdaten und `login(tokenstore)` setzen das gespeicherte Token fort, `import_activity(pfad)`
+        # lädt hoch – beides so in README und example.py des Projekts. Dass es bei HTTP-Fehlern wirft und
+        # wie es ein Duplikat meldet, belegt die README nicht. ------------------------------------------
         try:
             client = lib.Garmin()
             client.login(tokenstore=str(self.token_dir))
@@ -129,7 +138,7 @@ class GarminConnectUploader:
         return UPLOADED
 
 
-# --- Abbildung der Fehler: Klassennamen und Statusfundorte gegen garminconnect 0.3.x ungeprüft -----
+# --- Abbildung der Fehler: Klassennamen wie in example.py des Projekts, Statusfundorte ungeprüft ------
 
 AUTH_ERROR = "GarminConnectAuthenticationError"
 TOO_MANY_REQUESTS = "GarminConnectTooManyRequestsError"

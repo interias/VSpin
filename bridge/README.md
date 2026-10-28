@@ -13,8 +13,12 @@ Python 3.12, im Ordner `bridge/`:
 
 ```
 python -m venv .venv
-.venv/bin/pip install -e ".[test]"        # Windows: .venv\Scripts\pip install -e ".[test]"
+.venv/bin/pip install -e ".[test,fit]"    # Windows: .venv\Scripts\pip install -e ".[test,fit]"
 ```
+
+`fit` (fit-tool) schreibt die FIT-Datei einer Fahrt und wird von den Tests gebraucht; ohne das Extra läuft die Bridge,
+nur „Fahrt speichern“ meldet dann den fehlenden Baustein. Den Upload zu Garmin Connect gibt es nur mit dem
+zusätzlichen Extra `garmin` (siehe „Fahrt speichern / Garmin“).
 
 ## Starten
 
@@ -305,6 +309,50 @@ sofort geflusht, auch nach Strg+C oder Absturz bleiben lesbare Dateien. Scheiter
 mitten im Lauf (z. B. Platte voll), meldet die Bridge das im Terminal, schreibt für diese Session
 nichts mehr und läuft weiter. `sessions/` ist in `.gitignore`.
 
+## Fahrt speichern / Garmin
+
+Am Ende einer Fahrt schickt das Spiel `save_ride` (Start, Ende, Rundenenden, Streckenspur des Spiels, `upload` ja/nein;
+docs/bus-protocol.md). Die Bridge liest die Samples der Fahrt aus der Session-CSV dieses Laufs und schreibt
+`sessions/rides/<zeit>_<ride_id>.fit` (`<zeit>` = Start der Fahrt; Inhalt und Grenzen: `src/vspin_bridge/export/`,
+ADR-0008 Nachtrag #84). Geschätzte Watt fehlen in der Datei, beim JC312 also jede Leistung. Die Datei entsteht immer,
+auch ohne Upload, und lässt sich in Garmin Connect von Hand importieren. Erneutes Speichern
+derselben Fahrt schreibt dieselbe Datei neu – nur im selben Bridge-Lauf; nach einem Neustart der Bridge nimmt sie die
+vorhandene Datei unverändert (auch für den Upload) und meldet, falls sie fehlt. Antwort `ride_saved` nur an das Spiel, das gespeichert hat; im Terminal
+z. B. `Fahrt a1b2c3 gespeichert: …` und `Fahrt a1b2c3: Garmin uploaded`.
+
+**Upload zu Garmin Connect** (optional, inoffiziell über die Bibliothek `garminconnect`, ADR-0008 Nachtrag #84):
+
+```
+.venv/bin/pip install -e ".[garmin]"       # Windows: .venv\Scripts\pip install -e ".[garmin]"
+python -m vspin_bridge.garmin login         # einmal: E-Mail, Passwort, MFA-Code nur wenn Garmin ihn verlangt
+python -m vspin_bridge.garmin status        # angemeldet?
+```
+
+`login` meldet genau einmal an und speichert **nur das Token** als `~/.garminconnect/garmin_tokens.json` (außerhalb
+des Repos, anderes Verzeichnis mit `--token-dir PFAD`); Passwort und MFA-Code werden nirgends gespeichert oder
+ausgegeben. Liegt schon ein gültiges Token da, lädt die Bibliothek es und meldet nicht neu an: `Schon bei Garmin
+angemeldet – …`. Exit-Codes von `login`: 0 angemeldet oder schon angemeldet, 1 Bibliothek fehlt oder Anmeldung
+gescheitert, 2 abgebrochen (auch Strg+C an der MFA-Abfrage) oder ohne Eingabe, 3 angemeldet, aber das Token wurde
+nicht gespeichert (nicht erneut anmelden – ein Fehler in VSpin). `status`: 0 angemeldet, sonst 1. „Angemeldet“ heißt
+hier und in der Bridge nur: Die Token-Datei existiert (ob das Token noch gilt, zeigt erst ein Upload); ein leeres
+Token-Verzeichnis zählt nicht. Die
+Bridge selbst meldet sich nie mit Passwort an; sie setzt das Token fort, und ihr Anmeldezustand steht in
+`status.garmin.login` (geprüft beim Start, nach jedem Speichern und alle 5 s).
+
+**Nach einer gescheiterten Anmeldung nicht sofort wiederholen:** Nach Fehlversuchen sperrt Garmin das Konto für mehr als
+48 h. Deshalb versucht die Bridge je Speichern höchstens einen Upload und wiederholt nichts von selbst; die Meldung im
+Dialog sagt, was zu tun ist (z. B. `Anmeldung abgelaufen – bitte neu anmelden (python -m vspin_bridge.garmin login).`),
+und die FIT-Datei bleibt für den manuellen Import liegen. Hochgeladene Fahrten merkt sich die Bridge in
+`sessions/rides/rides.json`: Erneutes Speichern lädt sie nicht noch einmal hoch; nach einem gescheiterten Upload darf
+erneutes Speichern es noch einmal versuchen. Meldet Garmin die Fahrt als schon vorhanden, zählt das als Erfolg.
+
+**Warum Garmin keine Trainingsbelastung berechnet:** Garmin Connect berechnet Trainingsbelastung und Training Effect nur
+für Dateien von Garmin- und Partnergeräten. Die FIT-Datei von VSpin nennt ehrlich VSpin als Hersteller (FIT-Hersteller
+`development`) und täuscht kein Garmin-Gerät vor; die Fahrt erscheint mit Dauer, Strecke, Kadenz und Puls, aber ohne
+Belastung. Wer sie haben will, zeichnet die Fahrt parallel auf der Uhr auf (z. B. Forerunner 970, Aktivität
+„Indoor-Radfahren“) und schaltet im Spiel den Upload für diese Fahrt ab – sonst stehen zwei Aktivitäten derselben Fahrt in
+Garmin Connect. Die FIT-Datei entsteht trotzdem.
+
 ## Testen
 
 ```
@@ -355,6 +403,8 @@ src/vspin_bridge/
   processing.py Datenaufbereitung (ADR-0004)
   bus/          WebSocket-Server (docs/bus-protocol.md)
   session/      Session-CSV und Rohdaten (ADR-0008)
+  export/       FIT-Datei einer Fahrt (Spec #84); ride_saver.py: `save_ride` am Bus
+  garmin/       Upload zu Garmin Connect, `python -m vspin_bridge.garmin login|status`
 tests/fixtures/  Replay-Fixtures (handgebaut; später echte JC312-Dumps)
 tests/cadence_latency.py  Messung Erkennungsverzögerung der Kadenzmuster (#45)
 ```

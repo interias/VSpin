@@ -22,6 +22,7 @@ from fake_garmin import (
 from vspin_bridge.garmin import (
     DEFAULT_TOKEN_DIR,
     GarminConnectUploader,
+    TOKEN_FILE,
     LoginState,
     Uploader,
     UploadState,
@@ -34,6 +35,7 @@ SECRET = "geheim-token-abc123"  # steht in Fehlertexten der Bibliothek und darf 
 def token_dir(tmp_path) -> Path:
     path = tmp_path / "garminconnect"
     path.mkdir()
+    (path / TOKEN_FILE).write_text("{}", encoding="utf-8")
     return path
 
 
@@ -229,7 +231,20 @@ def test_missing_token_dir_is_not_logged_in_without_any_client_call(lib, tmp_pat
     assert lib.clients == [] and lib.logins == [] and lib.uploads == []
 
 
-def test_login_state_only_checks_the_token_dir_exists(lib, token_dir):
+def test_token_dir_without_the_token_file_is_not_logged_in_without_any_client_call(lib, token_dir, fit):
+    """Nach `logout()` der Bibliothek (sie entfernt nur `garmin_tokens.json`) oder während `login` läuft: Das
+    Verzeichnis allein heißt nicht angemeldet."""
+    (token_dir / TOKEN_FILE).unlink()
+    (token_dir / "unrelated.txt").write_text("x", encoding="utf-8")
+    uploader = GarminConnectUploader(token_dir, lib)
+
+    assert uploader.login_state() is LoginState.NOT_LOGGED_IN
+    assert uploader.upload(fit).state is UploadState.NOT_LOGGED_IN
+    assert lib.clients == [] and lib.logins == [] and lib.uploads == []
+
+
+def test_login_state_only_checks_the_token_file_exists(lib, token_dir):
+    (token_dir / TOKEN_FILE).write_bytes(b"\xff kein JSON")  # nie gelesen: auch ein kaputtes Token zählt
     assert GarminConnectUploader(token_dir, lib).login_state() is LoginState.LOGGED_IN
     assert lib.clients == [] and lib.logins == []
 
