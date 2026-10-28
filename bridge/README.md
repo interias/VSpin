@@ -118,11 +118,35 @@ python -m vspin_companion                  # im Ordner bridge/, mit PYTHONPATH=s
 
 `--port PORT` und `--host` wie bei der Bridge, `--data-dir ORDNER` für die Ablage (sonst `VSPIN_COMPANION_DIR`,
 sonst `%APPDATA%\VSpin\companion\`), `--stop-file DATEI` zum sauberen Beenden. In der Ablage liegt
-`companion.json` (`brain` = `oauth` | `api_key`, Wecker-Takt, Stimme). Fehlt sie, gelten die Standardwerte, und
-geschrieben wird sie nicht. Die echten Adapter für Denken, Hören und Sprechen fehlen noch (#78, #79). Bis dahin meldet Toni
-`idle` und wird beim ersten Drücken der Sprechtaste heiser (`companion_status: hoarse`); der Prozess läuft weiter.
-Die Abhängigkeiten der echten Adapter kommen ins optionale Extra `companion` (`pyproject.toml`); die Tests brauchen
-es nicht.
+`companion.json` (`brain` = `oauth` | `api_key`, Wecker-Takt, Stimme). Fehlt sie, gelten die Standardwerte. Toni
+schreibt nur den Wecker-Takt hinein, wenn der Fahrer ihn per Stimme ändert.
+
+**Denken (#78, ADR-0011):** Claude Haiku 5.5 über das Claude Agent SDK, eine Sitzung je Fahrt, eingebaute
+Werkzeuge aus, keine Claude-Code-Einstellungen. Anmeldung mit `brain: oauth` (Standard) über `CLAUDE_CODE_OAUTH_TOKEN`
+aus `claude setup-token`, mit `brain: api_key` über `ANTHROPIC_API_KEY`. Das Geheimnis kommt aus der Umgebung, sonst
+aus `.env` **in der Ablage** (`%APPDATA%\VSpin\companion\.env`). Eine `.env` im Repo oder im Arbeitsverzeichnis wird nie
+gelesen. Die jeweils andere Anmeldung wird für den SDK-Prozess geleert. Ohne Token, bei abgelaufenem Token oder
+erreichtem Abo-Limit wird Toni heiser und weicht nie still auf den API-Schlüssel aus. Achtung: Startet man den
+Begleiter aus VS Code im Repo, kann die Python-Erweiterung die Repo-`.env` in die Umgebung laden.
+
+**Wecker und Gedächtnis:**
+- Während einer Fahrt weckt der Wecker Toni in zufälligen Abständen im Takt aus `companion.json` (Standard 3–8 min).
+- Sofort weckt ihn jedes `ride_event`, außerdem jeder 5. km, „noch 5 km“, ein Wechsel der Pulszone oder des
+  Abschnitts und das Überholen des Ghosts bzw. das Überholtwerden.
+- Toni entscheidet selbst, ob er etwas sagt.
+- Zwischen zwei ungefragten Sätzen liegt mindestens eine Minute, Fragen beantwortet er immer.
+- In harten Intervallen und Bosskämpfen spricht er höchstens einen Satz.
+- Seine Werkzeuge: `remember` (in `memory.md`, ≤ 3 000 Zeichen), `update_soul` (`soul.md`, ≤ 1 500 Zeichen; die
+  Vorgabe „Toni“ wird beim ersten Start in die Ablage kopiert), `set_wake_interval` (1–30 min) und `stay_silent`
+  (bis zum Fahrtende nur noch Antworten).
+- Wird eine Grenze überschritten, fasst Toni zuerst zusammen. Abgeschnitten wird nie.
+- Nach `ride_end` räumt er geänderte oder zu große Dateien auf.
+- Vor dem ersten Schreiben je Fahrt sichert er die Datei als `.bak`.
+- Beide Dateien darf man von Hand bearbeiten; sie werden bei jeder Sitzung frisch gelesen.
+
+Hören und Sprechen fehlen noch (#79). Bis dahin wird Toni heiser, sobald er sprechen oder zuhören soll; der Prozess
+läuft weiter. Die Abhängigkeiten der echten Adapter stehen im optionalen Extra `companion` (`pyproject.toml`). Man
+installiert es in ein eigenes venv, nicht in das der Tests; die Tests brauchen es nicht.
 
 ## Profile
 
