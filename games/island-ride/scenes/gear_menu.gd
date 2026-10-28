@@ -1,11 +1,19 @@
 ## Ausrüstung des Arcade-Modus (#49), aus dem Startmenü (Seite „Arcade“) geöffnet – die einzige Stelle, an der Beute
-## verwaltet wird (in der Fahrt nichts). Links die gefundenen Teile (Name in der Farbe der Seltenheit, Werte; angelegte
-## markiert), rechts das gewählte Teil mit dem **Vergleich** gegen das angelegte Teil desselben Platzes (je Wert besser,
-## gleich, schlechter), dazu **Anlegen** und **Verwerten** (zu Splittern; angelegte nicht), darunter die angelegten
-## Teile je Platz. Oben Splitter und Teile. Logik in Inventory/Loot; die Hauptszene speichert (`gear_changed`).
+## verwaltet wird (in der Fahrt nichts). Rechts oben die gefundenen Teile (Name in der Farbe der Seltenheit, Werte; angelegte
+## markiert), darunter das gewählte Teil mit dem **Vergleich** gegen das angelegte Teil desselben Platzes (je Wert besser,
+## gleich, schlechter), dazu **Anlegen** und **Verwerten** (zu Splittern; angelegte nicht); die angelegten Teile je Platz
+## zeigt das Charakterblatt links. Oben Splitter und Teile. Logik in Inventory/Loot; die Hauptszene speichert (`gear_changed`).
 ## Die Werte wirken nur im Arcade-Modus (ADR-0010).
+##
+## Charakterblatt (#68): links der Fahrer in der Mitte (die Vorschau der Garderobe, `rider_preview.gd`, mit Garderobe und
+## angelegter Ausrüstung) und die sechs Plätze (Loot.SLOTS) drumherum. Jeder Platz zeigt das angelegte Teil (Name und Werte
+## in der Farbe der Seltenheit) oder „leer“; ein Klick (Enter) darauf zeigt in der Liste nur die passenden Teile des
+## Inventars, gewählt ist das neueste nicht angelegte, rechts steht der Vergleich – ein zweiter Klick zeigt wieder alle.
+## Darunter die Summe der Werte und die eigene **Stärke** neben der **empfohlenen** der gewählten Stufe (#54). Reine
+## Darstellung und Bedienung über Inventory, Loot und ArcadeTiers: keine eigenen Werte.
 ## Bedienung mit Maus und Tastatur: Pfeiltasten/Tab, Enter/Leertaste wählt bzw. löst aus, Esc oder „Zurück“ schließt.
-## Layout nur über Anker und Container: passt in 960×1040, 1920×1080 und 1152×648; die Liste scrollt.
+## Layout nur über Anker und Container: passt in 960×1040, 1920×1080 und 1152×648; die Liste und der Fahrer mit seinen
+## Plätzen scrollen, wenn sie nicht in die Höhe passen.
 extends CanvasLayer
 
 ## Ausrüstung geschlossen („Zurück“ oder Esc).
@@ -17,12 +25,22 @@ const COLOR_HEADING := Color(1.0, 0.86, 0.45)
 const COLOR_BETTER := Color(0.5, 0.92, 0.55)
 const COLOR_WORSE := Color(1.0, 0.55, 0.45)
 const COLOR_SAME := Color(0.82, 0.86, 0.9)
+const COLOR_OK := Color(0.45, 0.85, 0.5)
+const COLOR_WARN := Color(1.0, 0.78, 0.35)
+const RIDER_PREVIEW := preload("res://scenes/rider_preview.gd")
 const EMPTY_TEXT := "Noch keine Beute – Herausforderungen im Arcade-Modus werfen sie ab."
+## Plätze links und rechts vom Fahrer.
+const LEFT_SLOTS := ["helm", "trikot", "schuhe"]
+const RIGHT_SLOTS := ["rahmen", "laufraeder", "talisman"]
 
-## Knöpfe: je Teil „item_<id>“, dazu „equip“, „salvage“ und „back“.
+## Knöpfe: je Teil „item_<id>“, je Platz „slot_<platz>“, dazu „equip“, „salvage“ und „back“.
 var buttons := {}
 ## Gewähltes Teil (0 = keins).
 var selected_id := 0
+## Gewählter Platz (Schlüssel aus Loot.SLOTS): die Liste zeigt nur seine Teile; "" = alle Plätze.
+var slot_filter := ""
+## Fahrermodell der Vorschau.
+var preview: RiderModel
 var _save: SaveGame
 var _info: Label
 var _list: VBoxContainer
@@ -30,8 +48,10 @@ var _detail_name: Label
 var _detail_stats: Label
 var _detail_effect: Label
 var _compare: VBoxContainer
-var _equipped: VBoxContainer
 var _group: ButtonGroup
+var _slot_group: ButtonGroup
+var _totals: Label
+var _strength: Label
 
 
 func _ready() -> void:
@@ -43,6 +63,7 @@ func _ready() -> void:
 ## Mit dem Stand `save` öffnen; gewählt ist das neueste Teil, der Fokus liegt darauf (sonst auf „Zurück“).
 func open(save: SaveGame) -> void:
 	_save = save
+	slot_filter = ""
 	var items := Inventory.items(save)
 	selected_id = int(items[-1]["id"]) if not items.is_empty() else 0
 	_refresh()
@@ -77,6 +98,19 @@ func select(id: int) -> void:
 	_show_detail()
 
 
+## Platz `slot` wählen: die Liste zeigt nur seine Teile, gewählt ist das neueste nicht angelegte (sonst das angelegte);
+## derselbe Platz noch einmal (oder "") zeigt wieder alle Plätze.
+func select_slot(slot: String) -> void:
+	if _save == null:
+		return
+	slot_filter = "" if slot == slot_filter or not Loot.SLOTS.has(slot) else slot
+	selected_id = _default_selection()
+	_refresh()
+	var key := "item_%d" % selected_id
+	if buttons.has(key):
+		buttons[key].grab_focus()
+
+
 ## Gewähltes Teil anlegen.
 func equip_selected() -> void:
 	if _save != null and Inventory.equip(_save, selected_id):
@@ -105,9 +139,21 @@ func comparison_lines() -> Array:
 	return _compare.get_children().map(func(label): return label.text)
 
 
-## Zeilen der angelegten Teile wie angezeigt (für Tests), z. B. „Helm: Magischer Helm“.
+## Zeilen der angelegten Teile je Platz wie auf dem Charakterblatt (für Tests), z. B. „Helm: Magischer Helm“, „Rahmen: –“.
 func equipped_lines() -> Array:
-	return _equipped.get_children().filter(func(c): return c is Label).map(func(label): return label.text)
+	var worn := Inventory.equipped(_save) if _save != null else {}
+	return Loot.SLOTS.keys().map(func(slot): return "%s: %s" % [Loot.SLOTS[slot]["name"],
+			Loot.item_name(worn[slot]) if worn.has(slot) else "–"])
+
+
+## Summe der Werte der angelegten Teile wie angezeigt (für Tests), z. B. „Summe: +4 rpm Zonenbreite · +6 % Punkte“.
+func totals_text() -> String:
+	return _totals.text
+
+
+## Stärke neben der empfohlenen der gewählten Stufe wie angezeigt (für Tests), z. B. „Stärke 12 / empfohlen 20 (Stufe 3)“.
+func strength_text() -> String:
+	return _strength.text
 
 
 ## Effekt des gewählten legendären Teils wie angezeigt (für Tests), z. B. „Effekt: Rückstoß\nWindböe wirft …“; sonst "".
@@ -141,10 +187,12 @@ func _refresh() -> void:
 		buttons.erase(key)
 	for child in _list.get_children():
 		child.free()
-	if items.is_empty():
+	var shown := items.filter(func(item): return slot_filter == "" or item["slot"] == slot_filter)
+	if shown.is_empty():
 		var empty := Label.new()
 		empty.name = "Empty"
-		empty.text = EMPTY_TEXT
+		empty.text = EMPTY_TEXT if items.is_empty() else "Kein Teil für %s im Inventar – ein zweiter Klick auf den Platz zeigt wieder alle." % \
+				Loot.SLOTS[slot_filter]["name"]
 		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		_list.add_child(empty)
 	# Nach Platz (Reihenfolge wie Loot.SLOTS), darin die neuesten zuerst.
@@ -153,7 +201,9 @@ func _refresh() -> void:
 			or (a["slot"] == b["slot"] and a["id"] > b["id"]))
 	if Inventory.find(_save, selected_id).is_empty():
 		selected_id = int(items[0]["id"]) if not items.is_empty() else 0
-	for item in items:
+	if slot_filter != "" and Inventory.find(_save, selected_id).get("slot", "") != slot_filter:
+		selected_id = _default_selection()
+	for item in shown:
 		var id := int(item["id"])
 		var button := Button.new()
 		button.name = "item_%d" % id
@@ -175,17 +225,47 @@ func _refresh() -> void:
 		buttons[button.name] = button
 	if buttons.has("item_%d" % selected_id):
 		buttons["item_%d" % selected_id].set_pressed_no_signal(true)
-	for child in _equipped.get_children():
-		child.free()
+	_refresh_sheet()
+	_show_detail()
+
+
+## Gewählt wird beim Wechsel des Platzes: das neueste nicht angelegte Teil der gezeigten Liste, sonst das neueste.
+func _default_selection() -> int:
+	var shown := Inventory.items(_save).filter(func(item): return slot_filter == "" or item["slot"] == slot_filter)
+	shown.reverse()
+	for item in shown:
+		if not Inventory.is_equipped(_save, int(item["id"])):
+			return int(item["id"])
+	return int(shown[0]["id"]) if not shown.is_empty() else 0
+
+
+## Charakterblatt: Plätze mit angelegtem Teil (oder „leer“), Fahrer, Summe der Werte, Stärke gegen empfohlene Stärke.
+func _refresh_sheet() -> void:
 	var worn := Inventory.equipped(_save)
 	for slot in Loot.SLOTS:
-		var label := Label.new()
-		label.name = slot.capitalize()
-		label.text = "%s: %s" % [Loot.SLOTS[slot]["name"], Loot.item_name(worn[slot]) if worn.has(slot) else "–"]
-		label.add_theme_font_size_override("font_size", 16)
-		label.add_theme_color_override("font_color", Loot.color_of(worn[slot]["rarity"]) if worn.has(slot) else COLOR_SAME)
-		_equipped.add_child(label)
-	_show_detail()
+		var button: Button = buttons["slot_" + slot]
+		var item: Dictionary = worn.get(slot, {})
+		button.text = "%s\n%s" % [Loot.SLOTS[slot]["name"], "leer" if item.is_empty()
+				else "%s\n%s" % [Loot.item_name(item), Loot.stats_text(item).replace(" · ", "\n")]]
+		var color: Color = COLOR_SAME if item.is_empty() else Loot.color_of(item["rarity"])
+		for state in ["font_color", "font_hover_color", "font_focus_color", "font_pressed_color",
+				"font_hover_pressed_color"]:
+			button.add_theme_color_override(state, color)
+		button.set_pressed_no_signal(slot == slot_filter)
+	preview.reset_look()
+	preview.wear(Wardrobe.outfit(Wardrobe.selection(_save)))
+	preview.wear(Loot.appearance(worn))
+	var modifiers := Inventory.modifiers(_save)
+	var sums := []
+	for stat in Loot.STATS:
+		if int(modifiers.get(stat, 0)) > 0:
+			sums.append(Loot.stat_text(stat, modifiers[stat]))
+	_totals.text = "Summe: %s" % (" · ".join(sums) if not sums.is_empty() else "noch keine Werte")
+	var tier := ArcadeTiers.selection(_save)
+	var own := ArcadeTiers.strength(_save)
+	var recommended := ArcadeTiers.recommended_strength(tier)
+	_strength.text = "Stärke %d / empfohlen %d (Stufe %d)" % [own, recommended, tier]
+	_strength.add_theme_color_override("font_color", COLOR_OK if own >= recommended else COLOR_WARN)
 
 
 ## Rechts: Name, Werte, Vergleich mit dem angelegten Teil des Platzes, Knöpfe.
@@ -278,11 +358,17 @@ func _build() -> void:
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	body.add_theme_constant_override("separation", 16)
 	column.add_child(body)
+	_build_sheet(body)
+	var right := VBoxContainer.new()
+	right.name = "Side"
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.add_theme_constant_override("separation", 12)
+	body.add_child(right)
 	var items := PanelContainer.new()
 	items.name = "Items"
-	items.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	items.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	items.add_theme_stylebox_override("panel", _panel_style(0.78, 12))
-	body.add_child(items)
+	right.add_child(items)
 	var scroll := ScrollContainer.new()
 	scroll.name = "Scroll"
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -295,9 +381,9 @@ func _build() -> void:
 	scroll.add_child(_list)
 	var side := PanelContainer.new()
 	side.name = "Detail"
-	side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	side.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	side.add_theme_stylebox_override("panel", _panel_style(0.78, 14))
-	body.add_child(side)
+	right.add_child(side)
 	var side_column := VBoxContainer.new()
 	side_column.add_theme_constant_override("separation", 10)
 	side.add_child(side_column)
@@ -330,14 +416,6 @@ func _build() -> void:
 	_compare.name = "Compare"
 	_compare.add_theme_constant_override("separation", 2)
 	detail.add_child(_compare)
-	var worn := Label.new()
-	worn.text = "Angelegt je Platz"
-	worn.add_theme_color_override("font_color", COLOR_HEADING)
-	detail.add_child(worn)
-	_equipped = VBoxContainer.new()
-	_equipped.name = "Equipped"
-	_equipped.add_theme_constant_override("separation", 0)
-	detail.add_child(_equipped)
 	var actions := HFlowContainer.new()  # außerhalb des Scrollbereichs: immer erreichbar
 	actions.name = "ItemActions"
 	actions.add_theme_constant_override("h_separation", 8)
@@ -350,6 +428,80 @@ func _build() -> void:
 	bottom.alignment = BoxContainer.ALIGNMENT_CENTER
 	column.add_child(bottom)
 	_button(bottom, "back", "Zurück", close)
+
+
+## Charakterblatt links: der Fahrer (Vorschau der Garderobe) in der Mitte, drei Plätze auf jeder Seite, darunter Summe
+## und Stärke. Fahrer und Plätze scrollen, wenn sie nicht in die Höhe passen; Summe und Stärke bleiben sichtbar.
+func _build_sheet(parent: Container) -> void:
+	_slot_group = ButtonGroup.new()
+	_slot_group.allow_unpress = true
+	var sheet := PanelContainer.new()
+	sheet.name = "Sheet"
+	sheet.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sheet.size_flags_stretch_ratio = 1.5
+	sheet.add_theme_stylebox_override("panel", _panel_style(0.78, 14))
+	parent.add_child(sheet)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 8)
+	sheet.add_child(column)
+	var scroll := ScrollContainer.new()
+	scroll.name = "SheetScroll"
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.follow_focus = true
+	column.add_child(scroll)
+	var figure := HBoxContainer.new()
+	figure.name = "Figure"
+	figure.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	figure.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	figure.add_theme_constant_override("separation", 8)
+	scroll.add_child(figure)
+	_slot_column(figure, "LeftSlots", LEFT_SLOTS)
+	var frame := RIDER_PREVIEW.new()
+	frame.custom_minimum_size = Vector2(170, 170)
+	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	frame.size_flags_stretch_ratio = 1.2
+	figure.add_child(frame)
+	preview = frame.model
+	_slot_column(figure, "RightSlots", RIGHT_SLOTS)
+	_totals = Label.new()
+	_totals.name = "Totals"
+	_totals.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_totals.add_theme_font_size_override("font_size", 17)
+	column.add_child(_totals)
+	_strength = Label.new()
+	_strength.name = "Strength"
+	_strength.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_strength.add_theme_font_size_override("font_size", 20)
+	column.add_child(_strength)
+
+
+func _slot_column(parent: Container, node_name: String, slots: Array) -> void:
+	var column := VBoxContainer.new()
+	column.name = node_name
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	column.add_theme_constant_override("separation", 8)
+	parent.add_child(column)
+	var selected := _panel_style(0.95, 6)
+	selected.set_border_width_all(3)
+	selected.border_color = COLOR_HEADING
+	selected.set_corner_radius_all(4)
+	for slot in slots:
+		var button := Button.new()
+		button.name = "slot_" + slot
+		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		button.toggle_mode = true
+		button.button_group = _slot_group
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		button.custom_minimum_size = Vector2(140, 80)
+		button.add_theme_font_size_override("font_size", 15)
+		for state in ["pressed", "hover_pressed"]:  # gewählter Platz: goldener Rahmen
+			button.add_theme_stylebox_override(state, selected)
+		button.pressed.connect(select_slot.bind(slot))
+		column.add_child(button)
+		buttons[button.name] = button
 
 
 func _button(parent: Container, key: String, text: String, action: Callable) -> Button:
