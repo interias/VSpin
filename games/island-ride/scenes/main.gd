@@ -146,6 +146,8 @@ const KEY_BINDINGS := {
 	"ride_menu": [KEY_ENTER, KEY_KP_ENTER],
 	"ride_camera": [KEY_C],
 	"ride_devices": [KEY_V],  # Verbindungsfenster (Spec #75); die Leertaste bleibt frei für den Begleiter (#76)
+	"ride_shift_up": [KEY_UP, KEY_KP_ADD],  # virtuelle Gänge (Spec #75): schwerer …
+	"ride_shift_down": [KEY_DOWN, KEY_KP_SUBTRACT],  # … und leichter
 }
 ## Menü „Grafik und Fenster“ (Esc/F2, F11, Beenden; siehe `scenes/settings_menu.gd`).
 const SETTINGS_MENU := preload("res://scenes/settings_menu.tscn")
@@ -292,6 +294,8 @@ var state := STATE_PAUSED_CONNECTION
 ## Hinweis aus der letzten `ack` auf `set_grade` ("" = umgesetzt oder noch keine Antwort).
 var resistance_hint := ""
 var grade_reporter := GradeReporter.new()
+## Virtuelle Gänge (Spec #75): verschieben die gemeldete Steigung; wirken nur bei steuerbarem Trainer (`gears_active`).
+var gears: Gears
 ## In `riding` schon eine Steigung gemeldet: beim Verlassen von `riding` geht dann die Grundlast raus.
 var _grade_reported := false
 ## Fahrzeit, Strecke und Durchschnitte der laufenden Fahrt (ohne Pausen).
@@ -359,6 +363,7 @@ func _ready() -> void:
 	if config == null:
 		config = RideConfig.load_file()
 	_register_key_bindings()
+	gears = Gears.new(config.gears_count, config.gears_neutral, config.gears_step_pp)
 	settings_menu = SETTINGS_MENU.instantiate()
 	settings_menu.settings_path = settings_path
 	settings_menu.quit_requested.connect(_on_quit_requested)
@@ -748,6 +753,7 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 	_apply_wardrobe()
 	ghost = save_game.ghost(config.track, track.direction, ghost_kind) if not ghost_kind.is_empty() else null
 	model = RideModel.new(config, start_distance_m)
+	gears.reset()
 	stats = RideStats.new()
 	pulse_zones = save_game.heart_rate_zones()
 	pulse_stats = HeartRateStats.new(pulse_zones)
@@ -1143,6 +1149,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		else:
 			open_devices()
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("ride_shift_up") and _can_shift():
+		shift_up()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("ride_shift_down") and _can_shift():
+		shift_down()
+		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("ride_pause") and state != STATE_MENU:
 		if state != STATE_FINISHED:
 			_manual_pause = not _manual_pause
@@ -1174,6 +1186,40 @@ func _exit_tree() -> void:
 ## in `lap_timing.lap_time_s`.
 func lap_time_s() -> float:
 	return stats.ride_time_s
+
+
+## Ist der Trainer steuerbar (`status.trainer.control == active`)? Nur dann gibt es Gänge: Die Fähigkeit allein genügt
+## nicht – im Nur-lesen-Modus oder bei verlorener Steuerung (andere App) käme der Widerstand nie am Trainer an.
+func gears_active() -> bool:
+	return bus.trainer_control == BusClient.TRAINER_CONTROL_ACTIVE
+
+
+## Gangtasten wirken nur bei steuerbarem Trainer, in der Fahrt (nicht im Menü oder Ergebnis) und ohne offene
+## Einstellungen oder Verbindungsfenster.
+func _can_shift() -> bool:
+	return gears_active() and state != STATE_MENU and state != STATE_FINISHED and not settings_menu.visible \
+			and not devices_menu.visible
+
+
+## Ein Gang schwerer. Öffentlich, damit später auch ein anderer Eingang (Lenkerknöpfe) schalten kann.
+func shift_up() -> bool:
+	return _shift(gears.shift_up())
+
+
+## Ein Gang leichter.
+func shift_down() -> bool:
+	return _shift(gears.shift_down())
+
+
+func _shift(changed: bool) -> bool:
+	if changed:
+		_update_view()
+	return changed
+
+
+## Steigung, die an den Trainer geht: Strecke plus Gangoffset (nur bei steuerbarem Trainer, sonst die Strecke).
+func reported_grade() -> float:
+	return gears.effective_grade(current_grade()) if gears_active() else current_grade()
 
 
 ## Aktuelle Steigung an der Position des Fahrers (Anteil).
@@ -1428,7 +1474,7 @@ func _report_grade(delta: float) -> void:
 	grade_reporter.tick(delta)
 	if state != STATE_RIDING:
 		return
-	var grade := GradeReporter.quantize(current_grade())
+	var grade := GradeReporter.quantize(reported_grade())
 	if grade_reporter.wants_to_send(grade) and bus.send_message({"type": "set_grade", "grade": grade}) == OK:
 		grade_reporter.sent(grade)
 		_grade_reported = true
@@ -1632,6 +1678,7 @@ func _update_view() -> void:
 	if debug_label.visible:
 		debug_label.text = debug_text()
 	hint_label.text = resistance_text()
+	hud.show_gear(gears.text() if gears_active() else "")
 	var message := status_message()
 	message_label.text = message
 	message_label.visible = not message.is_empty()

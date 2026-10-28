@@ -51,6 +51,13 @@ var bridge_sessions_dir := "../../bridge/sessions"
 ## und schreibt nichts auf den Trainer – z. B. wenn Zwift ihn steuert.
 var bridge_trainer_read_only := false
 
+## Virtuelle Gänge (Spec #75, `Gears`): Anzahl, neutraler Gang und Schritt in Prozentpunkten Steigung je Gang. 24 Gänge mit
+## neutralem 12 und 0,5 Prozentpunkten ergeben −5,5 … +6 Prozentpunkte; ein Schritt entspricht der Meldeschwelle des
+## GradeReporter, jeder Gangwechsel geht also zeitnah raus.
+var gears_count := 24
+var gears_neutral := 12
+var gears_step_pp := 0.5
+
 
 ## Liest `path`; fehlende Datei oder fehlende Schlüssel ergeben die Standardwerte.
 static func load_file(path: String = DEFAULT_PATH) -> RideConfig:
@@ -87,6 +94,9 @@ static func load_file(path: String = DEFAULT_PATH) -> RideConfig:
 	config.bridge_sessions_dir = str(file.get_value("bridge", "sessions_dir", config.bridge_sessions_dir))
 	config.bridge_trainer_read_only = bool(file.get_value("bridge", "trainer_read_only",
 			config.bridge_trainer_read_only))
+	config.gears_count = int(file.get_value("gears", "count", config.gears_count))
+	config.gears_neutral = int(file.get_value("gears", "neutral", config.gears_neutral))
+	config.gears_step_pp = float(file.get_value("gears", "step_pp", config.gears_step_pp))
 	return config
 
 

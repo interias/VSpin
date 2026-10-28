@@ -639,6 +639,13 @@ layout_mode = 2
 theme_type_variation = &"HudCaption"
 text = "Runde"
 
+[node name="Gear" type="Label" parent="Layout/Rows/Bottom/Box/Lap"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_type_variation = &"HudTitle"
+text = "Gang 12/24"
+
 [node name="LapBar" type="ProgressBar" parent="Layout/Rows/Bottom/Box/Lap"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 10)

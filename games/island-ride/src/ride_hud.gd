@@ -114,6 +114,7 @@ const CONNECTIONS_FONT_PX := 16
 @onready var _lap_time_value: Label = %LapTimeValue
 @onready var _segment: Label = %Segment
 @onready var _power: Control = %Power
+@onready var _gear: Label = %Gear
 @onready var _pulse: Control = %Pulse
 @onready var _pulse_value: Label = %PulseValue
 @onready var _pulse_unit: Label = %Unit
@@ -223,6 +224,12 @@ func show_ride(cadence_rpm: float, speed_kmh: float, distance_m: float, time_tex
 	_section_value.text = station
 	_power.visible = not power_text.is_empty()
 	_power_value.text = power_text
+
+
+## Virtueller Gang (Spec #75) als Anzeigetext („12/24“); "" = ausblenden (Trainer nicht steuerbar).
+func show_gear(text: String) -> void:
+	_gear.visible = not text.is_empty()
+	_gear.text = "Gang %s" % text
 
 
 ## Puls (#64): `bpm` (NAN, 0 oder negativ = kein Wert → „--“), `zones` sind die der laufenden Fahrt (null oder ohne Zonen:
@@ -537,6 +544,8 @@ func readout() -> String:
 		if unit != null and not unit.text.is_empty():
 			text += " " + unit.text
 		lines.append(text)
+	if _gear.is_visible_in_tree():
+		lines.append(_gear.text.replace("Gang ", "Gang: "))
 	if _pulse.is_visible_in_tree():
 		var pulse := "Puls: %s" % _pulse_value.text
 		if _pulse_has_value:
