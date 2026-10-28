@@ -65,6 +65,26 @@ func test_pulse_arrives_in_the_hud_and_an_outage_shows_dashes_while_the_ride_goe
 	assert_eq(_hud(game).get_node("%PulseValue").get_theme_color("font_color"), HeartRateZones.COLORS[3])
 
 
+func test_bus_loss_keeps_the_pulse_display_with_dashes() -> void:
+	var device := FakeBusServer.heart_rate_device()
+	var steps := [FakeBusServer.status("connected", "sim", ["CADENCE"], 0.0, FakeBusServer.heart_rate_block("connected", device))]
+	steps += FakeBusServer.steady_cadence(90.0, 0.0, 1.5, 0.25, {"heart_rate": 148})
+	steps.append(FakeBusServer.close_at(1.5))
+	var bus := start_fake_bus(steps)
+	var config := config_for(bus)
+	config.bus_reconnect_s = 30.0  # bleibt während des Tests getrennt
+	var game := spawn_ride(bus, 0.0, config)
+	game.start_ride(SaveGame.MODE_ROUND_TRIP, 0)
+	assert_true(await run_until(func(): return game.state == "riding" and game.bus.has_heart_rate(), 3.0), "Puls kommt an")
+	await run_for(0.3)
+	assert_eq(_pulse_text(game), "148")
+	assert_true(await run_until(func(): return not game.bus.bus_connected, 3.0), "Bus bricht ab")
+	await run_for(0.3)
+	assert_eq(game.bus.heart_rate_state, BusClient.HEART_RATE_OFF, "ohne Bus meldet der Client off")
+	assert_true(_pulse_visible(game), "die Anzeige bleibt bei Busverlust stehen")
+	assert_eq(_pulse_text(game), "--", "und zeigt --")
+
+
 func test_without_zones_the_hud_shows_bpm_only() -> void:
 	var bus := start_fake_bus([FakeBusServer.status("connected", "sim", ["CADENCE"], 0.0,
 			FakeBusServer.heart_rate_block("connected", FakeBusServer.heart_rate_device()))]

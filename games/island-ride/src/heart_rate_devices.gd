@@ -58,12 +58,17 @@ func write_to(file: ConfigFile) -> void:
 			file.set_value(SECTION, role + "_name", _devices[role]["name"])
 
 
-## Merkt `address`/`name` als Gerät der Rolle (`ROLE_STRAP` | `ROLE_WATCH`) und ersetzt ein früheres.
+## Merkt `address`/`name` als Gerät der Rolle (`ROLE_STRAP` | `ROLE_WATCH`) und ersetzt ein früheres. Ein Gerät hat
+## höchstens eine Rolle: war dieselbe Adresse unter der anderen Rolle gemerkt, wechselt es die Rolle (Nacharbeit #64).
 ## Ohne Adresse oder mit unbekannter Rolle passiert nichts; gibt zurück, ob gemerkt wurde.
 func remember(role: String, address: String, device_name: String) -> bool:
 	if not role in ROLES or address.strip_edges().is_empty():
 		return false
-	_devices[role] = {"address": address.strip_edges(), "name": device_name}
+	var clean := address.strip_edges()
+	for other in ROLES:
+		if other != role and _devices.has(other) and str(_devices[other]["address"]).nocasecmp_to(clean) == 0:
+			_devices.erase(other)
+	_devices[role] = {"address": clean, "name": device_name}
 	return true
 
 

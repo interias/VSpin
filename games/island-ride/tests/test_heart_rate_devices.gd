@@ -35,6 +35,18 @@ func test_remember_and_forget() -> void:
 	assert_eq(devices.bridge_list(), [])
 
 
+func test_one_device_has_only_one_role() -> void:
+	var devices := HeartRateDevices.new()
+	devices.remember(HeartRateDevices.ROLE_STRAP, "F1:2A:33:44:55:66", "HRM 600")
+	devices.remember(HeartRateDevices.ROLE_WATCH, "C8:11:22:33:44:55", "Forerunner 970")
+	assert_true(devices.remember(HeartRateDevices.ROLE_WATCH, "f1:2a:33:44:55:66", "HRM 600"))
+	assert_false(devices.has_device(HeartRateDevices.ROLE_STRAP), "dasselbe Gerät (Adresse ohne Groß/Klein) wechselt die Rolle")
+	assert_eq(devices.device(HeartRateDevices.ROLE_WATCH)["address"], "f1:2a:33:44:55:66")
+	assert_eq(devices.bridge_list().size(), 1, "an die Bridge geht das Gerät nur einmal")
+	devices.remember(HeartRateDevices.ROLE_STRAP, "AA:BB:CC:DD:EE:FF", "Tickr")
+	assert_true(devices.has_device(HeartRateDevices.ROLE_WATCH), "ein anderes Gerät lässt die andere Rolle stehen")
+
+
 func test_remember_rejects_bad_input() -> void:
 	var devices := HeartRateDevices.new()
 	assert_false(devices.remember("strap", "", "HRM"))

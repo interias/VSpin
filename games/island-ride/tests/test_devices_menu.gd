@@ -116,6 +116,21 @@ func test_leaving_the_page_stops_the_search() -> void:
 			"Verlassen stoppt die Suche")
 
 
+func test_bus_loss_ends_a_running_search() -> void:
+	var bus := start_fake_bus([FakeBusServer.status()])
+	var game := await _spawn_game(bus)
+	var menu := await _open(game)
+	menu.buttons["search_strap"].pressed.emit()
+	assert_true(await run_until(func(): return not bus.received_of_type("start_heart_rate_search").is_empty(), 2.0))
+	assert_true(menu.page_text().contains("Suche läuft"), "die Suche läuft")
+	bus.stop()
+	assert_true(await run_until(func(): return menu.page_text().contains("Suche abgebrochen"), 4.0),
+			"Busabbruch beendet die Suche")
+	var text: String = menu.page_text()
+	assert_false(text.contains("Suche läuft"), "„Suche läuft“ bleibt nicht stehen")
+	assert_true(text.contains("Suche abgebrochen (Verbindung zur Bridge verloren)"), text)
+
+
 func test_close_without_search_sends_no_stop() -> void:
 	var bus := start_fake_bus([FakeBusServer.status()])
 	var game := await _spawn_game(bus)

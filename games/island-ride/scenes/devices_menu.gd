@@ -25,6 +25,8 @@ const COLOR_WARN := Color(1.0, 0.78, 0.35)
 const COLOR_ERROR := Color(1.0, 0.45, 0.4)
 ## Dauer einer Suche (s); die Bridge beendet sie danach mit `timeout`.
 const SEARCH_DURATION_S := 30.0
+## Grund für `search_ended`, wenn der Bus während der Suche wegfällt (die Bridge meldet dann kein Ende).
+const SEARCH_BUS_LOST := "bus_lost"
 const ROLE_NAMES := {HeartRateDevices.ROLE_STRAP: "Brustgurt", HeartRateDevices.ROLE_WATCH: "Uhr"}
 
 ## Anleitung je Rolle. Menüpfad der Uhr: Forerunner 970 Owner's Manual, „Broadcasting Heart Rate Data“ (Garmin,
@@ -287,8 +289,12 @@ func _input(event: InputEvent) -> void:
 
 
 func _process(_delta: float) -> void:
-	if visible:
-		refresh()
+	if not visible:
+		return
+	# Bus weg während der Suche: die Bridge meldet kein Ende mehr, die Suche gilt als abgebrochen (Nacharbeit #64).
+	if _searching and (_bus == null or not _bus.bus_connected):
+		_on_search_ended(SEARCH_BUS_LOST)
+	refresh()
 
 
 func _on_found(address: String, device_name: String, rssi: int) -> void:
@@ -360,6 +366,8 @@ func _search_text(role: String) -> String:
 			return "Suche beendet · %d Gerät%s gefunden" % [found.size(), "" if found.size() == 1 else "e"]
 		"taken_over":
 			return "Suche beendet (von einem anderen Programm übernommen)"
+		SEARCH_BUS_LOST:
+			return "Suche abgebrochen (Verbindung zur Bridge verloren)"
 	return ""
 
 
