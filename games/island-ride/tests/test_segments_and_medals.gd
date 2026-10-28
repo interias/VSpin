@@ -78,6 +78,8 @@ func test_segment_gives_time_and_medal_and_its_best_time_survives_restart() -> v
 	await run_for(0.1)
 	assert_false(game.hud.readout().contains("Dorfsprint"), "nach dem Segment keine Live-Zeit mehr")
 	game.settings_menu.ride_end_requested.emit()  # „Fahrt beenden“ ohne volle Runde → Menü, Fahrt gespeichert
+	assert_true(game.ride_save_dialog.visible, "dazwischen der Dialog „Fahrt speichern“ (Spec #84)")
+	game.ride_save_dialog.discard()
 	assert_eq(game.state, "menu")
 	# Neustart: eine neue Hauptszene liest denselben Spielstand.
 	var restarted := _spawn_game(start_fake_bus([FakeBusServer.status()] + FakeBusServer.steady_cadence(100.0, 0.0, 30.0)))

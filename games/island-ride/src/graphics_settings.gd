@@ -94,6 +94,9 @@ var weather := Weather.CLEAR
 ## Jahreszeit (#39, Season): nach dem Datum oder fest.
 var season_mode := Season.MODE_REAL
 var season := Season.SPRING
+## Schalter „Nach Garmin Connect hochladen“ im Dialog „Fahrt speichern“ (Spec #84, Abschnitt `[garmin]`): die letzte Wahl
+## des Fahrers; null = noch nie gewählt, dann gilt der Anmeldezustand (angemeldet = an).
+var garmin_upload = null
 
 
 ## Liest `path`; fehlende/kaputte Datei oder Schlüssel und ungültige Werte ergeben die Standardwerte.
@@ -140,6 +143,10 @@ static func load_file(path: String = DEFAULT_PATH) -> GraphicsSettings:
 		settings.season_mode = _choice(file.get_value("sky", "season_mode", settings.season_mode), Season.MODES,
 				settings.season_mode)
 		settings.season = _choice(file.get_value("sky", "season", settings.season), Season.PHASES, settings.season)
+	if file.has_section_key("garmin", "upload"):
+		var upload = file.get_value("garmin", "upload")
+		if upload is bool:
+			settings.garmin_upload = upload
 	return settings
 
 
@@ -172,6 +179,8 @@ func save_file(path: String = DEFAULT_PATH) -> Error:
 		file.set_value("sky", "weather", weather)
 		file.set_value("sky", "season_mode", season_mode)
 		file.set_value("sky", "season", season)
+	if garmin_upload is bool:
+		file.set_value("garmin", "upload", garmin_upload)
 	var err := file.save(path)
 	if err != OK:
 		push_warning("GraphicsSettings: %s nicht schreibbar (Fehler %d)" % [path, err])
