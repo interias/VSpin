@@ -12,8 +12,10 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest"]
 # Begleiter (vspin-companion): Abhängigkeiten der echten Adapter (Claude Agent SDK, faster-whisper, Audio) –
-# nur dort importiert; #78/#79 füllen das Extra. Tests laufen mit Fakes ohne es.
-companion = []
+# nur dort importiert; #79 ergänzt Ears und Mouth. Tests laufen mit Fakes ohne es.
+companion = [
+    "claude-agent-sdk>=0.2.174",  # Brain (#78, ADR-0011)
+]
 
 [project.scripts]
 vspin-bridge = "vspin_bridge.cli:main"

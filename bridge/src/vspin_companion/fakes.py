@@ -7,16 +7,41 @@ Stelle geworfen statt geliefert. `fail_*` wirft beim nächsten Aufruf genau einm
 import asyncio
 from collections.abc import AsyncIterator
 
-from .ports import ToolCall
+from .ports import ToolCall, ToolHandler, ToolResult
 
 
 class FakeBrain:
     """`replies`: je `respond` eine Antwort – Liste aus Textstücken und `ToolCall`s (eine Ausnahme darin bricht
-    die Antwort an dieser Stelle ab) oder eine Ausnahme, die sofort fliegt. `prompts` zeichnet jede Anfrage auf."""
+    die Antwort an dieser Stelle ab) oder eine Ausnahme, die sofort fliegt. Ein `ToolCall` wird wie beim echten
+    Brain über die Werkzeuge der Sitzung ausgeführt, dann geliefert; Ergebnis in `tool_results`. `prompts` zeichnet
+    jede Anfrage auf, `sessions` den Systemprompt jeder geöffneten Sitzung. `summaries`: je `summarize` der Text
+    (oder eine Ausnahme), ohne weiteren Eintrag leer; Aufträge in `summary_prompts`."""
 
-    def __init__(self, replies: list[list[str | ToolCall | Exception] | Exception] | None = None) -> None:
+    def __init__(
+        self,
+        replies: list[list[str | ToolCall | Exception] | Exception] | None = None,
+        summaries: list[str | Exception] | None = None,
+    ) -> None:
         self.replies = list(replies or [])
         self.prompts: list[str] = []
+        self.summaries = list(summaries or [])
+        self.summary_prompts: list[str] = []
+        self.sessions: list[str] = []
+        self.closed = 0
+        self.fail_open: Exception | None = None
+        self.tool_results: list[tuple[ToolCall, ToolResult]] = []
+        self._tools: ToolHandler | None = None
+
+    async def open_session(self, system_prompt: str, tools: ToolHandler) -> None:
+        if self.fail_open is not None:
+            error, self.fail_open = self.fail_open, None
+            raise error
+        self.sessions.append(system_prompt)
+        self._tools = tools
+
+    async def close_session(self) -> None:
+        self.closed += 1
+        self._tools = None
 
     async def respond(self, prompt: str) -> AsyncIterator[str | ToolCall]:
         self.prompts.append(prompt)
@@ -27,7 +52,16 @@ class FakeBrain:
             if isinstance(item, Exception):
                 raise item
             await asyncio.sleep(0)  # Stück für Stück, wie ein Strom
+            if isinstance(item, ToolCall) and self._tools is not None:
+                self.tool_results.append((item, await self._tools(item)))
             yield item
+
+    async def summarize(self, prompt: str) -> str:
+        self.summary_prompts.append(prompt)
+        summary = self.summaries.pop(0) if self.summaries else ""
+        if isinstance(summary, Exception):
+            raise summary
+        return summary
 
 
 class FakeEars:
@@ -93,6 +127,10 @@ class FakeClock:
         future = asyncio.get_running_loop().create_future()
         self._sleepers.append((self._now + seconds, future))
         await future
+
+    def pending(self) -> list[float]:
+        """Zeitpunkte, zu denen gerade jemand schläft (aufsteigend) – Tests sehen so, wann der Wecker klingelt."""
+        return sorted(t for t, f in list(self._sleepers) if not f.done())
 
     def advance(self, seconds: float) -> None:
         """Nur im Event-Loop der Schläfer aufrufen (Tests im Thread: `loop.call_soon_threadsafe`)."""
