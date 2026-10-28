@@ -58,6 +58,9 @@ const POSITION_CENTERED := Vector2i(-1, -1)
 ## Lautstärke des Tons (#44, Bus RideSound.BUS) im Menü: Anteil 0..1; Standard leise, damit Musik nebenher bleibt.
 const SOUND_VOLUMES := [0.1, 0.2, 0.3, 0.5, 0.7, 1.0]
 const DEFAULT_SOUND_VOLUME := 0.3
+## Regler „Fahrtwind“ (#69): Anteil am Pegel des Fahrtwinds, 0 = aus; Standard voll (der Wind ist von sich aus leise).
+const WIND_VOLUMES := [0.0, 0.25, 0.5, 0.75, 1.0]
+const DEFAULT_WIND_VOLUME := 1.0
 
 ## Tageszeit im Menü: feste Ortszeiten (Stunden) und Zeitraffer (Minuten je Tag).
 const FIXED_HOURS := [6.0, 9.0, 12.0, 15.0, 18.0, 20.5, 22.0, 0.0]
@@ -73,9 +76,10 @@ var shadows := SHADOWS_MEDIUM
 var speed_effects := true
 ## Panorama-Momente an den Sehenswürdigkeiten (#43).
 var panorama := true
-## Ton (#44): an/aus und Lautstärke 0..1.
+## Ton (#44): an/aus und Lautstärke 0..1; Fahrtwind-Regler 0..1 (#69).
 var sound_enabled := true
 var sound_volume := DEFAULT_SOUND_VOLUME
+var wind_volume := DEFAULT_WIND_VOLUME
 var window_mode := WINDOW_WINDOWED
 var window_size := Vector2i(1600, 900)
 ## Position der Client-Fläche (ohne Rahmen); POSITION_CENTERED = mittig.
@@ -103,16 +107,17 @@ static func load_file(path: String = DEFAULT_PATH) -> GraphicsSettings:
 		push_warning("GraphicsSettings: %s nicht lesbar (Fehler %d), nutze Standardwerte" % [path, err])
 		return settings
 	settings.aa = _choice(file.get_value("graphics", "aa", settings.aa), AA_MODES, settings.aa)
-	settings.render_scale = clampf(_number(file.get_value("graphics", "render_scale"), settings.render_scale), 0.25, 2.0)
+	settings.render_scale = clampf(_number(file.get_value("graphics", "render_scale", settings.render_scale), settings.render_scale), 0.25, 2.0)
 	settings.upscaler = _choice(file.get_value("graphics", "upscaler", settings.upscaler), UPSCALERS, settings.upscaler)
 	settings.vsync = bool(file.get_value("graphics", "vsync", settings.vsync))
-	settings.max_fps = maxi(int(_number(file.get_value("graphics", "max_fps"), settings.max_fps)), 0)
+	settings.max_fps = maxi(int(_number(file.get_value("graphics", "max_fps", settings.max_fps), settings.max_fps)), 0)
 	settings.shadows = _choice(file.get_value("graphics", "shadows", settings.shadows), SHADOW_QUALITIES,
 			settings.shadows)
 	settings.speed_effects = bool(file.get_value("graphics", "speed_effects", settings.speed_effects))
 	settings.panorama = bool(file.get_value("graphics", "panorama", settings.panorama))
 	settings.sound_enabled = bool(file.get_value("sound", "enabled", settings.sound_enabled))
-	settings.sound_volume = clampf(_number(file.get_value("sound", "volume"), settings.sound_volume), 0.0, 1.0)
+	settings.sound_volume = clampf(_number(file.get_value("sound", "volume", settings.sound_volume), settings.sound_volume), 0.0, 1.0)
+	settings.wind_volume = clampf(_number(file.get_value("sound", "wind_volume", settings.wind_volume), settings.wind_volume), 0.0, 1.0)
 	settings.window_mode = _choice(file.get_value("window", "mode", settings.window_mode), WINDOW_MODES,
 			settings.window_mode)
 	var size = file.get_value("window", "size", settings.window_size)
@@ -125,8 +130,8 @@ static func load_file(path: String = DEFAULT_PATH) -> GraphicsSettings:
 	if settings.sky_saved:
 		settings.time_mode = _choice(file.get_value("sky", "time_mode", settings.time_mode), DayNight.MODES,
 				settings.time_mode)
-		settings.fixed_hour = fposmod(_number(file.get_value("sky", "fixed_hour"), settings.fixed_hour), 24.0)
-		var day_min := _number(file.get_value("sky", "timelapse_day_min"), settings.timelapse_day_min)
+		settings.fixed_hour = fposmod(_number(file.get_value("sky", "fixed_hour", settings.fixed_hour), settings.fixed_hour), 24.0)
+		var day_min := _number(file.get_value("sky", "timelapse_day_min", settings.timelapse_day_min), settings.timelapse_day_min)
 		settings.timelapse_day_min = day_min if day_min > 0.0 else settings.timelapse_day_min
 		settings.weather_mode = _choice(file.get_value("sky", "weather_mode", settings.weather_mode), Weather.MODES,
 				settings.weather_mode)
@@ -155,6 +160,7 @@ func save_file(path: String = DEFAULT_PATH) -> Error:
 	file.set_value("graphics", "panorama", panorama)
 	file.set_value("sound", "enabled", sound_enabled)
 	file.set_value("sound", "volume", sound_volume)
+	file.set_value("sound", "wind_volume", wind_volume)
 	file.set_value("window", "mode", window_mode)
 	file.set_value("window", "size", window_size)
 	file.set_value("window", "position", window_position)

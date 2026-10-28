@@ -24,6 +24,9 @@ export_presets.cfg
 # PlatformIO
 .pio/
 
+# Lokale Geheimnisse (API-Schlüssel u. Ä.), nie einchecken
+.env
+
 # Editoren / OS
 .vscode/
 .idea/

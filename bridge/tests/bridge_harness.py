@@ -13,6 +13,7 @@ import csv
 import io
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -29,13 +30,15 @@ BRIDGE_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = BRIDGE_ROOT / "src"
 HOST = "127.0.0.1"
 
-# Parallele Testläufe (#62): `VSPIN_PORT_BASE=n` gibt jedem Lauf (je Worktree) einen eigenen Bus-Port
-# 8765 + n; ohne Variable (oder 0) bleibt es 8765. Das Spiel leitet daraus seine Testports ab
-# (18765 + 100·n, `tests/support/test_isolation.gd`). Die Bereiche überschneiden sich nie; n ≤ 466 hält
-# alle Ports ≤ 65535.
+# Parallele Testläufe (#62, #72): `VSPIN_PORT_BASE=n` (jede ganze Zahl ≥ 0, z. B. die Paketnummer) wählt einen
+# Platz p = `port_slot(n)`: 0 für n = 0, sonst 1 + (n − 1) mod 300. Jeder Lauf (je Worktree) bekommt den Bus-Port
+# 8765 + p; ohne Variable (oder 0) bleibt es 8765, für n = 1–300 8765 + n. Das Spiel leitet aus demselben Platz seine
+# Testports ab (18765 + 100·p, `tests/support/isolation.gd`). Alle Ports liegen in 8765–48864, unter dem dynamischen
+# Bereich 49152–65535, aus dem Windows (Hyper-V, WinNAT) Ports ausschließt. Zwei Werte teilen Ports genau dann, wenn
+# sie sich um ein Vielfaches von 300 unterscheiden (n, m ≥ 1); solche Läufe warten hier aufeinander (Sperre je Port).
 PORT_BASE_ENV = "VSPIN_PORT_BASE"
 DEFAULT_PORT = 8765
-MAX_PORT_BASE = 466
+PORT_SLOTS = 300
 
 
 def port_base(env: dict[str, str] | None = None) -> int:
@@ -44,16 +47,18 @@ def port_base(env: dict[str, str] | None = None) -> int:
     raw = (os.environ if env is None else env).get(PORT_BASE_ENV, "").strip()
     if not raw:
         return 0
-    try:
-        base = int(raw)
-    except ValueError:
-        raise ValueError(f"{PORT_BASE_ENV}={raw!r}: erwartet eine ganze Zahl 0–{MAX_PORT_BASE}") from None
-    if not 0 <= base <= MAX_PORT_BASE:
-        raise ValueError(f"{PORT_BASE_ENV}={raw!r}: erwartet eine ganze Zahl 0–{MAX_PORT_BASE}")
-    return base
+    # Nur Ziffern, wie in `tools/e2e.sh`: `int()` nähme auch „+5“ und „5_0“ an.
+    if not re.fullmatch(r"[0-9]+", raw):
+        raise ValueError(f"{PORT_BASE_ENV}={raw!r}: erwartet eine ganze Zahl ≥ 0")
+    return int(raw)
 
 
-PORT = DEFAULT_PORT + port_base()
+def port_slot(base: int) -> int:
+    """Platz des Werts `base` (0 für 0, sonst 1–PORT_SLOTS); bestimmt den Bus-Port 8765 + Platz."""
+    return 0 if base <= 0 else 1 + (base - 1) % PORT_SLOTS
+
+
+PORT = DEFAULT_PORT + port_slot(port_base())
 BUS_URL = f"ws://{HOST}:{PORT}"
 
 PROFILES_DIR = BRIDGE_ROOT / "profiles"
@@ -69,7 +74,7 @@ START_TIMEOUT_S = 10.0
 STOP_TIMEOUT_S = 5.0
 
 # Testläufe auf derselben Port-Basis dürfen nie gleichzeitig Bridges starten: Die Sperre gilt rechnerweit
-# je Bus-Port über eine Datei im Temp-Ordner. Läufe mit anderer Basis (VSPIN_PORT_BASE) laufen gleichzeitig.
+# je Bus-Port über eine Datei im Temp-Ordner. Läufe auf anderem Platz (`port_slot`) laufen gleichzeitig.
 LOCK_WAIT_POLL_S = 0.2
 
 

@@ -314,12 +314,15 @@ python -m pytest                           # im Ordner bridge/
 Testmuster: Tests starten die Bridge als echten Prozess (`python -m vspin_bridge`,
 `PYTHONPATH=src`) und prüfen nur das am Bus beobachtbare Verhalten über Test-Clients
 (`tests/bridge_harness.py`, Fixtures `bridge_process`/`bus_client` in `tests/conftest.py`).
-Port 8765 (mit `VSPIN_PORT_BASE` 8765 + n, siehe unten) muss frei sein. Kein Rad, kein Windows nötig.
+Port 8765 (mit `VSPIN_PORT_BASE` 8765 + Platz, siehe unten) muss frei sein. Kein Rad, kein Windows nötig.
 
-**Parallele Testläufe (#62):** `VSPIN_PORT_BASE=n` (ganze Zahl 0–466, ohne Variable 0) gibt einem Lauf – etwa je
-Worktree – den eigenen Bus-Port 8765 + n; der Harness startet jede Bridge mit `--port`. Läufe mit gleichem Wert
-warten aufeinander (Sperre `vspin-bridge-tests-<port>.lock` im Temp-Ordner: `fcntl.flock` unter Linux/macOS,
-`msvcrt.locking` unter Windows), Läufe mit anderem Wert laufen gleichzeitig. Dazu je Lauf ein eigenes `--basetemp`:
+**Parallele Testläufe (#62):** `VSPIN_PORT_BASE=n` (jede ganze Zahl ≥ 0, etwa die Paketnummer; ohne Variable 0) gibt
+einem Lauf – etwa je Worktree – den eigenen Bus-Port 8765 + p mit dem Platz p = 0 für n = 0, sonst 1 + (n − 1) mod 300
+(#72; für n = 1–300 also 8765 + n). Alle Testports liegen damit in 8765–48864, unter dem dynamischen Bereich
+49152–65535, aus dem Windows (Hyper-V, WinNAT) Ports ausschließt (`netsh interface ipv4 show excludedportrange
+protocol=tcp`). Der Harness startet jede Bridge mit `--port`. Läufe auf demselben Port – gleicher Wert oder Werte,
+die sich um ein Vielfaches von 300 unterscheiden – warten aufeinander (Sperre `vspin-bridge-tests-<port>.lock` im Temp-Ordner: `fcntl.flock` unter Linux/macOS,
+`msvcrt.locking` unter Windows), Läufe auf anderem Platz laufen gleichzeitig. Dazu je Lauf ein eigenes `--basetemp`:
 
 ```
 VSPIN_PORT_BASE=2 python -m pytest -q -p no:cacheprovider --basetemp=<temp>/pytest-2

@@ -6,6 +6,9 @@ extends "res://tests/support/bus_test.gd"
 const MORNING := Vector2(8.0, 100.0)
 const NOON := Vector2(50.0, 180.0)
 const EVENING := Vector2(8.0, 260.0)
+## Fester Tag für die Szene (#72), statt des echten Datums: der 8.10.2026, an dem der Test entstand (#42) – 7:30 kurz
+## vor Sonnenaufgang im Osten, 19:30 kurz nach Sonnenuntergang im Abendrot. Die Jahreszeit folgt derselben Uhr (Herbst).
+const SCENE_DAY := [2026, 10, 8]
 
 
 func _look(sun: Vector2, weather: String = Weather.CLEAR, season: String = "", compat: bool = false) -> Dictionary:
@@ -134,6 +137,12 @@ func test_compatibility_profile_has_the_same_mood() -> void:
 			assert_almost_eq(web["fog_height_density"], forward["fog_height_density"], 0.000001, "Höhennebel auch im Web")
 
 
+## Wie `sky.set_time_mode(DayNight.MODE_FIXED, hour)`, aber am festen Tag `SCENE_DAY` statt am heutigen.
+func _set_scene_hour(sky: SkyController, hour: float) -> void:
+	sky.clock.set_mode(DayNight.MODE_FIXED, hour, DayNight.local_to_unix(SCENE_DAY[0], SCENE_DAY[1], SCENE_DAY[2], 12.0))
+	sky.apply_now()
+
+
 func test_scene_applies_mood_and_height_fog_in_both_profiles() -> void:
 	var bus := start_fake_bus([FakeBusServer.status()])
 	var config := config_for(bus, RideConfig.DEFAULT_PATH, RideConfig.TRACK_ISLAND)
@@ -144,15 +153,17 @@ func test_scene_applies_mood_and_height_fog_in_both_profiles() -> void:
 	var ride := spawn_ride(bus, 0.0, config)
 	var sky: SkyController = ride.sky
 	var environment: Environment = ride.get_node("WorldEnvironment").environment
+	_set_scene_hour(sky, 13.0)
+	assert_eq(sky.season(), Season.AUTUMN, "Jahreszeit des festen Tags")
 	assert_eq(environment.fog_height_density, 0.0, "13 Uhr klar: kein Höhennebel")
-	sky.set_time_mode(DayNight.MODE_FIXED, 7.5)
+	_set_scene_hour(sky, 7.5)
 	assert_lt(sky.sun_angles.y, 180.0, "7:30: Sonne im Osten")
 	assert_gt(environment.fog_height_density, 0.0, "Morgendunst gesetzt")
 	assert_almost_eq(environment.fog_height_density, sky.current["fog_height_density"], 0.000001)
 	assert_almost_eq(environment.fog_height, sky.current["fog_height"], 0.0001)
 	assert_true(environment.fog_light_color.is_equal_approx(sky.current["fog_color"]), "Nebelfarbe gesetzt")
 	var morning_sun: Color = ride.get_node("Sun").light_color
-	sky.set_time_mode(DayNight.MODE_FIXED, 19.5)
+	_set_scene_hour(sky, 19.5)
 	assert_gt(_warmth(ride.get_node("Sun").light_color), _warmth(morning_sun), "abends goldener")
 	sky.set_compatibility(true)
 	sky.set_weather_mode(Weather.MODE_FIXED, Weather.RAIN)

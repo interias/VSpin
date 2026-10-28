@@ -514,6 +514,7 @@ Startmenü) und „Beenden“ (beendet das Spiel; im Browser ausgeblendet) – `
 | Jahreszeit | Nach Datum (Mallorca), Mandelblüte, Frühling, Sommer, Herbst, Winter (fest) – sofort (#39) | Nach Datum |
 | Ton | An, Aus – alle Klänge des Spiels (#44) | An |
 | Lautstärke | 10, 20, 30, 50, 70, 100 % – eigener Audio-Bus „Spiel“, Musik nebenher bleibt hörbar | 30 % (leise) |
+| Fahrtwind | Aus, 25, 50, 75, 100 % – eigener Regler nur für den Fahrtwind, zusätzlich zur Lautstärke (#69) | 100 % |
 | Fenstermodus | Fenster (mit Rahmen, frei skalierbar), Randloses Fenster, Vollbild | Fenster 1600 × 900, mittig |
 | Fenstergröße | 960 × 1040, 1280 × 720, 1600 × 900, 1920 × 1080, 2560 × 1440 (im Vollbild: Bildschirmauflösung) | 1600 × 900 |
 
@@ -632,7 +633,8 @@ Kosmetik** frei (`DriverLevel.unlock_level(teil)` für die Garderobe, #36) und w
 Bestzeit oder Medaille (ADR-0010).
 
 **Garderobe** (`scenes/wardrobe.gd`, Teile und Auswahl in `src/wardrobe.gd`, aus dem Startmenü): links eine Vorschau
-(der Fahrer dreht sich langsam auf dem Rad und tritt), rechts je **Trikot**, **Radfarbe** und **Helm** sechs Teile –
+(der Fahrer dreht sich langsam auf dem Rad und tritt; `scenes/rider_preview.gd`, auch im Charakterblatt der Ausrüstung,
+#68), rechts je **Trikot**, **Radfarbe** und **Helm** sechs Teile –
 Farbvarianten am vorhandenen Fahrermodell, keine neuen Dateien. Je Kategorie ist der bisherige Look ab Level 1 frei
 (Inselblau, Rennrot, weißer Helm), die übrigen kommen über die Levelkurve bis Level 20 dazu; gesperrte Teile sind
 ausgegraut und zeigen, ab welchem Level sie frei werden („Nachtschwarz · ab Level 15“). Ein Klick (oder Enter/Leertaste)
@@ -1196,9 +1198,19 @@ Teile wirken wie bei allen anderen. Das Ausrüstungsmenü nennt den Effekt eines
 verwaltet wird. Oben Splitter und Zahl der Teile; links die Teile nach Platz, darin die neuesten zuerst (Name in
 Seltenheitsfarbe, Werte, angelegte mit „· angelegt“), rechts das gewählte Teil mit dem **Vergleich** gegen das angelegte
 Teil desselben Platzes (je Wert besser grün, schlechter rot, sonst „gleich“), **Anlegen** und **Verwerten
-(+n Splitter)** – angelegte Teile lassen sich nicht verwerten –, darunter „Angelegt je Platz“. Jede Änderung wird sofort
+(+n Splitter)** – angelegte Teile lassen sich nicht verwerten. Links steht das **Charakterblatt** (#68, unten). Jede Änderung wird sofort
 gespeichert. Splitter werden nur gesammelt (kein Handwerk). Bedienung mit Maus oder Tastatur (Pfeiltasten/Tab,
 Enter/Leertaste); **Esc** oder **Zurück** führt auf die Seite „Arcade“.
+
+**Charakterblatt (#68):** Links in der Ausrüstung steht der Fahrer in der Mitte (die Vorschau der Garderobe,
+`scenes/rider_preview.gd`, mit Garderobe und angelegter Ausrüstung), drumherum die sechs Plätze (Helm, Trikot, Schuhe
+links; Rahmen, Laufräder, Talisman rechts). Jeder Platz zeigt das angelegte Teil mit Werten in der Farbe der Seltenheit
+oder „leer“. Ein Klick (Enter/Leertaste) auf einen Platz zeigt in der Liste nur die passenden Teile, gewählt ist das
+neueste nicht angelegte, rechts steht der Vergleich; **Anlegen** tauscht das Teil, ein zweiter Klick auf den Platz zeigt
+wieder alle. Darunter stehen die Summe der Werte und die **Stärke** neben der **Empfohlenen Stärke** der gewählten Stufe
+(grün, wenn sie reicht; eine Empfehlung, keine Sperre). Reine Darstellung über Inventory, Loot und ArcadeTiers: keine
+neuen Werte, keine Wirkung außerhalb des Arcade (ADR-0010). Passt in 960 × 1040, 1920 × 1080 und 1152 × 648; Fahrer und
+Plätze scrollen, wenn die Höhe nicht reicht. Test: `tests/test_character_sheet.gd`.
 
 **Am Fahrer:** Im Arcade-Lauf trägt der Fahrer die angelegten Teile in der Farbe ihrer Seltenheit – Rahmen, Felgen,
 Trikot (Brustband dunkler), Helm (Streifen dunkler), Schuhe und den Talisman am Sattel. Jedes angelegte Teil überdeckt
@@ -1364,14 +1376,15 @@ Prüfungen sind unverändert.
 ### Ton (#44)
 
 Dezent und standardmäßig leise (Lautstärke 30 %, jeder Klang zusätzlich gedämpft), auf einem eigenen Audio-Bus
-„Spiel“ – Lautstärke und Aus-Schalter stehen im Einstellungsmenü und in `settings.cfg [sound]`. Alle Klänge entstehen
+„Spiel“ – Lautstärke und Aus-Schalter stehen im Einstellungsmenü und in `settings.cfg [sound]`; der Fahrtwind hat
+zusätzlich einen eigenen Regler (`wind_volume`, Aus bis 100 %, Standard 100 %, #69). Alle Klänge entstehen
 **prozedural** im Spiel (`src/sound_synth.gd`, SoundSynth), es gibt keine Klangdateien; erzeugt wird einmal beim Start,
 ein Klang je Frame. Was wann wie laut klingt, rechnet `RideSound.levels()` (`src/ride_sound.gd`) aus Tempo, Kadenz, Ort,
 Wetter und Tageslicht; Hörer ist die Kamera. Ton ist nur Ausgabe (ADR-0010).
 
 | Klang | Wann und wo | Erzeugung |
 |---|---|---|
-| Fahrtwind | beim Fahren, ab 5 km/h, voll und heller (Abspieltempo 0,8 → 1,35) ab 45 km/h | Rauschen, Tiefpass, plus ein Band um ~600 Hz mit langsam schwankender Stärke (Böen); 3-s-Schleife, 11 kHz |
+| Fahrtwind | beim Fahren, ab 5 km/h sanft ansteigend (`smoothstep` hoch 1,5), voll ab 45 km/h, Abspieltempo 0,85 → 1,1; Grundpegel 0,2 und eigener Regler (#69) | Rauschen, Tiefpass, plus ein weiches Band um ~250 Hz (zwei Tiefpässe) mit langsam schwankender Stärke (Böen), ohne harte Höhen; 3-s-Schleife, 11 kHz |
 | Freilauf | Kadenz 0 und Tempo ≥ 1 km/h; 12 Klicks je Radumdrehung | ein Klick (Rauschstoß 1,2 ms + 3,2 kHz, 2 ms) je 1/20 s; das Abspieltempo setzt die Klicks je Sekunde |
 | Meer | bis 25 m vom Wasser voll, ab 220 m still (Messringe um den Hörer im Höhenfeld) | braunes Rauschen (Brandung) und Zischen der auslaufenden Welle, zwei Wellen je 6-s-Schleife, 11 kHz |
 | Regen | nach der Regenstärke des Wetters, wie die sichtbaren Tropfen | hochpassgefiltertes Rauschen plus vereinzelte Tropfen (abklingende 3,2-kHz-Klicks); 2-s-Schleife |
@@ -1488,7 +1501,7 @@ fehlschlagen lässt, wenn ein `test_*.gd` nicht ladbar ist (GUT allein überspri
 Einzelnes Skript: zusätzlich `-gselect=test_bus_client`. Die Tests brauchen keine Bridge und
 benutzen Ports ab 18765 – nie den Bus-Port 8765.
 
-**Testisolation (#62, `tests/support/test_isolation.gd`):** Kein Test schreibt in das echte `user://` (Spielstand,
+**Testisolation (#62, `tests/support/isolation.gd`):** Kein Test schreibt in das echte `user://` (Spielstand,
 Einstellungen, Gelände-Cache). Testdateien legen Tests über `TestIsolation.path("test_….json")` an, nicht unter
 `user://`; sie liegen unter `.godot/test_user/<n>/` (git-ignoriert, je Worktree). Ein Wächter in den GUT-Hooks
 (`.gutconfig.json`: `tests/support/pre_run_isolation.gd` hält das echte `user://` vor dem Lauf fest,
@@ -1496,8 +1509,12 @@ Einstellungen, Gelände-Cache). Testdateien legen Tests über `TestIsolation.pat
 Engine selbst schreibt (`logs/`, `.recovery_mode_lock`, `shader_cache/`, `vulkan/`, `objectdb_snapshots/` – etwa wenn
 gleichzeitig das Spiel oder `view_probe` rendert). Wer während eines Testlaufs spielt und dabei speichert, lässt den
 Lauf ebenfalls scheitern. **Mehrere Läufe gleichzeitig** (z. B. je Worktree): jedem Lauf eine eigene Zahl
-`VSPIN_PORT_BASE=n` (0–466) geben – Fake-Bus ab Port 18765 + 100·n, eigenes Testverzeichnis; ohne Variable gilt
-n = 0. Ein ungültiger Wert bricht den Lauf ab. Die Bridge-Tests nutzen denselben Wert (`bridge/README.md`, „Testen“).
+`VSPIN_PORT_BASE=n` geben (jede ganze Zahl ≥ 0, etwa die Paketnummer). Daraus folgt ein Platz p = 1 + (n − 1) mod 300
+(für n = 0 gilt p = 0, für n = 1–300 ist p = n; #72): Fake-Bus ab Port 18765 + 100·p, eigenes Testverzeichnis
+`.godot/test_user/<n>/`; ohne Variable gilt n = 0. Alle Testports liegen in 8765–48864, unter dem dynamischen Bereich
+49152–65535, aus dem Windows (Hyper-V, WinNAT) Ports ausschließt. Zahlen, die sich um ein Vielfaches von 300
+unterscheiden, teilen die Ports und laufen nie gleichzeitig. Ein ungültiger Wert bricht den Lauf ab. Die Bridge-Tests
+nutzen denselben Platz (`bridge/README.md`, „Testen“).
 
 ```
 VSPIN_PORT_BASE=2 godot --headless --path games/island-ride -s addons/gut/gut_cmdln.gd -gdir=res://tests -gexit
@@ -1520,9 +1537,12 @@ Ein guter Test prüft von außen: Drehbuch rein → beobachtbares Spielverhalten
   `connect_client(bus)` (nackter `BusClient`), `run_for(s)`, `run_until(cond, timeout_s)`,
   `press_key(KEY_P)` (Taste wie ein Spieler drücken); räumt nach jedem Test auf. `spawn_ride` setzt
   `quit_on_request = false` – „Beenden“ im Menü meldet dann nur `quit_requested`, statt den Testlauf zu beenden.
-- `tests/support/test_isolation.gd` (`TestIsolation`): `path(name)` für jede Datei, die ein Test schreibt (statt
+- `tests/support/isolation.gd` (`TestIsolation`): `path(name)` für jede Datei, die ein Test schreibt (statt
   `user://`), `first_test_port()` für feste Testports (`TestIsolation.first_test_port() + 50`), `probe_bus_url()` für
-  Prüfhilfen gegen die echte Bridge.
+  Prüfhilfen gegen die echte Bridge. `VSPIN_PORT_BASE` nimmt nur Ziffern an (wie `tools/e2e.sh` und die Bridge-Tests).
+- `tests/support/settings_load_probe.gd`: lädt eine Einstellungsdatei in einem eigenen Godot-Prozess, damit
+  `tests/test_graphics_settings.gd` dessen Engine-Meldungen prüfen kann (alte `settings.cfg` ohne Schlüssel: keine
+  `ERROR`-Zeilen, Nacharbeit #74).
 
 Drehbuch = Array von Schritten, `at` = Sekunden ab Verbindungsaufbau des Clients; jede Verbindung
 spielt von vorn (so lässt sich auch Reconnect prüfen):
@@ -1557,16 +1577,17 @@ func test_more_cadence_is_faster() -> void:
 
 ### End-to-End mit echter Bridge (manuell)
 
-`tools/e2e.sh` startet je Kadenz die echte Bridge mit Simulator (`--sim-cadence N`, Port 8765 bzw. 8765 + n
+`tools/e2e.sh` startet je Kadenz die echte Bridge mit Simulator (`--sim-cadence N`, Port 8765 bzw. 8765 + p
 muss frei sein), fährt das Spiel headless (`tools/e2e_probe.gd`) und vergleicht die Geschwindigkeiten:
 
 ```
 GODOT=godot PYTHON=python games/island-ride/tools/e2e.sh 60 90
 ```
 
-Mit gesetztem `VSPIN_PORT_BASE=n` fahren `e2e.sh`, `e2e_probe.gd` und `view_probe.gd` gegen Port 8765 + n (statt
+Mit gesetztem `VSPIN_PORT_BASE=n` fahren `e2e.sh`, `e2e_probe.gd` und `view_probe.gd` gegen Port 8765 + p (Platz p wie unter „Testisolation“,
+`TestIsolation.bus_port()`; statt
 `config.cfg [bus] url`) – parallel zu anderen Läufen und ohne die Bridge des Spielers; `e2e.sh` startet die Bridge
-selbst mit `--port`, beim `set_grade`-Handtest die Bridge entsprechend mit `vspin-bridge … --port <8765+n>` starten.
+selbst mit `--port`, beim `set_grade`-Handtest die Bridge entsprechend mit `vspin-bridge … --port <8765+p>` starten.
 Den Gelände-Cache legen die Prüfhilfen nach `.godot/test_user/<n>/`. Ein ungültiger Wert bricht auch die Prüfhilfen mit
 Exit-Code 1 ab, statt still auf 8765 zu fahren (Nacharbeit #27).
 
@@ -1653,9 +1674,10 @@ src/ride_config.gd      RideConfig: liest config.cfg
 src/graphics_settings.gd GraphicsSettings: Grafik-/Fenstereinstellungen, Tageszeit/Wetter (user://settings.cfg), Anwenden, Fensterhälften
 scenes/settings_menu.*  Menü „Grafik und Fenster“ (F2, F11), von der Hauptszene eingehängt
 scenes/start_menu.*     Startmenü: Titel, Fahren/Fahrtenbuch/Garderobe/Einstellungen/Beenden, Rundfahrt-, Training- und Arcade-Auswahl (mit „Ausrüstung“, „Talente“, Arcade-Level, gesperrten Stufen und Empfohlener Stärke), Radstatus (#30, #31, #37, #46, #49, #53, #54)
-scenes/gear_menu.gd     Ausrüstung: Inventar der Beute mit Vergleich, Anlegen und Verwerten, Effekt legendärer Teile, aus „Fahren → Arcade“ (#49, #53)
+scenes/gear_menu.gd     Ausrüstung: Inventar der Beute mit Vergleich, Anlegen und Verwerten, Effekt legendärer Teile, aus „Fahren → Arcade“; Charakterblatt mit sechs Plätzen, Summe und Stärke (#49, #53, #68)
 scenes/talent_menu.gd   Talente: Talentbaum mit drei Ästen, Erlernen, kostenloses Zurücksetzen, Arcade-Level, aus „Fahren → Arcade“ (#53)
 scenes/wardrobe.gd      Garderobe: Trikot, Radfarbe, Helm mit Vorschau (SubViewport), gesperrte mit Level (#36)
+scenes/rider_preview.gd Fahrer-Vorschau (SubViewport, dreht sich, tritt) für Garderobe und Charakterblatt (#36, #68)
 src/wardrobe.gd         Wardrobe: Teile und Farben, Auswahl prüfen und wählen, Standard je Kategorie – reine Logik
 src/save_game.gd        SaveGame: Spielstand (user://savegame.json) – versioniert, Profilschlüssel, Fahrten, Bestzeiten, Segment-Bestzeiten, Medaillen, Ghosts, Erfolge, Garderobe, Kamera, Arcade, Hochstufung
 src/camera_views.gd     CameraViews: Kameraperspektiven Nah/Verfolger/Weit als Daten, Durchblättern, Auswahl im Spielstand (#59) – reine Logik
@@ -1672,7 +1694,7 @@ src/weather.gd          Weather: simuliertes Wetter, Zustände und Übergänge �
 src/sky_controller.gd   SkyController: Sonne, Mond, Himmel, Environment, Regen, Sterne, Web-Lichtprofil (G6); Farbstimmung, Höhennebel (#42)
 src/night_lights.gd     NightLights: Laternen, Leuchtfeuer, Fahrradlicht bei Nacht
 src/speed_effects.gd    SpeedEffects: Geschwindigkeitslinien und Sichtfeld-Kick ab 35 km/h, abschaltbar (#42)
-src/ride_sound.gd       RideSound: Ton – Pegel aus Tempo, Ort, Wetter, Tageslicht (levels() als reine Rechnung), Bus „Spiel“, Auslöser (#44)
+src/ride_sound.gd       RideSound: Ton – Pegel aus Tempo, Ort, Wetter, Tageslicht (levels() als reine Rechnung), Bus „Spiel“, Auslöser, Regler Fahrtwind (#44, #69)
 src/sound_synth.gd      SoundSynth: alle Klänge prozedural als AudioStreamWAV (Rauschen, Filter, Teiltöne), keine Dateien (#44)
 src/shaders/            Wind (Vegetation), Meer (Wellen, Flachwasser, Brandung), Lichtkegel, Leuchtpunkte, Geschwindigkeitslinien
 src/graybox_track.gd    GrayboxTrack: Rundkurs ~900 m, flach → +6 % → Kuppe → −6 % → flach (`[world] track="graybox"`)

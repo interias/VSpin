@@ -242,6 +242,9 @@ func _build() -> void:
 	_add_row(grid, "sound_volume", "Lautstärke",
 			GraphicsSettings.SOUND_VOLUMES.map(func(v): return "%d %%" % roundi(v * 100.0)),
 			GraphicsSettings.SOUND_VOLUMES, func(v): settings.sound_volume = v)
+	_add_row(grid, "wind_volume", "Fahrtwind",
+			GraphicsSettings.WIND_VOLUMES.map(func(v): return "Aus" if v == 0.0 else "%d %%" % roundi(v * 100.0)),
+			GraphicsSettings.WIND_VOLUMES, func(v): settings.wind_volume = v)
 	_add_row(grid, "window_mode", "Fenstermodus", GraphicsSettings.WINDOW_MODES.map(func(m): return WINDOW_LABELS[m]),
 			GraphicsSettings.WINDOW_MODES, _on_window_mode)
 	_add_row(grid, "window_size", "Fenstergröße", [], [], _on_window_size)
@@ -410,6 +413,7 @@ func _refresh() -> void:
 	_select("panorama", settings.panorama)
 	_select("sound", settings.sound_enabled)
 	_select_or_add("sound_volume", settings.sound_volume, func(v): return "%d %%" % roundi(v * 100.0))
+	_select_or_add("wind_volume", settings.wind_volume, func(v): return "Aus" if v == 0.0 else "%d %%" % roundi(v * 100.0))
 	_select("camera_view", camera_view)
 	_select("window_mode", settings.window_mode)
 	var number := settings.fixed_hour if settings.time_mode == DayNight.MODE_FIXED 			else settings.timelapse_day_min if settings.time_mode == DayNight.MODE_TIMELAPSE else 0.0

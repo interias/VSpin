@@ -50,22 +50,63 @@ func test_variable_moves_test_ports_and_probe_bus() -> void:
 	assert_eq(TestIsolation.probe_bus_url("ws://127.0.0.1:8765"), "ws://127.0.0.1:8768", "Bridge des Laufs: 8765 + n")
 
 
-func test_port_ranges_of_different_values_never_overlap() -> void:
-	# Fake-Bus-Bereich eines Werts (100 Ports) trifft weder den eines anderen noch einen Bus-Port 8765 + m.
-	for n in [0, 1, 62, TestIsolation.MAX_PORT_BASE]:
+## Fixpunkte der Ableitung (#72), gleich in `bridge/tests/test_harness_lock.py`: Wert → [Bus-Port, erster Fake-Bus-Port].
+const PORT_FIXPOINTS := {
+	0: [8765, 18765], 1: [8766, 18865], 3: [8768, 19065], 300: [9065, 48765], 301: [8766, 18865],
+	466: [8931, 35365], 467: [8932, 35465], 999: [8864, 28665], 1234: [8799, 22165],
+}
+## Sicherer Bereich: oberhalb der Systemports, unterhalb des dynamischen Bereichs (49152–65535), aus dem Windows
+## (Hyper-V, WinNAT) wechselnde Bereiche ausschließt (`netsh interface ipv4 show excludedportrange protocol=tcp`).
+const SAFE_LOW := 1024
+const DYNAMIC_FIRST := 49152
+
+
+func test_every_value_maps_to_its_fixed_ports() -> void:
+	for n in PORT_FIXPOINTS:
 		OS.set_environment(TestIsolation.PORT_BASE_ENV, str(n))
-		var first := TestIsolation.first_test_port()
-		assert_gt(first, TestIsolation.BUS_PORT + TestIsolation.MAX_PORT_BASE, "über allen Bus-Ports")
-		assert_lt(first + TestIsolation.TEST_PORTS_PER_RUN - 1, 65536, "gültiger Port")
-		assert_eq(first % TestIsolation.TEST_PORTS_PER_RUN, TestIsolation.FIRST_TEST_PORT % 100, "eigener Block")
+		assert_eq(TestIsolation.port_base_error(), "", "gültig: %d" % n)
+		assert_eq([TestIsolation.bus_port(), TestIsolation.first_test_port()], PORT_FIXPOINTS[n], "Wert %d" % n)
+		assert_eq(TestIsolation.probe_bus_url("ws://127.0.0.1:8765"), "ws://127.0.0.1:%d" % PORT_FIXPOINTS[n][0])
+
+
+func test_port_ranges_of_different_values_never_overlap() -> void:
+	# Jeder Platz: Bus-Port und 100 Fake-Bus-Ports im sicheren Bereich, kein Port eines anderen Platzes.
+	var used_by := {}
+	for slot in range(TestIsolation.PORT_SLOTS + 1):
+		var ports := [TestIsolation.BUS_PORT + slot]
+		for i in range(TestIsolation.TEST_PORTS_PER_RUN):
+			ports.append(TestIsolation.FIRST_TEST_PORT + TestIsolation.TEST_PORTS_PER_RUN * slot + i)
+		for port in ports:
+			if used_by.has(port):
+				fail_test("Port %d doppelt: Platz %d und %d" % [port, used_by[port], slot])
+			used_by[port] = slot
+	assert_eq(used_by.size(), (TestIsolation.PORT_SLOTS + 1) * (TestIsolation.TEST_PORTS_PER_RUN + 1), "keine Überschneidung")
+	assert_gte(used_by.keys().min(), SAFE_LOW, "unterster Port im sicheren Bereich")
+	assert_lt(used_by.keys().max(), DYNAMIC_FIRST, "oberster Port unter dem dynamischen Bereich")
+	assert_eq([used_by.keys().min(), used_by.keys().max()], [8765, 48864], "Grenzen wie dokumentiert")
+
+
+func test_values_share_ports_only_a_multiple_of_300_apart() -> void:
+	# Werte bis 2000: gleicher Platz genau dann, wenn beide 0 sind oder sich (n, m ≥ 1) um ein Vielfaches von 300
+	# unterscheiden; Paketnummern, die gleichzeitig laufen, liegen viel enger beieinander.
+	for n in range(0, 2001):
+		var slot := TestIsolation.port_slot(n)
+		assert_between(slot, 0 if n == 0 else 1, TestIsolation.PORT_SLOTS, "Wert %d" % n)
+		if n >= 1 and n <= TestIsolation.PORT_SLOTS:
+			assert_eq(slot, n, "bis 300 wie bisher: Platz = Wert")
+		if n > TestIsolation.PORT_SLOTS:
+			assert_eq(slot, TestIsolation.port_slot(n - TestIsolation.PORT_SLOTS), "Wert %d teilt mit %d" % [n, n - 300])
+	for n in [1, 72, 172, 299]:
+		assert_ne(TestIsolation.port_slot(n), TestIsolation.port_slot(n + 1), "Nachbarn getrennt")
 
 
 func test_invalid_value_is_reported_not_silently_shared() -> void:
-	for raw in ["x", "-1", str(TestIsolation.MAX_PORT_BASE + 1), "1.5"]:
+	for raw in ["x", "-1", "1.5", "4 6", "+5", "5_0"]:
 		OS.set_environment(TestIsolation.PORT_BASE_ENV, raw)
 		assert_string_contains(TestIsolation.port_base_error(), TestIsolation.PORT_BASE_ENV)
-	OS.set_environment(TestIsolation.PORT_BASE_ENV, "7")
-	assert_eq(TestIsolation.port_base_error(), "")
+	for raw in ["7", "467", "1234"]:
+		OS.set_environment(TestIsolation.PORT_BASE_ENV, raw)
+		assert_eq(TestIsolation.port_base_error(), "", "gültig: %s" % raw)
 
 
 func test_test_files_live_per_value_outside_user_dir() -> void:

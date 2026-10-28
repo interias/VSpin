@@ -2,7 +2,8 @@
 ## Aus-Schalter aus dem Einstellungsmenü (GraphicsSettings `[sound]`) – damit Musik nebenher nicht übertönt wird. Alle
 ## Klänge entstehen prozedural (SoundSynth), es gibt keine Klangdateien. Von der Hauptszene in `_ready` angelegt
 ## (`setup(main)`, Kind `Sound`).
-##   Fahrtwind   lauter und heller mit dem Tempo (WIND_KMH), nur beim Fahren
+##   Fahrtwind   leise, weich und mit dem Tempo sanft lauter (WIND_KMH, WIND_CURVE), nur beim Fahren; eigener Regler
+##               `wind_volume` (#69)
 ##   Freilauf    Ticken bei Kadenz 0 und Tempo > 0; Klicks je Sekunde aus dem Tempo (Sperrklinken je Radumdrehung)
 ##   Meer        nach dem Abstand des Hörers zum Wasser (Messringe um ihn im Höhenfeld, `water_distance`)
 ##   Regen       nach der Regenstärke des Wetters (wie die sichtbaren Tropfen)
@@ -27,11 +28,13 @@ extends Node
 
 const BUS := "Spiel"
 ## Grundpegel je Klang (linear, vor dem Bus) – dezent; die Lautstärke im Menü (Standard 30 %) kommt am Bus dazu.
-const GAIN := {"wind": 0.45, "freewheel": 0.2, "sea": 0.4, "rain": 0.35, "gulls": 0.3, "sheep": 0.3, "church": 0.45,
+const GAIN := {"wind": 0.2, "freewheel": 0.2, "sea": 0.4, "rain": 0.35, "gulls": 0.3, "sheep": 0.3, "church": 0.45,
 		"click": 0.25, "chime": 0.3, "announce": 0.35}
-## Fahrtwind: hörbar ab / voll bei km/h; Abspieltempo (Tonhöhe) dabei von / bis.
+## Fahrtwind: hörbar ab / voll bei km/h, Anstieg dazwischen glatt und zu Beginn flach (Potenz WIND_CURVE); Abspieltempo
+## (Tonhöhe) dabei von / bis.
 const WIND_KMH := Vector2(5.0, 45.0)
-const WIND_PITCH := Vector2(0.8, 1.35)
+const WIND_CURVE := 1.5
+const WIND_PITCH := Vector2(0.85, 1.1)
 ## Freilauf: ab dieser Geschwindigkeit (km/h) bei Kadenz unter FREEWHEEL_MAX_RPM; Klicks je Radumdrehung, Radumfang (m).
 const FREEWHEEL_MIN_KMH := 1.0
 const FREEWHEEL_MAX_RPM := 1.0
@@ -69,6 +72,8 @@ var main: Node3D
 var world: IslandWorld
 ## Ton an (Einstellung); aus: alle Spieler gestoppt, keine Auslösungen.
 var enabled := true
+## Regler „Fahrtwind“ (#69, 0..1, 0 = aus): Anteil am Pegel des Fahrtwinds, zusätzlich zur Lautstärke des Busses.
+var wind_volume := 1.0
 ## Erzeugte Klänge (SoundSynth-ID → AudioStreamWAV) und noch zu erzeugende.
 var streams := {}
 var pending: Array = SoundSynth.IDS.duplicate()
@@ -139,7 +144,7 @@ func update(delta: float) -> void:
 		water_m = water_distance(world.terrain, listener)
 	var c := context(listener)
 	current = levels(c)
-	_set_loop("wind", current["wind"], lerpf(WIND_PITCH.x, WIND_PITCH.y, current["wind"]))
+	_set_loop("wind", current["wind"] * wind_volume, lerpf(WIND_PITCH.x, WIND_PITCH.y, current["wind"]))
 	_set_loop("freewheel", current["freewheel"], freewheel_pitch(c["speed_kmh"]))
 	_set_loop("sea", current["sea"], 1.0)
 	_set_loop("rain", current["rain"], 1.0)
@@ -167,7 +172,7 @@ static func levels(c: Dictionary) -> Dictionary:
 		sheep.append(near(d, SHEEP_M) if c.get("sheep_shown", true) else 0.0)
 	var coasting: bool = speed >= FREEWHEEL_MIN_KMH and c.get("cadence", 0.0) < FREEWHEEL_MAX_RPM
 	return {
-		"wind": smoothstep(WIND_KMH.x, WIND_KMH.y, speed),
+		"wind": pow(smoothstep(WIND_KMH.x, WIND_KMH.y, speed), WIND_CURVE),
 		"freewheel": lerpf(0.6, 1.0, smoothstep(FREEWHEEL_MIN_KMH, 30.0, speed)) if coasting else 0.0,
 		"sea": near(c.get("water_m", INF), SEA_M),
 		"rain": clampf(c.get("rain", 0.0), 0.0, 1.0),
@@ -235,9 +240,10 @@ func listener_position() -> Vector3:
 	return main.camera.global_position
 
 
-## Ton an/aus und Lautstärke (0..1) am Bus; aus stoppt alle Spieler.
-func apply_settings(on: bool, volume: float) -> void:
+## Ton an/aus, Lautstärke (0..1) am Bus und Regler Fahrtwind (0..1); aus stoppt alle Spieler.
+func apply_settings(on: bool, volume: float, wind: float) -> void:
 	enabled = on
+	wind_volume = clampf(wind, 0.0, 1.0)
 	var index := ensure_bus()
 	AudioServer.set_bus_volume_db(index, linear_to_db(maxf(volume, 0.0001)))
 	AudioServer.set_bus_mute(index, not on)
