@@ -61,6 +61,7 @@ var _host := ""
 var _port := -1
 var _source: String
 var _sim_cadence: float
+var _read_only: bool
 var _sessions_dir: String
 var _stop_file: String
 var _processes: Processes
@@ -79,6 +80,7 @@ func _init(config: RideConfig, base_dir: String, processes: Processes = null, pl
 	_sessions_dir = _absolute(config.bridge_sessions_dir, base_dir)
 	_source = config.bridge_source
 	_sim_cadence = config.bridge_sim_cadence
+	_read_only = config.bridge_trainer_read_only
 	if _source not in SOURCES:
 		push_warning("BridgeLauncher: unbekannte Quelle '%s', nutze 'sim'" % _source)
 		_source = "sim"
@@ -183,6 +185,8 @@ func _launch() -> void:
 			"--stop-file", _stop_file, "--parent-pid", str(OS.get_process_id())])
 	if _source == "sim":  # ohne Terminal keine Pfeiltasten: Start-Kadenz aus config.cfg, sonst stünde sie auf 0
 		args.append_array(["--sim-cadence", str(int(roundf(_sim_cadence)))])
+	if _source == "ble" and _read_only:  # Trainer nur lesen (`[bridge] trainer_read_only`, Spec #75)
+		args.append("--read-only")
 	pid = _processes.start(program, args)
 	if pid <= 0:
 		push_warning("BridgeLauncher: Start gescheitert: %s %s" % [program, " ".join(args)])

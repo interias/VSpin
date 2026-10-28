@@ -30,3 +30,9 @@ Widerstandssteuerung.
 - Eine Game-API wird erst nach dem ersten Spiel abstrahiert; der Hub entsteht
   später als „weiterer Client am Bus“.
 - Risiko: Das Prototyp-Game bleibt bewusst simpel und wird ggf. weggeworfen.
+
+## Nachtrag (2026-10-28, Spec #75): Widerstand ist im Umfang
+
+„Widerstandssteuerung“ steht nicht mehr unter „nicht in v1“: Mit Spec #75 (Zwift Ride und KICKR CORE 2) setzt die
+Bridge die virtuelle Steigung am FTMS-Trainer als Widerstand um (ADR-0007, Nachtrag Spec #75). Simulator und Replay
+bleiben gleichwertige Quellen ohne Widerstand (`not_supported`).

@@ -26,6 +26,7 @@ vspin-bridge --source replay DATEI.raw.jsonl --speed 10   # Aufnahme abspielen (
 vspin-bridge --source sim --hr-replay DATEI.raw.jsonl      # Pulsquelle spielt die Pulszeilen ab (siehe Puls)
 vspin-bridge --source ble                                  # Trainer per BLE (FTMS): das stärkste Gerät mit FTMS
 vspin-bridge --source ble --trainer AA:BB:CC:DD:EE:FF      # bestimmter Trainer (siehe Trainer)
+vspin-bridge --source ble --read-only                      # Trainer nur lesen, nicht steuern (siehe Trainer)
 ```
 
 Im Terminal: Pfeil hoch/`+` = Kadenz +5, Pfeil runter/`-` = Kadenz −5 (0–200 rpm), `q` oder
@@ -54,8 +55,9 @@ Container gedacht (`docker-compose.yml`, siehe [Anleitung](../docs/anleitung.md)
 sich mit `config.cfg [bus] url`. Die Bridge selbst liest `VSPIN_PORT_BASE` nicht.
 
 Clients können `set_grade` senden (virtuelle Steigung, ADR-0007). Die Bridge antwortet dem
-Absender mit `ack` (bis zur Widerstandssteuerung `ok: false, reason: "not_supported"`) und
-schreibt eine Zeile ins Terminal, z. B. `set_grade +0.070 (+7.0 %) -> not_supported`.
+Absender mit `ack` und schreibt eine Zeile ins Terminal, z. B. `set_grade +0.070 (+7.0 %) -> not_supported`.
+Simulator und Replay antworten `ok: false, reason: "not_supported"`; der steuernde Trainer setzt die Steigung als
+Widerstand um (`ok: true`, siehe Trainer). Weitere Gründe: `read_only`, `control_lost` (siehe Trainer).
 Scheitert die Quelle mit einem anderen Fehler, lautet die Antwort `reason: "source_error"`
 (der Fehler steht im Terminal); die Verbindung bleibt offen.
 Der Simulator senkt bergauf die Kadenz (um 2 × Steigung, höchstens auf die Hälfte);
@@ -65,8 +67,8 @@ Kaputte oder unbekannte Nachrichten werden mit `error` beantwortet (docs/bus-pro
 ## Trainer
 
 `--source ble` startet die Trainerquelle (`sources/trainer.py`, Spec #75) mit bleak hinter der BLE-Nahtstelle `ble/`:
-ein Rad-Trainer wie der Wahoo KICKR CORE 2 per Fitness Machine Service `0x1826`. Die Quelle liest nur, sie steuert
-den Trainer (noch) nicht.
+ein Rad-Trainer wie der Wahoo KICKR CORE 2 per Fitness Machine Service `0x1826`. Die Quelle liest ihn und steuert
+den Widerstand über die virtuelle Steigung (siehe Steuerung), sofern er das kann und `--read-only` nicht gesetzt ist.
 
 - **Suche:** nach FTMS `0x1826` und Cycling Power `0x1818` zugleich. Ohne `--trainer ADRESSE` nimmt die Bridge das
   **stärkste Gerät mit FTMS**, ersatzweise das stärkste mit Cycling Power; mit Adresse gilt nur dieses Gerät. Der
@@ -75,14 +77,48 @@ den Trainer (noch) nicht.
   Leistung und Kadenz. Fehlt die Kadenz dort (laut Features oder in den ersten drei Notifications), kommt Cycling
   Power Measurement `0x2A63` dazu (Kadenz aus den Kurbeldaten). Die Watt sind **gemessen** (`power_estimated: false`,
   ADR-0004). Das Tempo beruht auf einem angenommenen Radumfang und wird nur durchgereicht.
-- **Rohdaten:** Jede Notification steht in der Session-Rohdatei, im Format des Replays; die Aufnahme einer Fahrt
+- **Rohdaten:** Jede Notification der Telemetrie (`0x2AD2`, `0x2A63`) steht in der Session-Rohdatei, im Format des
+  Replays (die Antworten des Control Points und Machine Status `0x2ADA` nicht); die Aufnahme einer Fahrt
   lässt sich später mit `--source replay` abspielen (dort gelten die Watt wie bei jedem Replay als geschätzt).
 - **Abbruch:** Reißt die Verbindung ab oder ist der Trainer beim Start nicht da, meldet die Bridge `disconnected`
   und sucht und verbindet alle 3 s neu (ADR-0004). Die Session läuft weiter, es gibt keine neue Datei.
 - **Windows:** Ein gebondetes Gerät fragt WinRT beim ersten geschützten Zugriff (dem Lesen der Features) nach dem
   Pairing; das ist am Gerät noch nicht belegt.
-- **Tests:** `tests/test_trainer_source.py`, `tests/test_bus_trainer.py` (Fake hinter `tests/fake_ble.py`, kein
-  echtes Gerät).
+- **Tests:** `tests/test_trainer_source.py`, `tests/test_trainer_control.py`, `tests/test_bus_trainer.py` (Fake hinter
+  `tests/fake_ble.py`, kein echtes Gerät).
+
+### Steuerung
+
+Die virtuelle Steigung des Spiels (`set_grade`) wird am Trainer zum Widerstand (FTMS 1.0, `sources/trainer_control.py`,
+ADR-0007 Nachtrag Spec #75). Es gibt immer nur einen Steuerer; den Stand meldet `status.trainer.control`
+(docs/bus-protocol.md), jede Änderung steht im Terminal als `Trainer-Steuerung: <stand> (<grund>)`.
+
+- **Übernehmen:** Nur wenn die Target Setting Features (`0x2ACC`) Indoor Bike Simulation melden (dann Capability
+  `RESISTANCE_CONTROL`). Beim Verbinden: Indications des Control Points `0x2AD9` abonnieren (ohne Abo lehnt der
+  Trainer Schreibzugriffe ab), Machine Status `0x2ADA` abonnieren, `0x00` Request Control, `0x07` Start – jeweils mit
+  Antwort und 2 s Zeitlimit. Scheitert das, liest die Bridge weiter (`lost`, `not_supported` oder `error`).
+- **Steigung:** `0x11` mit Wind 0, Steigung in 0,01 %, Crr 0,0040, Cw 0,51 kg/m. Gedrosselt gegenüber dem zuletzt
+  geschriebenen Wert: ab 0,1 % Änderung, höchstens 2 Hz; eine gedrosselte Änderung wird mit dem dann aktuellen Wert
+  nachgeholt. Der Client bekommt trotzdem sofort `ack` `ok: true`. Keine Begrenzung: lehnt der Trainer eine Steigung
+  ab (`0x03`), lautet das `ack` `source_error`. Nach einem Neuverbinden fordert die Bridge neu an und sendet die
+  zuletzt gemeldete Steigung nach.
+- **Andere App steuert:** Meldet `0x2ADA` Control Permission Lost (`0xFF`) oder einen fremden Reset, oder antwortet der
+  Trainer `0x05`, ist die Steuerung `lost`: Die Bridge schreibt nichts mehr, bis der Trainer neu verbunden ist (dann
+  fordert sie neu an), `set_grade` bekommt `reason: "control_lost"`, das Spiel zeigt einen Hinweis.
+- **`--read-only`:** Nur lesen – keine Anforderung, kein Abo des Control Points, kein einziger Schreibzugriff;
+  `status.trainer.control` ist `read_only`, `set_grade` bekommt `reason: "read_only"`. Für den Fall, dass Zwift oder
+  eine andere App den Trainer steuert. Aus dem Spiel: `config.cfg [bridge] trainer_read_only=true`.
+- **Grundlast** (Steigung 0, nie gedrosselt): Verlassen alle Clients den Bus (Spiel abgestürzt oder geschlossen),
+  schreibt die Bridge sofort Steigung 0 (`Alle Clients weg: Grundlast, Steigung 0 am Trainer`). Ebenso, wenn der
+  Client geht, der zuletzt `set_grade` geschickt hat, auch wenn andere verbunden bleiben (Spiel abgestürzt, Begleiter
+  noch da: `Client der letzten Steigung weg: …`). Beim Beenden (Strg+C, Stoppdatei, `--parent-pid`) schreibt sie
+  Steigung 0, dann `0x01` Reset, der die Steuerung zurückgibt, und trennt erst danach. Bei `control = error`, wenn der
+  Trainer `0x00` bestätigt hatte (z. B. `0x07` ohne Antwort), nur das Reset; bei `lost` nichts. Ein `set_grade`, das
+  dabei noch kommt, schreibt sie nicht mehr. Beim Pausieren sendet das
+  Spiel selbst `set_grade 0`. Ein harter Absturz der Bridge (TerminateProcess) lässt sich nicht abfangen; was der
+  Trainer dann tut, entscheidet seine Firmware.
+- **Am Gerät offen:** SIM-Gefühl und Latenz, die größte Steigung, die der KICKR CORE 2 annimmt, der Steuerkonflikt
+  mit Zwift, ob Reset die Steuerung wirklich zurückgibt, und das Verhalten bei einem Absturz der Bridge.
 
 ## Puls
 

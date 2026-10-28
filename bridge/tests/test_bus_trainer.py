@@ -5,23 +5,39 @@ gemessene Watt, Rohaufzeichnung aller Notifications, Kadenz aus Cycling Power oh
 Abbruch beendet weder Bridge noch Session – die Bridge meldet `disconnected`, verbindet im Hintergrund neu und
 liefert wieder Telemetrie.
 
+Steuerung (Spec #75, Stories 5, 7, 11): `status.trainer` genau einmal je Änderung, `set_grade` → `0x11` mit `ack`,
+Kontrollverlust, Nur-lesen-Modus, Neuverbinden, und die sichere Grundlast der Bridge – Steigung 0, sobald alle Clients
+weg sind, und Steigung 0 plus Reset beim Beenden.
+
 Alles, was den Fake skriptet (`notify`, `drop` …), läuft über `bridge.call` im Event-Loop der Bridge.
 """
 
 import csv
+import time
 from collections.abc import Callable, Iterator
 
 import pytest
 from bridge_harness import HOST, InProcessBridge, read_jsonl
 from fake_ble import FakeBleAdapter
 from heart_rate_harness import BusReader
-from trainer_harness import FEATURES_POWER_ONLY, KICKR, bike, cycling_power, kickr
+from trainer_harness import (
+    FEATURES_POWER_ONLY,
+    KICKR,
+    TARGET_SIMULATION,
+    bike,
+    control_responder,
+    control_writes,
+    cycling_power,
+    kickr,
+    simulation,
+)
 
 from vspin_bridge import app
 from vspin_bridge.parsers import CYCLING_POWER_MEASUREMENT, INDOOR_BIKE_DATA, Decoder
 from vspin_bridge.sources.base import Capability
 from vspin_bridge.sources.replay import load_replay
 from vspin_bridge.sources.trainer import TrainerSource
+from vspin_bridge.sources.trainer_control import CONTROL_POINT, MACHINE_STATUS
 
 pytestmark = pytest.mark.usefixtures("isolated_bus")
 
@@ -42,19 +58,34 @@ class Rig:
     def send(self, char: str, data: bytes) -> None:
         self.bridge.call(self.adapter.indicate, KICKR, char, data)
 
+    def control_writes(self) -> list[bytes]:
+        return self.bridge.call(control_writes, self.adapter)
+
+    def wait_for_writes(self, count: int, timeout_s: float = 3.0) -> list[bytes]:
+        """Die Schreibzugriffe auf den Control Point, sobald es mindestens `count` sind."""
+        deadline = time.monotonic() + timeout_s
+        while len(writes := self.control_writes()) < count:
+            assert time.monotonic() < deadline, f"nur {len(writes)} Schreibzugriffe: {writes}"
+            time.sleep(0.02)
+        return writes
+
 
 @pytest.fixture
 def trainer_bridge(request, tmp_path, monkeypatch) -> Iterator[Callable[..., Rig]]:
     """Fabrik: `trainer_bridge(present=True, bits=…)` startet eine Bridge mit Fake-Trainer (`present=False`: er sendet
-    erst nach `trainer_on()`); Neuverbinden nach 0,1 s statt 3 s."""
+    erst nach `trainer_on()`); Neuverbinden nach 0,1 s statt 3 s. `sim=True`: der Trainer kann Indoor Bike Simulation,
+    sein Control Point antwortet mit `respond` (Standard: Erfolg); `read_only`: Bridge mit `--read-only`."""
     monkeypatch.setattr(app, "RECONNECT_INTERVAL_S", RECONNECT_S)
     started: list[InProcessBridge] = []
 
-    def start(present: bool = True, **kickr_args) -> Rig:
+    def start(present: bool = True, sim: bool = False, read_only: bool = False, respond=None, **kickr_args) -> Rig:
         adapter = FakeBleAdapter()
+        if sim:
+            kickr_args["targets"] = TARGET_SIMULATION
+            adapter.answer(KICKR, CONTROL_POINT, CONTROL_POINT, respond or control_responder())
         if present:
             kickr(adapter, **kickr_args)
-        source = TrainerSource(adapter, scan_s=0.3, settle_s=0.02)
+        source = TrainerSource(adapter, scan_s=0.3, settle_s=0.02, read_only=read_only)
         bridge = InProcessBridge(source, tmp_path / "sessions", getattr(request.node, "bus_host", HOST))
         started.append(bridge)
         bridge.start()
@@ -192,3 +223,164 @@ def test_start_without_trainer_reports_disconnected_and_connects_once_it_shows_u
     rig.send(INDOOR_BIKE_DATA, bike(24.0, 75, 140))
     assert reader.next("telemetry")["power_w"] == 140
     assert "Verbindung gescheitert" in rig.bridge.log()
+
+
+# --- Steuerung (Spec #75) ------------------------------------------------------------------------
+
+REQUEST_CONTROL, RESET, START = b"\x00", b"\x01", b"\x07"
+
+
+def ack(ok: bool, reason: str | None = None) -> dict:
+    return {"v": 0, "type": "ack", "for": "set_grade", "ok": ok, "reason": reason}
+
+
+def set_grade(grade: float) -> dict:
+    return {"v": 0, "type": "set_grade", "grade": grade}
+
+
+def without_time(status: dict) -> dict:
+    return {key: value for key, value in status.items() if key != "t_ms"}
+
+
+def assert_one_status_per_change(reader: BusReader) -> None:
+    statuses = [without_time(m) for m in reader.statuses()]
+    for before, after in zip(statuses, statuses[1:]):
+        assert before != after, f"status ohne Änderung: {after}"
+
+
+def test_status_trainer_reports_control_once_per_change(trainer_bridge, bus_client):
+    rig = trainer_bridge(sim=True)
+    reader = BusReader(bus_client())
+    status = wait_for_state(reader, "connected")
+    assert status["trainer"] == {"control": "active"}
+    assert "RESISTANCE_CONTROL" in status["capabilities"]
+    assert rig.control_writes() == [REQUEST_CONTROL, START]
+
+    rig.send(MACHINE_STATUS, b"\xff")  # Zwift o. Ä. übernimmt
+    lost = reader.next("status")
+    assert lost["trainer"] == {"control": "lost"} and lost["state"] == "connected"
+    rig.send(MACHINE_STATUS, b"\xff")
+    assert [m for m in reader.drain(0.4) if m["type"] == "status"] == []  # genau ein Broadcast
+    assert reader.reply(set_grade(0.05)) == ack(False, "control_lost")
+    assert rig.control_writes() == [REQUEST_CONTROL, START]  # danach kein Schreiben mehr
+    assert_one_status_per_change(reader)
+    assert "Trainer-Steuerung: lost" in rig.bridge.log()
+
+
+def test_new_client_gets_the_trainer_block_in_its_first_status(trainer_bridge, bus_client):
+    trainer_bridge(sim=True)
+    wait_for_state(BusReader(bus_client()), "connected")
+    assert BusReader(bus_client()).first["trainer"] == {"control": "active"}
+
+
+def test_set_grade_reaches_the_trainer_and_is_acked(trainer_bridge, bus_client):
+    rig = trainer_bridge(sim=True)
+    reader = BusReader(bus_client())
+    wait_for_state(reader, "connected")
+    assert reader.reply(set_grade(0.07)) == ack(True)
+    assert rig.control_writes()[-1] == simulation(700)
+    # Gedrosselt (2 Hz): beide bekommen sofort ok, geschrieben wird der letzte Wert nach Ablauf des Intervalls.
+    assert reader.reply(set_grade(0.08)) == ack(True)
+    assert reader.reply(set_grade(0.09)) == ack(True)
+    assert rig.control_writes()[-1] == simulation(700)
+    assert rig.wait_for_writes(4)[-1] == simulation(900)
+    assert "set_grade +0.070 (+7.0 %) -> ok" in rig.bridge.log()
+
+
+def test_trainer_refusal_is_a_source_error(trainer_bridge, bus_client):
+    rig = trainer_bridge(sim=True, respond=control_responder({0x11: 0x03}))
+    reader = BusReader(bus_client())
+    wait_for_state(reader, "connected")
+    assert reader.reply(set_grade(0.3)) == ack(False, "source_error")
+    assert "ungültiger Parameter (0x03)" in rig.bridge.log()
+
+
+def test_all_clients_leaving_sets_zero_grade_at_once(trainer_bridge, bus_client):
+    # Grundlast, Fall 1: Spiel abgestürzt oder geschlossen.
+    rig = trainer_bridge(sim=True)
+    game, other = BusReader(bus_client()), BusReader(bus_client())
+    wait_for_state(game, "connected")
+    assert game.reply(set_grade(0.08)) == ack(True)
+    assert game.reply(set_grade(0.09)) == ack(True)  # gedrosselt, steht noch aus
+    other.client.close()
+    time.sleep(0.3)
+    assert simulation(0) not in rig.control_writes()  # ein Client ist noch da
+    game.client.close()
+    writes = rig.wait_for_writes(4, timeout_s=1.0)
+    assert writes[:4] == [REQUEST_CONTROL, START, simulation(800), simulation(0)]  # vor dem Nachholen: nie gedrosselt
+    time.sleep(0.7)
+    assert rig.control_writes() == writes[:4]  # die ausstehenden 9 % kommen nicht nach
+    assert "Grundlast, Steigung 0 am Trainer" in rig.bridge.log()
+
+
+def test_the_client_of_the_last_grade_leaving_sets_zero_grade_at_once(trainer_bridge, bus_client):
+    # Grundlast, Fall 1b: das Spiel stürzt ab, ein zweiter Client (z. B. der Begleiter) bleibt verbunden.
+    rig = trainer_bridge(sim=True)
+    game, companion = BusReader(bus_client()), BusReader(bus_client())
+    wait_for_state(game, "connected")
+    assert game.reply(set_grade(0.08)) == ack(True)
+    game.client.close()
+    writes = rig.wait_for_writes(4, timeout_s=1.0)
+    assert writes == [REQUEST_CONTROL, START, simulation(800), simulation(0)]
+    time.sleep(0.3)
+    assert rig.control_writes() == writes  # genau einmal
+    assert companion.reply(set_grade(0.02)) == ack(True)  # der verbliebene Client steuert weiter
+    assert "Client der letzten Steigung weg: Grundlast, Steigung 0 am Trainer" in rig.bridge.log()
+
+
+def test_another_client_leaving_keeps_the_grade(trainer_bridge, bus_client):
+    rig = trainer_bridge(sim=True)
+    game, companion = BusReader(bus_client()), BusReader(bus_client())
+    wait_for_state(game, "connected")
+    assert game.reply(set_grade(0.08)) == ack(True)
+    companion.client.close()
+    time.sleep(0.3)
+    assert rig.control_writes() == [REQUEST_CONTROL, START, simulation(800)]
+
+
+def test_stopping_the_bridge_writes_zero_and_reset_before_disconnecting(trainer_bridge, bus_client):
+    # Grundlast, Fall 2: normales Beenden (Stoppdatei, Strg+C, Elternprozess – alle setzen dasselbe `stop`).
+    rig = trainer_bridge(sim=True)
+    reader = BusReader(bus_client())
+    wait_for_state(reader, "connected")
+    assert reader.reply(set_grade(0.08)) == ack(True)
+    assert rig.bridge.stop() is None
+    # Der Fake nimmt Schreibzugriffe nur bei offener Verbindung an: beides lag vor dem Trennen.
+    assert control_writes(rig.adapter) == [REQUEST_CONTROL, START, simulation(800), simulation(0), RESET]
+    assert rig.adapter.connected == set()
+
+
+def test_read_only_bridge_never_writes(trainer_bridge, bus_client):
+    rig = trainer_bridge(sim=True, read_only=True)
+    reader = BusReader(bus_client())
+    status = wait_for_state(reader, "connected")
+    assert status["trainer"] == {"control": "read_only"}
+    assert "RESISTANCE_CONTROL" not in status["capabilities"]
+    assert reader.reply(set_grade(0.07)) == ack(False, "read_only")
+    reader.client.close()  # auch die Grundlast schreibt nichts
+    time.sleep(0.3)
+    rig.bridge.stop()
+    assert rig.adapter.writes == []
+    assert "set_grade +0.070 (+7.0 %) -> read_only" in rig.bridge.log()
+
+
+def test_reconnect_requests_control_again_and_resends_the_last_grade(trainer_bridge, bus_client):
+    rig = trainer_bridge(sim=True)
+    reader = BusReader(bus_client())
+    wait_for_state(reader, "connected")
+    assert reader.reply(set_grade(0.05)) == ack(True)
+    rig.bridge.call(rig.adapter.drop, KICKR)
+    assert reader.next("status", lambda m: m["state"] == "disconnected")["trainer"] == {"control": "none"}
+    assert reader.next("status", lambda m: m["state"] == "connected")["trainer"] == {"control": "active"}
+    assert rig.wait_for_writes(6) == [REQUEST_CONTROL, START, simulation(500)] * 2
+    assert_one_status_per_change(reader)
+
+
+def test_trainer_without_simulation_reports_not_supported(trainer_bridge, bus_client):
+    rig = trainer_bridge()
+    reader = BusReader(bus_client())
+    assert wait_for_state(reader, "connected")["trainer"] == {"control": "not_supported"}
+    assert reader.reply(set_grade(0.05)) == ack(False, "not_supported")
+    reader.client.close()
+    rig.bridge.stop()
+    assert rig.adapter.writes == []

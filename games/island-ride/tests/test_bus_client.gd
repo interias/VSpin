@@ -109,6 +109,23 @@ func test_status_with_null_fields_does_not_break_client() -> void:
 	assert_eq(client.capabilities, PackedStringArray())
 
 
+func test_reads_trainer_control_from_status() -> void:
+	# Spec #75: `status.trainer.control`; ohne Block (ältere Bridge), kaputt oder ohne Bus: "".
+	var broken := FakeBusServer.status("connected", "ble", ["CADENCE"], 0.4)
+	broken["send"]["trainer"] = {"control": null}
+	var bus := start_fake_bus([FakeBusServer.status("connected", "ble", ["CADENCE"], 0.0, {}, "active"),
+			FakeBusServer.status("connected", "ble", ["CADENCE"], 0.2, {}, "lost"), broken,
+			FakeBusServer.status("connected", "ble", ["CADENCE"], 0.6, {}, "read_only"), FakeBusServer.close_at(0.8)])
+	var client := connect_client(bus, 5.0)
+	assert_eq(client.trainer_control, "")
+	assert_true(await run_until(func(): return client.trainer_control == "active", 3.0))
+	assert_true(await run_until(func(): return client.trainer_control == "lost", 3.0))
+	assert_true(await run_until(func(): return client.trainer_control == "", 3.0), "kaputter Block → unbekannt")
+	assert_true(await run_until(func(): return client.trainer_control == "read_only", 3.0))
+	assert_true(await run_until(func(): return not client.bus_connected, 3.0))
+	assert_eq(client.trainer_control, "", "ohne Bus unbekannt")
+
+
 func test_reconnects_after_bus_closes() -> void:
 	var bus := start_fake_bus([
 		FakeBusServer.status(),

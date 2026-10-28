@@ -53,20 +53,85 @@ func test_grade_changes_are_sent_with_threshold_and_throttle() -> void:
 	assert_lt(sent.size(), 12, "gedrosselt: ungedrosselt wären es ~12 Meldungen im Übergang")
 
 
-func test_no_set_grade_while_connection_paused_and_resend_after() -> void:
+## Seit Spec #75 ist die Verbindungspause nicht mehr stumm: beim Eintritt geht einmal die Grundlast `set_grade 0` raus
+## (Story 11, Entscheidung am Vorab-Tor), danach nichts mehr bis zum Weiterfahren.
+func test_connection_pause_sends_rest_load_once_and_resends_the_grade_after() -> void:
 	var steps := _steady(80.0, 1.0) + [FakeBusServer.status("stale", "sim", ["CADENCE"], 1.2)] \
 			+ [FakeBusServer.status("connected", "sim", ["CADENCE"], 3.0)] \
 			+ FakeBusServer.steady_cadence(80.0, 3.1, 6.0)
 	var bus := start_fake_bus(steps)
-	var ride := spawn_ride(bus, FLAT_M)
+	var ride := spawn_ride(bus, CLIMB_M)
 	assert_true(await run_until(func(): return bus.received_of_type("set_grade").size() == 1, 3.0))
 	assert_true(await run_until(func(): return ride.state == "paused_connection", 3.0))
 	await run_for(1.0)
-	assert_eq(bus.received_of_type("set_grade").size(), 1, "kein set_grade in der Verbindungspause")
+	assert_eq(bus.received_of_type("set_grade").size(), 2, "in der Verbindungspause genau ein set_grade: die Grundlast")
+	assert_eq(_grades(bus)[1], 0.0, "Grundlast: Steigung 0")
 	assert_true(await run_until(func(): return ride.state == "riding", 3.0))
-	assert_true(await run_until(func(): return bus.received_of_type("set_grade").size() == 2, 2.0),
-			"nach der Rückkehr gleiche Steigung erneut gemeldet")
+	assert_true(await run_until(func(): return bus.received_of_type("set_grade").size() == 3, 2.0),
+			"nach der Rückkehr Steigung erneut gemeldet")
+	assert_almost_eq(_grades(bus)[2], 0.06, 0.001, "die echte Steigung")
+
+
+func test_manual_pause_sends_rest_load_and_resume_resends_the_grade() -> void:
+	var bus := start_fake_bus(_steady(80.0))
+	var ride := spawn_ride(bus, CLIMB_M)
+	assert_true(await run_until(func(): return ride.state == "riding" and _grades(bus).size() == 1, 3.0))
+	assert_almost_eq(_grades(bus)[0], 0.06, 0.001)
+	await press_key(KEY_P)
+	assert_eq(ride.state, "paused_manual")
+	assert_true(await run_until(func(): return _grades(bus).size() == 2, 1.0), "Pause → Grundlast")
 	assert_eq(_grades(bus)[1], 0.0)
+	await run_for(1.2)
+	assert_eq(_grades(bus).size(), 2, "in der Pause nichts weiter, auch nach dem Drosselintervall")
+	await press_key(KEY_P)
+	assert_true(await run_until(func(): return _grades(bus).size() == 3, 1.5), "Weiterfahren → echte Steigung")
+	assert_almost_eq(_grades(bus)[2], 0.06, 0.001)
+
+
+func test_ending_the_ride_sends_rest_load() -> void:
+	var bus := start_fake_bus(_steady(80.0))
+	var ride := spawn_ride(bus, CLIMB_M)
+	assert_true(await run_until(func(): return ride.state == "riding" and _grades(bus).size() == 1, 3.0))
+	ride.return_to_menu()  # „Fahrt beenden“ ohne volle Runde: direkt ins Menü
+	assert_eq(ride.state, "menu")
+	assert_true(await run_until(func(): return _grades(bus).size() == 2, 1.0), "Menü → Grundlast")
+	assert_eq(_grades(bus)[1], 0.0)
+	await run_for(0.8)
+	assert_eq(_grades(bus).size(), 2, "im Menü danach kein set_grade")
+
+
+func test_hint_when_another_app_controls_the_trainer() -> void:
+	var steps := [FakeBusServer.status("connected", "ble", ["CADENCE", "RESISTANCE_CONTROL"], 0.0, {}, "active"),
+			FakeBusServer.status("connected", "ble", ["CADENCE", "RESISTANCE_CONTROL"], 1.0, {}, "lost")] \
+			+ FakeBusServer.steady_cadence(80.0, 0.0, 6.0)
+	var bus := start_fake_bus(steps)
+	bus.replies["set_grade"] = FakeBusServer.ack("set_grade", true)
+	var ride := spawn_ride(bus, FLAT_M)
+	var hint: Label = ride.get_node("Hud/Hint")
+	assert_true(await run_until(func(): return ride.state == "riding", 3.0))
+	assert_eq(hint.text, "", "VSpin steuert: kein Hinweis")
+	assert_true(await run_until(func(): return hint.text == ride.RESISTANCE_CONTROL_LOST, 3.0))
+	assert_string_contains(hint.text, "von einer anderen App gesteuert")
+	assert_eq(ride.state, "riding", "die Fahrt läuft weiter, nur ohne Widerstand aus VSpin")
+
+
+func test_ack_control_lost_shows_the_same_hint() -> void:
+	var bus := start_fake_bus(_steady(80.0))
+	bus.replies["set_grade"] = FakeBusServer.ack("set_grade", false, "control_lost")
+	var ride := spawn_ride(bus, FLAT_M)
+	var hint: Label = ride.get_node("Hud/Hint")
+	assert_true(await run_until(func(): return hint.text == ride.RESISTANCE_CONTROL_LOST, 3.0))
+
+
+func test_hint_in_read_only_mode() -> void:
+	var steps := [FakeBusServer.status("connected", "ble", ["CADENCE"], 0.0, {}, "read_only")] \
+			+ FakeBusServer.steady_cadence(80.0, 0.0, 6.0)
+	var bus := start_fake_bus(steps)
+	bus.replies["set_grade"] = FakeBusServer.ack("set_grade", false, "read_only")
+	var ride := spawn_ride(bus, FLAT_M)
+	var hint: Label = ride.get_node("Hud/Hint")
+	assert_true(await run_until(func(): return hint.text == ride.RESISTANCE_READ_ONLY, 3.0))
+	assert_string_contains(hint.text, "Nur-lesen-Modus")
 
 
 func test_resends_after_bus_reconnect() -> void:

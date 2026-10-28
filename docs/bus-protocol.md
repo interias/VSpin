@@ -65,6 +65,28 @@ an alle Clients je Änderung, nie doppelt, nie ohne Änderung; neue Clients beko
 `status`. Ein verbundenes Gerät mit geringerem Vorrang (Uhr) wird gegen eines mit höherem (Gurt) getauscht, sobald
 dieses sendet – das ist ein `status` mit neuem `device`, ohne `disconnected` dazwischen.
 
+Dahinter steht seit Spec #75 der Block `trainer` mit dem Stand der Steuerung des Trainers (additiv, `v` bleibt 0;
+ein Objekt, damit später weitere Felder wie Rolle, Name und Signalstärke dazukommen):
+```json
+{"v": 0, "type": "status", "t_ms": 123456,
+ "state": "connected", "source": "ble", "capabilities": ["CADENCE", "POWER", "RESISTANCE_CONTROL", "SPEED"],
+ "heart_rate": {"state": "off", "device": null},
+ "trainer": {"control": "active"}}
+```
+
+| `trainer.control` | Bedeutung |
+|---|---|
+| `none` | kein Trainer verbunden (vor dem ersten Verbinden, nach einem Abbruch) |
+| `requesting` | verbunden, die Bridge fordert die Steuerung an (`0x00` Request Control, `0x07` Start) |
+| `active` | VSpin steuert: `set_grade` wird am Trainer zum Widerstand |
+| `lost` | eine andere App (z. B. Zwift) steuert den Trainer: Machine Status `0x2ADA` meldete Control Permission Lost (`0xFF`) oder einen fremden Reset, oder der Trainer antwortete `0x05`. Die Bridge schreibt dann **nichts** mehr auf den Trainer, bis er neu verbunden ist; erst beim Neuverbinden fordert sie die Steuerung wieder an. Das Spiel zeigt einen Hinweis. |
+| `read_only` | Bridge mit `--read-only`: keine Anforderung, kein Schreibzugriff, unabhängig vom Trainer |
+| `not_supported` | Trainer ohne Indoor Bike Simulation (Target Setting Features `0x2ACC`, Bit 13) oder ohne Control Point; Simulator und Replay |
+| `error` | Anforderung gescheitert (keine Antwort im Zeitlimit, Ablehnung, Schreibfehler – z. B. ohne gebondetes Pairing); Details im Bridge-Terminal, neuer Versuch beim Neuverbinden |
+
+Jede Änderung von `trainer.control` ist eine Statusänderung: genau ein `status` an alle Clients je Änderung.
+Gelesen wird der Trainer in jedem dieser Zustände weiter.
+
 `status` kommt
 - als **erste Nachricht** an jeden neuen Client (aktueller Stand), und
 - als Broadcast an alle Clients **genau einmal je Änderung** des Zustands – nie doppelt,
@@ -88,6 +110,21 @@ wieder Daten, geht zuerst `status: connected` raus, dann die Telemetrie.
 `grade` ist die virtuelle Steigung als Anteil (0.07 = 7 %, negativ = bergab), eine
 endliche Zahl (kein String, kein `true`/`false`, kein NaN/Infinity). Einen Wertebereich
 prüft die Bridge nicht – Sicherheitsgrenzen liegen im Gerät (ADR-0007).
+
+**Am Trainer** (`trainer.control: "active"`, Spec #75) wird `set_grade` zu FTMS `0x11` (Indoor Bike Simulation: Wind 0,
+Steigung in 0,01 %, Crr 0,0040, Cw 0,51 kg/m). Die Bridge **drosselt** gegenüber dem zuletzt an den Trainer
+**geschriebenen** Wert: geschrieben wird nur bei einer Änderung ab 0,001 (0,1 %) und höchstens alle 0,5 s (2 Hz).
+Kommt eine Änderung innerhalb des Intervalls, schreibt die Bridge nach dessen Ablauf den dann aktuellen Wert – der
+zuletzt gemeldete Wert geht nie verloren. Die Steigung wird nicht begrenzt; was der Trainer ablehnt, ist ein `ack` mit
+Grund. Nach einem Neuverbinden fordert die Bridge die Steuerung neu an und sendet die zuletzt gemeldete Steigung nach.
+
+**Sichere Grundlast** (Steigung 0, nie gedrosselt): Verlassen alle Clients den Bus (Spiel abgestürzt oder
+geschlossen) oder verlässt ihn der Client, der zuletzt `set_grade` geschickt hat (auch wenn andere Clients bleiben),
+schreibt die Bridge sofort Steigung 0; eine noch ausstehende gedrosselte Änderung verfällt. Beim Beenden der Bridge
+(Strg+C, Stoppdatei, Ende des Elternprozesses) schreibt sie Steigung 0 und dann `0x01` Reset (gibt die Steuerung
+zurück), bevor sie die Verbindung schließt; bei `error`, wenn der Trainer Request Control bestätigt hatte, nur das
+Reset, bei `lost` nichts. Das Spiel sendet `set_grade 0`, sobald die Fahrt
+pausiert oder endet, und beim Weiterfahren wieder die echte Steigung.
 
 ### Puls: gemerkte Geräte
 
@@ -149,10 +186,17 @@ Broadcast. Die Verbindung bleibt danach offen; andere Clients merken nichts davo
 `ok: false, reason: "not_supported"`. Der Simulator wertet die Steigung trotzdem aus
 (bergauf sinkt die simulierte Kadenz).
 
+Beim steuernden Trainer heißt `ok: true`: die Steigung ist angenommen. Das gilt auch, wenn die Drosselung sie (noch)
+nicht schreibt – unter der Schwelle von 0,1 % oder im laufenden 2-Hz-Intervall; scheitert das spätere Nachholen, steht
+das im Bridge-Terminal (und ein Verlust der Steuerung in `status.trainer`). Die Antwort kommt, nachdem der Trainer den
+geschriebenen Wert bestätigt hat (höchstens 2 s Zeitlimit), bei gedrosselten Werten sofort.
+
 | `reason` | Ursache |
 |---|---|
-| `not_supported` | Quelle ohne Capability `RESISTANCE_CONTROL` |
-| `source_error` | Quelle hat den Befehl mit einem Fehler abgelehnt (Details im Bridge-Terminal); die Verbindung bleibt offen |
+| `not_supported` | Quelle ohne Capability `RESISTANCE_CONTROL` (Simulator, Replay, Trainer ohne Indoor Bike Simulation), oder der Trainer antwortet `0x02` (nicht unterstützt) |
+| `read_only` | Bridge läuft mit `--read-only` (Nur-lesen-Modus): sie schreibt nichts auf den Trainer |
+| `control_lost` | eine andere App steuert den Trainer (`status.trainer.control: "lost"`; Antwort `0x05` Steuerung nicht erlaubt) |
+| `source_error` | Quelle hat den Befehl mit einem Fehler abgelehnt (Details im Bridge-Terminal); die Verbindung bleibt offen. Am Trainer: Antwort `0x03` (ungültiger Parameter, z. B. zu steil) oder `0x04` (gescheitert), keine Antwort im Zeitlimit, Schreibfehler, Steigung außerhalb ±327,67 %, oder gerade keine Steuerung (`none`, `requesting`, `error`) – dann setzt die Bridge die Steigung nach dem Verbinden |
 
 ### `error`
 

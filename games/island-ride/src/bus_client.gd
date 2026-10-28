@@ -45,6 +45,9 @@ const HEART_RATE_OFF := "off"
 const HEART_RATE_DISCONNECTED := "disconnected"
 const HEART_RATE_CONNECTED := "connected"
 const HEART_RATE_STALE := "stale"
+## `status.trainer.control` (Spec #75), soweit das Spiel darauf reagiert: eine andere App steuert bzw. Nur-lesen-Modus.
+const TRAINER_CONTROL_LOST := "lost"
+const TRAINER_CONTROL_READ_ONLY := "read_only"
 
 var url: String
 var reconnect_s: float
@@ -84,6 +87,9 @@ var heart_rate_device := {}
 ## Aktueller Puls in bpm; NAN = kein Wert (`null` in der Telemetrie, keine Telemetrie). Auch ohne Pulsgerät kann ein
 ## Wert da sein: Rad oder Simulator liefern dann ihren eigenen.
 var heart_rate_bpm := NAN
+## Stand der Trainer-Steuerung laut `status.trainer.control` (Spec #75), z. B. `active`, `lost`, `read_only`. Eine
+## ältere Bridge ohne den Block und ein Abbruch des Busses ergeben "" (unbekannt).
+var trainer_control := ""
 
 var _peer: WebSocketPeer = null
 var _retry_in_s := 0.0
@@ -230,6 +236,7 @@ func _set_bus_connected(connected: bool) -> void:
 		silent = false
 		_set_status(STATE_DISCONNECTED)
 		_set_heart_rate(HEART_RATE_OFF, {})  # ohne Bus weiß das Spiel nichts über den Puls
+		trainer_control = ""  # … und nichts über die Steuerung des Trainers
 
 
 func _set_status(state: String) -> void:
@@ -277,6 +284,9 @@ func _handle(text: String) -> void:
 			capabilities = PackedStringArray(caps) if caps is Array else PackedStringArray()
 			_set_status(str(message.get("state", STATE_DISCONNECTED)))
 			_read_heart_rate_status(message.get("heart_rate"))
+			var trainer = message.get("trainer")
+			var control = trainer.get("control") if trainer is Dictionary else null
+			trainer_control = control if control is String else ""
 		"telemetry":
 			_silent_s = 0.0
 			if silent:  # Telemetrie gibt es nur bei `connected` (docs/bus-protocol.md)

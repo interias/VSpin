@@ -122,13 +122,17 @@ static func ack(for_type: String, ok: bool, reason = null) -> Dictionary:
 
 
 ## Baustein: `status`-Nachricht wie von der Bridge (docs/bus-protocol.md). Mit `heart_rate` (Baustein
-## `heart_rate_block`) steht der Pulsblock als letzter Schlüssel dabei; ohne ist es eine ältere Bridge.
+## `heart_rate_block`) steht der Pulsblock als letzter Schlüssel dabei; ohne ist es eine ältere Bridge. Mit
+## `trainer_control` (Spec #75) kommt dahinter der Block `trainer`, z. B. `"lost"`.
 static func status(state: String = "connected", source: String = "sim",
-		capabilities: Array = ["CADENCE"], at: float = 0.0, heart_rate: Dictionary = {}) -> Dictionary:
+		capabilities: Array = ["CADENCE"], at: float = 0.0, heart_rate: Dictionary = {},
+		trainer_control: String = "") -> Dictionary:
 	var message := {"v": 0, "type": "status", "t_ms": int(at * 1000.0),
 			"state": state, "source": source, "capabilities": capabilities}
 	if not heart_rate.is_empty():
 		message["heart_rate"] = heart_rate
+	if not trainer_control.is_empty():
+		message["trainer"] = {"control": trainer_control}
 	return {"at": at, "send": message}
 
 

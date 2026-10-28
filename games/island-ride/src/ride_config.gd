@@ -47,6 +47,9 @@ var bridge_source := "sim"
 ## Start-Kadenz des Simulators beim Start aus dem Spiel (rpm, nur bei Quelle sim).
 var bridge_sim_cadence := 80.0
 var bridge_sessions_dir := "../../bridge/sessions"
+## Trainer nur lesen (Spec #75, nur bei Quelle ble): die Bridge startet mit `--read-only`, fordert keine Steuerung an
+## und schreibt nichts auf den Trainer – z. B. wenn Zwift ihn steuert.
+var bridge_trainer_read_only := false
 
 
 ## Liest `path`; fehlende Datei oder fehlende Schlüssel ergeben die Standardwerte.
@@ -82,6 +85,8 @@ static func load_file(path: String = DEFAULT_PATH) -> RideConfig:
 	config.bridge_source = str(file.get_value("bridge", "source", config.bridge_source))
 	config.bridge_sim_cadence = float(file.get_value("bridge", "sim_cadence", config.bridge_sim_cadence))
 	config.bridge_sessions_dir = str(file.get_value("bridge", "sessions_dir", config.bridge_sessions_dir))
+	config.bridge_trainer_read_only = bool(file.get_value("bridge", "trainer_read_only",
+			config.bridge_trainer_read_only))
 	return config
 
 

@@ -1,7 +1,7 @@
 """Bus-Nachrichten nach docs/bus-protocol.md (Version 0). Jede hat `v` und `type`.
 
 Bridge → Clients: `status`, `telemetry`; Antworten an einen Client: `ack`, `error`.
-Clients → Bridge: `set_grade`.
+Clients → Bridge: `set_grade`. `status` trägt seit Spec #75 den Block `trainer` (Stand der Steuerung).
 Puls (Spec #64): Bridge → Clients zusätzlich `heart_rate_found`, `heart_rate_search_ended` (nur an
 den Anfrager der Suche); Clients → Bridge `set_heart_rate_devices`, `start_heart_rate_search`,
 `stop_heart_rate_search`.
@@ -41,6 +41,7 @@ def status_message(
     source: str,
     capabilities: Iterable[Capability],
     heart_rate: HeartRateStatus = HeartRateStatus(HeartRateState.OFF),
+    trainer_control: str = "not_supported",
 ) -> str:
     return _encode(
         {
@@ -51,8 +52,15 @@ def status_message(
             "source": source,
             "capabilities": sorted(str(c) for c in capabilities),
             "heart_rate": heart_rate_block(heart_rate),  # Pulsquelle, hinter dem Radteil
+            "trainer": trainer_block(trainer_control),  # Steuerung des Trainers (Spec #75)
         }
     )
+
+
+def trainer_block(control: str) -> dict:
+    """Trainerblock in `status`: Stand der Steuerung (`ControlState`). Ein Objekt, damit weitere Felder (Rolle, Name,
+    Signalstärke) additiv dazukommen."""
+    return {"control": str(control)}
 
 
 def _encode(message: dict) -> str:

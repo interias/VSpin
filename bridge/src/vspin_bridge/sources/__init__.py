@@ -2,6 +2,7 @@
 
 from .base import (
     Capability,
+    ControlRefusedError,
     DeviceSource,
     NotSupportedError,
     RawNotification,
@@ -11,6 +12,7 @@ from .base import (
 
 __all__ = [
     "Capability",
+    "ControlRefusedError",
     "DeviceSource",
     "NotSupportedError",
     "RawNotification",

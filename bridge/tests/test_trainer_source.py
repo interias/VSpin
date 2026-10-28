@@ -17,12 +17,20 @@ from trainer_harness import (
     cycling_power,
     features,
     kickr,
+    sim_kickr,
 )
 
 from vspin_bridge import cli
 from vspin_bridge.parsers import CYCLING_POWER_MEASUREMENT, FITNESS_MACHINE_FEATURE, INDOOR_BIKE_DATA, Decoder
-from vspin_bridge.sources.base import Capability, NotSupportedError, RawNotification, SourceDisconnectedError
+from vspin_bridge.sources.base import (
+    Capability,
+    ControlRefusedError,
+    NotSupportedError,
+    RawNotification,
+    SourceDisconnectedError,
+)
 from vspin_bridge.sources.trainer import CYCLING_POWER_SERVICE, FTMS_SERVICE, TrainerSource
+from vspin_bridge.sources.trainer_control import CONTROL_POINT, MACHINE_STATUS, ControlState
 
 OTHER = "AA:00:00:00:10:02"
 HEART_RATE_SERVICE = "0000180d-0000-1000-8000-00805f9b34fb"
@@ -33,7 +41,9 @@ def run(scenario: Callable[[FakeBleAdapter], object]) -> None:
     async def main() -> None:
         adapter = FakeBleAdapter()
         await asyncio.wait_for(scenario(adapter), TIMEOUT_S * 2)
-        # Wächter für jeden Test: die Trainerquelle liest nur (kein Control Point, Spec #75).
+        # Wächter für jeden Test hier: Trainer ohne Indoor Bike Simulation und der Nur-lesen-Modus werden nur gelesen
+        # (Spec #75). Die Steuerung (P3) hebt ihn bewusst auf – deren Tests in test_trainer_control.py prüfen
+        # `adapter.writes` selbst.
         assert adapter.writes == [], "die Trainerquelle hat auf den Trainer geschrieben"
 
     asyncio.run(main())
@@ -427,6 +437,44 @@ def test_cancelled_while_searching_leaves_no_scan():
     run(scenario)
 
 
+# --- Nur-lesen-Modus (Story 5) ---------------------------------------------------------------
+
+
+def test_read_only_never_requests_control_nor_writes():
+    async def scenario(adapter):
+        sim_kickr(adapter)  # der Trainer könnte gesteuert werden
+        source = TrainerSource(adapter, scan_s=0.3, settle_s=0.05, read_only=True)
+        changes = []
+        source.on_control_changed = lambda state, reason: changes.append(state)
+        assert source.control is ControlState.READ_ONLY
+        await source.connect()
+        subscriptions = set(adapter.connections[KICKR].subscriptions)
+        assert CONTROL_POINT not in subscriptions and MACHINE_STATUS not in subscriptions
+        assert Capability.RESISTANCE_CONTROL not in source.capabilities
+        with pytest.raises(ControlRefusedError) as refused:
+            await source.set_grade(0.07)
+        assert refused.value.reason == "read_only"
+        assert await source.reset_grade() is False
+        await source.release()
+        adapter.drop(KICKR)
+        await source.connect()
+        assert source.control is ControlState.READ_ONLY and changes == []  # bleibt read_only, auch über Abbrüche
+
+    run(scenario)
+
+
+def test_trainer_without_simulation_is_read_only_by_nature():
+    async def scenario(adapter):
+        kickr(adapter)
+        source = source_for(adapter)
+        await source.connect()
+        assert source.control is ControlState.NOT_SUPPORTED
+        assert await source.reset_grade() is False
+        await source.release()
+
+    run(scenario)
+
+
 # --- Kommandozeile ---------------------------------------------------------------------------
 
 
@@ -442,6 +490,19 @@ def test_cli_help_names_the_default_choice():
     text = " ".join(cli.build_parser().format_help().split())
     assert "--trainer ADRESSE" in text
     assert "stärkste Gerät mit FTMS" in text
+
+
+def test_cli_read_only_builds_a_read_only_trainer_source():
+    source = cli.SOURCES["ble"](cli.build_parser().parse_args(["--source", "ble", "--read-only"]))
+    assert source.control is ControlState.READ_ONLY
+    assert cli.SOURCES["ble"](cli.build_parser().parse_args(["--source", "ble"])).control is ControlState.NONE
+
+
+def test_cli_read_only_needs_the_ble_source(capsys):
+    with pytest.raises(SystemExit) as exit_:
+        cli.main(["--source", "sim", "--read-only"])
+    assert exit_.value.code == 2
+    assert "--read-only gibt es nur mit --source ble" in capsys.readouterr().err
 
 
 def test_cli_trainer_needs_the_ble_source(capsys):

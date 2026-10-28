@@ -39,3 +39,29 @@ Optionen: Game sendet (A) Widerstandsstufe oder (B) virtuelle Steigung.
 
 - **A (Widerstandsstufe vom Game):** Game müsste Gerätemechanik kennen;
   nicht kompatibel mit Standard-Apps.
+
+## Nachtrag (2026-10-28, Spec #75): Widerstand aus dem FTMS-Smart-Trainer, ESP32-Retrofit entfällt
+
+Die Entscheidung B (das Game sendet die virtuelle Steigung, das Gerät setzt sie um) bleibt. Geändert hat sich das
+Gerät:
+
+- **Widerstand kommt aus FTMS-Smart-Trainern**, erstes Gerät der Wahoo KICKR CORE 2. Der **ESP32-Retrofit entfällt
+  ganz** (Entscheidung des Nutzers vom 28.10.2026); `firmware/` wird nicht gebaut.
+- **Die Klasse heißt `TrainerSource`** (`bridge/src/vspin_bridge/sources/trainer.py`), nicht `BleSource`; Bus-`source`
+  bleibt `ble`. Die FTMS-Bausteine stehen in `sources/trainer_control.py`.
+- **Umsetzung nach FTMS 1.0:** `RESISTANCE_CONTROL` nur, wenn die Target Setting Features (`0x2ACC`, zweites
+  `uint32`) Indoor Bike Simulation (Bit 13) melden und sich der Control Point `0x2AD9` abonnieren lässt. Beim Verbinden:
+  Indications von `0x2AD9` **vor** dem ersten Schreiben abonnieren, `0x2ADA` beobachten, `0x00` Request Control,
+  `0x07` Start, dann je `set_grade` `0x11` (Wind 0, Steigung in 0,01 %, Crr 0,0040, Cw 0,51 kg/m). Jede Anfrage wird
+  mit Antwort geschrieben, die Antwort-Indication `0x80` hat ein Zeitlimit (2 s). Die Steigung wird nicht begrenzt;
+  lehnt der Trainer ab (`0x03`), bekommt der Client ein `ack` mit Grund.
+- **Immer nur ein Steuerer.** Meldet `0x2ADA` Control Permission Lost (`0xFF`) oder einen fremden Reset, oder antwortet
+  der Trainer `0x05`, gilt die Steuerung als verloren (`status.trainer.control: "lost"`); die Bridge schreibt bis zum
+  Neuverbinden nichts mehr und fordert erst dann neu an. `--read-only` schaltet das Steuern ganz ab.
+- **Sicherheit liegt in der Trainer-Firmware** (statt im ESP32), **plus Grundlast in der Bridge:** Verlassen alle
+  Clients den Bus oder der Client der letzten Steigung, setzt sie sofort Steigung 0; beim Beenden Steigung 0 und
+  `0x01` Reset, bevor die Verbindung schließt. Das Spiel sendet beim Pausieren `set_grade 0`. Beides wird nie gedrosselt. Was bei einem harten Absturz
+  der Bridge selbst geschieht, entscheidet die Firmware – das ist am Gerät zu prüfen.
+- **Drosselung in der Bridge:** `0x11` nur bei einer Änderung ab 0,1 % und höchstens 2 Hz gegenüber dem zuletzt
+  geschriebenen Wert; eine gedrosselte Änderung wird mit dem dann aktuellen Wert nachgeholt.
+- Bus additiv, `v` bleibt 0: `status.trainer`, neue `ack`-Gründe `read_only` und `control_lost` (docs/bus-protocol.md).

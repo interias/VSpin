@@ -42,7 +42,7 @@ def _replay(args: argparse.Namespace) -> DeviceSource:
 
 
 def _trainer(args: argparse.Namespace) -> DeviceSource:
-    return TrainerSource(BleakAdapter(), args.trainer)
+    return TrainerSource(BleakAdapter(), args.trainer, read_only=args.read_only)
 
 
 SOURCES: dict[str, Callable[[argparse.Namespace], DeviceSource]] = {
@@ -72,6 +72,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="ADRESSE",
         help="nur --source ble: BLE-Adresse des Trainers (Windows: z. B. AA:BB:CC:DD:EE:FF); ohne Adresse "
         "nimmt die Bridge das stärkste Gerät mit FTMS (ersatzweise Cycling Power)",
+    )
+    parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="nur --source ble: Trainer nur lesen – keine Steuerung anfordern, nichts auf den Trainer schreiben "
+        "(z. B. wenn Zwift ihn steuert); set_grade wird mit ack reason read_only beantwortet",
     )
     parser.add_argument(
         "--speed",
@@ -170,6 +176,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--seed wirkt nur zusammen mit --noise")
     if args.source != "ble" and args.trainer is not None:
         parser.error("--trainer gibt es nur mit --source ble")
+    if args.source != "ble" and args.read_only:
+        parser.error("--read-only gibt es nur mit --source ble")
     if args.source == "replay" and args.file is None:
         parser.error("--source replay braucht eine Datei: vspin-bridge --source replay DATEI.raw.jsonl")
     if args.source != "replay" and (args.file is not None or args.speed is not None or args.wait_client):

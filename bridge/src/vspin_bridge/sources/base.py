@@ -53,6 +53,15 @@ class NotSupportedError(Exception):
     """Die Quelle hat die nötige Capability nicht (z. B. `RESISTANCE_CONTROL`)."""
 
 
+class ControlRefusedError(Exception):
+    """Die Quelle könnte steuern, darf es gerade aber nicht (Spec #75). `reason` geht als `ack`-Grund auf den Bus:
+    `read_only` (Bridge mit `--read-only`) oder `control_lost` (eine andere App steuert den Trainer)."""
+
+    def __init__(self, reason: str, detail: str) -> None:
+        super().__init__(detail)
+        self.reason = reason
+
+
 class SourceDisconnectedError(Exception):
     """Verbindung zur Quelle ist weg: `connect` erreicht das Gerät nicht oder `samples`
     bricht ab. Die Bridge meldet `disconnected` und versucht alle 3 s neu zu verbinden

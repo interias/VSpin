@@ -5,7 +5,7 @@ from sim_pulse import is_window, simulator_pulse
 from vspin_bridge.cli import build_parser
 
 TELEMETRY_FIELDS = {"v", "type", "t_ms", "cadence", "cadence_raw", "speed_kmh", "power_w", "power_estimated", "heart_rate"}
-STATUS_FIELDS = {"v", "type", "t_ms", "state", "source", "capabilities", "heart_rate"}
+STATUS_FIELDS = {"v", "type", "t_ms", "state", "source", "capabilities", "heart_rate", "trainer"}  # trainer: Spec #75
 
 
 def start_sim(bridge_process, cadence: str = "80"):
@@ -23,6 +23,7 @@ def test_new_client_gets_status_first_then_telemetry_with_monotonic_t_ms(bridge_
     assert status["source"] == "sim"
     assert status["state"] == "connected"
     assert status["capabilities"] == ["CADENCE"]
+    assert status["trainer"] == {"control": "not_supported"}  # der Simulator steuert nichts
     assert isinstance(status["t_ms"], int)
 
     samples = [receive_json(client) for _ in range(8)]
