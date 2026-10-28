@@ -8,10 +8,11 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
-from .bus import HOST, PORT, BusServer
+from .bus import HOST, PORT, BusServer, ToOthers
 from .bus.messages import (
     SET_GRADE,
     ClientMessageError,
+    Relay,
     SetGrade,
     ack_message,
     error_message,
@@ -249,12 +250,15 @@ class Bridge:
         """Zuletzt per `set_grade` gesetzte virtuelle Steigung (Anteil) – für das Session-Logging."""
         return self._grade
 
-    async def _on_client_message(self, raw: str | bytes) -> str:
-        """Antwort (`ack`/`error`) für genau den Client, der `raw` gesendet hat."""
+    async def _on_client_message(self, raw: str | bytes) -> str | ToOthers:
+        """Antwort (`ack`/`error`) für genau den Client, der `raw` gesendet hat – oder `ToOthers`:
+        Nachrichten zwischen Spiel und Begleiter gehen unverändert an alle anderen, ohne Antwort."""
         try:
             message = parse_client_message(raw)
         except ClientMessageError as exc:
             return error_message(exc.reason, exc.detail)
+        if isinstance(message, Relay):
+            return ToOthers(message.raw)
         return await self._set_grade(message)
 
     async def _set_grade(self, message: SetGrade) -> str:

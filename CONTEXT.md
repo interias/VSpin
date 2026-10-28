@@ -31,7 +31,7 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **virtuelle Steigung** | Steigung der Strecke, die nur die Spielgeschwindigkeit beeinflusst, nicht den echten Widerstand. |
 | **Bridge** (`vspin-bridge`) | Python-Prozess, der als einziger BLE spricht und Telemetrie auf den Bus publiziert. |
 | **Bus** | Lokaler WebSocket (`ws://127.0.0.1:8765`, JSON), über den Bridge und Clients kommunizieren. |
-| **Client** | Alles, was am Bus hängt: Games, Logger, Dashboard. |
+| **Client** | Alles, was am Bus hängt: Games, Begleiter, Logger, Dashboard. |
 | **measured / estimated** | Herkunft eines Werts: gemessen vom Gerät bzw. hochgerechnet. Geschätzte Watt werden als „~142 W“ angezeigt. |
 | **stale** | Verbindungsstatus: verbunden, aber > 3 s keine Daten. Games pausieren. |
 | **set_grade** | Bus-Nachricht vom Game an die Bridge mit der aktuellen virtuellen Steigung; ab v1 gesendet, bis zum ESP32 mit `not_supported` beantwortet. |
@@ -70,6 +70,17 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **Arcade-Level** | Arcade: eigenes Level aus den Punkten aller Arcade-Läufe; gibt Talentpunkte. Getrennt vom **Fahrerlevel**, das nur Kosmetik freischaltet (ADR-0010). |
 | **Talent** | Arcade: Knoten im Talentbaum (Äste Sprinter, Kletterer, Ausdauer), gelernt mit Talentpunkten aus dem Arcade-Level; verändert Fähigkeiten und Ausrüstungswerte nur im Arcade. |
 
+### Begleiter
+
+| Begriff | Bedeutung |
+|---|---|
+| **Begleiter** (Toni, `vspin-companion`) | Sprechender Radkumpel: eigener Python-Prozess am Bus, hört über die Sprechtaste zu, antwortet mit Stimme und meldet sich von selbst. Liest nur, wirkt nie auf Tempo, Wertung oder Beute (ADR-0010, ADR-0011). _Vermeiden:_ Bot, Assistent, Sprachassistent. |
+| **Wecker** | Weckt den Begleiter in zufälligen Abständen (Start 3–8 min, per Stimme einstellbar) und sofort bei Ereignissen; Toni entscheidet dann selbst, ob er etwas sagt. _Vermeiden:_ Wake-Word – Toni hört nie dauernd mit. |
+| **Seele** (`soul.md`) | Tonis Charakter als Textdatei, höchstens 1 500 Zeichen; per Stimme änderbar („sei mal ernster“). |
+| **Gedächtnis** (`memory.md`) | Was Toni über den Fahrer weiß (Ziele, Vorlieben, Running Gags), höchstens 3 000 Zeichen; nach jeder Fahrt aufgeräumt. Nicht der Gesprächsverlauf – der lebt nur im Speicher, eine Sitzung je Fahrt. |
+| **Sprechtaste** | Leertaste in der Fahrt halten: Toni hört nur, solange sie gedrückt ist (`companion_ptt`). Pause bleibt `P`, im Startmenü startet die Leertaste wie bisher. _Vermeiden:_ Wake-Word, Dauer-Mithören. |
+| **heiser** | Status des Begleiters (`companion_status: hoarse`): Toni schweigt wegen eines Fehlers, ohne Netz oder bei erreichtem Abo-Limit; die Fahrt läuft weiter, kein stilles Ausweichen auf etwas Kostenpflichtiges. |
+
 ## Scope v1
 
 Siehe [ADR-0001](docs/adr/0001-scope-v1.md). Telemetrie + Simulator + genau ein Prototyp-Game.
@@ -93,5 +104,7 @@ Datenspeicherung: [ADR-0008](docs/adr/0008-datenspeicherung-und-export.md) – C
 Repo & Lizenz: [ADR-0009](docs/adr/0009-repo-organisation-und-lizenz.md) – Monorepo, privat, MIT.
 
 Ehrliche Bestzeiten: [ADR-0010](docs/adr/0010-ehrliche-bestzeiten-arcade-getrennt.md) – Arcade-Werte wirken nur im Arcade-Modus.
+
+Begleiter: [ADR-0011](docs/adr/0011-begleiter-claude-abo-oauth-stimme-openrouter.md) – Claude über Abo-OAuth, Stimme über OpenRouter, Erkennung lokal.
 
 Bus-Vertrag: [docs/bus-protocol.md](docs/bus-protocol.md).
