@@ -19,6 +19,7 @@ class FakeProcesses:
 	var parent_env: Array = []  # je Start der Wert von VSPIN_COMPANION_PARENT_PID in diesem Moment
 	var killed: Array = []
 	var ignores_stop := false
+	var missing_programs: Array = []  # Programme, die `program_exists` nicht findet
 
 	func start(program: String, args: PackedStringArray) -> int:
 		started.append([program, args])
@@ -40,8 +41,8 @@ class FakeProcesses:
 		killed.append(pid)
 		running[pid] = false
 
-	func program_exists(_path: String) -> bool:
-		return true
+	func program_exists(path: String) -> bool:
+		return path not in missing_programs
 
 
 var processes: FakeProcesses
@@ -70,8 +71,7 @@ func _closed_port() -> int:
 	return bus.port
 
 
-func _launcher(port: int, platform_ok := true) -> BridgeLauncher:
-	var config := RideConfig.new()
+func _launcher(port: int, platform_ok := true, config := RideConfig.new()) -> BridgeLauncher:
 	config.bus_url = "ws://127.0.0.1:%d" % port
 	return BridgeLauncher.new(config, BASE_DIR, processes, platform_ok, TestIsolation.path(BRIDGE_STOP), port,
 			TestIsolation.path(COMPANION_STOP))
@@ -104,7 +104,9 @@ func test_companion_starts_with_own_bridge_when_wanted() -> void:
 	assert_eq(processes.started.size(), 2, "Begleiter gestartet")
 	var program: String = processes.started[1][0]
 	var args: PackedStringArray = processes.started[1][1]
-	assert_eq(program, "C:/vspin/bridge/.venv/Scripts/pythonw.exe", "dasselbe pythonw wie die Bridge")
+	assert_eq(program, "C:/vspin/bridge/.venv-companion/Scripts/pythonw.exe", "das eigene venv des Begleiters")
+	assert_eq(processes.started[0][0], "C:/vspin/bridge/.venv/Scripts/pythonw.exe", "die Bridge behält ihr Programm")
+	assert_ne(program, processes.started[0][0], "nie das Python der Bridge")
 	assert_eq(args, PackedStringArray(["-m", "vspin_companion", "--port", str(port), "--stop-file",
 			ProjectSettings.globalize_path(TestIsolation.path(COMPANION_STOP))]))
 	launcher.poll(0.1)
@@ -217,6 +219,59 @@ func test_companion_that_exits_is_not_restarted_until_switched_off_and_on() -> v
 	launcher.set_companion(true, false)
 	launcher.poll(0.1)
 	assert_eq(processes.started.size(), 3, "aus und an versucht es neu")
+	assert_true(launcher.stop())
+
+
+func test_companion_program_comes_from_config_and_the_bridge_keeps_its_own() -> void:
+	var port := _closed_port()
+	var config := RideConfig.new()
+	config.bridge_program = "C:/py/bridge/pythonw.exe"
+	config.companion_program = "D:/py/companion/pythonw.exe"
+	var launcher := _launcher(port, true, config)
+	await _settle(launcher)
+	launcher.set_companion(true, false)
+	launcher.poll(0.1)
+	assert_eq(processes.started.size(), 2)
+	assert_eq(processes.started[0][0], "C:/py/bridge/pythonw.exe")
+	assert_eq(processes.started[1][0], "D:/py/companion/pythonw.exe")
+	assert_true(launcher.stop())
+
+
+func test_companion_program_defaults_to_its_own_venv_without_the_key() -> void:
+	var from_file := RideConfig.load_file("res://tests/fixtures/partial.cfg")
+	assert_eq(from_file.companion_program, "../../bridge/.venv-companion/Scripts/pythonw.exe")
+	var port := _closed_port()
+	var launcher := _launcher(port, true, from_file)
+	assert_eq(launcher.companion_program, "C:/vspin/bridge/.venv-companion/Scripts/pythonw.exe")
+
+
+func test_relative_companion_program_is_resolved_from_the_game_folder() -> void:
+	var config := RideConfig.new()
+	config.companion_program = "tools/py/pythonw.exe"
+	assert_eq(_launcher(_closed_port(), true, config).companion_program, BASE_DIR + "/tools/py/pythonw.exe")
+	config.companion_program = "../venv/pythonw.exe"
+	assert_eq(_launcher(_closed_port(), true, config).companion_program, "C:/vspin/games/venv/pythonw.exe")
+
+
+func test_missing_companion_program_starts_no_companion_but_the_bridge_runs_and_does_not_retry() -> void:
+	# Die Warnung (push_warning) lässt sich in GUT hier nicht abfangen; sichtbar ist `companion_failed`.
+	var port := _closed_port()
+	var launcher := await _own_bridge(port)
+	processes.missing_programs = [launcher.companion_program]
+	launcher.set_companion(true, false)
+	launcher.poll(0.1)
+	assert_eq(processes.started.size(), 1, "nur die Bridge, kein Begleiter")
+	assert_eq(launcher.companion_pid, -1)
+	assert_true(launcher.companion_failed)
+	assert_eq(launcher.state, BridgeLauncher.STATE_OWN, "die Bridge läuft weiter")
+	for i in 5:
+		launcher.poll(1.0)
+	assert_eq(processes.started.size(), 1, "kein neuer Versuch")
+	processes.missing_programs = []
+	launcher.set_companion(false, false)
+	launcher.set_companion(true, false)
+	launcher.poll(0.1)
+	assert_eq(processes.started.size(), 2, "aus und an versucht es neu")
 	assert_true(launcher.stop())
 
 

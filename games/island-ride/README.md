@@ -1439,7 +1439,9 @@ die Bridge, die die Nachrichten nur weiterleitet (`docs/bus-protocol.md`, „Cli
 - **Ducking:** Solange Toni spricht, wird der Bus „Spiel“ (Musik, Effekte, Fahrtwind) auf 30 % geduckt (etwa −10 dB,
   0,25 s Übergang).
 - **Start:** Unter Windows startet das Spiel den Begleiter neben seiner eigenen Bridge mit (`program` aus
-  `config.cfg [bridge]`, `-m vspin_companion --port … --stop-file …`), wenn er an ist und noch keiner am Bus ist. Das
+  `config.cfg [companion]`, `-m vspin_companion --port … --stop-file …`), wenn er an ist und noch keiner am Bus ist.
+  Standard ist das eigene venv `bridge/.venv-companion` (Installation in `bridge/README.md`), nicht das der Bridge;
+  fehlt das Programm, startet kein Begleiter (Warnung im Log), Fahrt und Bridge laufen weiter. Das
   Spiel gibt ihm seine PID in `VSPIN_COMPANION_PARENT_PID` mit und beendet ihn beim Schließen über die Stoppdatei.
   - Mit einer von Hand gestarteten Bridge startet man auch den Begleiter von Hand (`bridge/README.md`).
   - Die Abhängigkeiten von Ohren, Mund und Denken stehen im Extra `companion`, das gehört in ein eigenes venv. Ohne sie
@@ -1501,6 +1503,7 @@ zeigt ihn nur an und wertet ihn aus; er verändert die Fahrt nicht.
 | `[bus] url` | `ws://127.0.0.1:8765` | Bus-Adresse |
 | `[bus] reconnect_s` | `2.0` | Sekunden zwischen Verbindungsversuchen |
 | `[bus] connect_timeout_s` | `5.0` | hängt ein Verbindungsaufbau länger, wird er abgebrochen und neu versucht |
+| `[companion] program` | `../../bridge/.venv-companion/Scripts/pythonw.exe` | Programm des Begleiters Toni (#76), eigenes venv; relative Pfade ab dem Spielordner |
 | `[ride] k_kmh_per_rpm` | `0.33` | Übersetzungsfaktor k: `v_ziel = k · Kadenz` (km/h) auf flacher Strecke |
 | `[ride] uphill_damping` | `8.0` | bergauf: `v_ziel / (1 + uphill_damping · Steigung)` |
 | `[ride] downhill_boost` | `2.0` | bergab: `v_ziel · (1 + downhill_boost · \|Gefälle\|)` |
