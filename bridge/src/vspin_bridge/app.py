@@ -5,7 +5,12 @@ Widerstand (Spec #75): `set_grade` geht an die Quelle; der Trainer (`TrainerSour
 meldet den Stand der Steuerung (`status.trainer`). Sichere Grundlast, nie gedrosselt: Verlassen alle Clients den Bus
 (Spiel abgestürzt oder geschlossen) oder der Client, der zuletzt `set_grade` schickte (z. B. Spiel weg, Begleiter
 bleibt), setzt die Bridge sofort Steigung 0; beim Beenden Steigung 0 und Reset, bevor die
-Verbindung schließt. Bei einem harten Absturz der Bridge selbst entscheidet die Trainer-Firmware."""
+Verbindung schließt. Bei einem harten Absturz der Bridge selbst entscheidet die Trainer-Firmware.
+
+Verbindungsfenster (Spec #75): Neben Rad (Trainer) und Puls hält die Bridge den Lenkercontroller (`ControllerSource`);
+gemerkte Geräte und Suche auf Anfrage je Rolle laufen über `DeviceRelay` (`device_relay.py`). `status` trägt dazu
+`controller` und `signal`; „Steuerung zurückholen“ (`reclaim_trainer_control`) fordert die Steuerung nur auf Wunsch
+neu an."""
 
 import asyncio
 import contextlib
@@ -16,8 +21,11 @@ from pathlib import Path
 
 from .bus import HOST, PORT, BusServer
 from .bus.messages import (
+    RECLAIM_TRAINER_CONTROL,
     SET_GRADE,
     ClientMessageError,
+    DeviceKind,
+    ReclaimTrainerControl,
     SetGrade,
     ack_message,
     error_message,
@@ -27,6 +35,7 @@ from .bus.messages import (
 )
 from .clock import bridge_time_ms
 from .console import Console
+from .device_relay import ControllerFactory, DeviceRelay, Role, bleak_controller
 from .heart_rate_relay import HeartRateFactory, HeartRateRelay, bleak_heart_rate
 from .keyboard import HELP, Key, Keyboard, keyboard_available
 from .parsers import Decoder, ParseError
@@ -41,6 +50,7 @@ from .sources.base import (
     SourceDisconnectedError,
     TelemetrySample,
 )
+from .sources.controller import ControllerStatus
 from .sources.heart_rate import HeartRateStatus
 from .sources.sim import SimulatorSource
 from .sources.trainer import TrainerSource
@@ -76,6 +86,7 @@ class Bridge:
         host: str = HOST,
         port: int = PORT,
         heart_rate: HeartRateFactory = bleak_heart_rate,
+        controller: ControllerFactory = bleak_controller,
     ) -> None:
         self._source = source
         self._sessions_dir = sessions_dir
@@ -99,9 +110,16 @@ class Bridge:
             on_client_left=self._on_client_left,
         )
         # Pulsquelle (Spec #64): Zustand in `status`, Wert in `telemetry`, Rohdaten in die Session.
-        self._heart_rate = HeartRateRelay(
-            heart_rate, self._on_heart_rate_status, self._on_heart_rate_raw, self._bus.send_to, console
-        )
+        self._heart_rate = HeartRateRelay(heart_rate, self._on_heart_rate_status, self._on_heart_rate_raw)
+        # Lenkercontroller (Spec #75): nur Zustand, nie ein Schreibzugriff.
+        self._controller = controller(self._on_controller_status)
+        roles: dict[DeviceKind, Role] = {
+            DeviceKind.HEART_RATE: self._heart_rate.source,
+            DeviceKind.CONTROLLER: self._controller,
+        }
+        if isinstance(source, TrainerSource):  # Simulator und Replay haben keinen Trainer
+            roles[DeviceKind.TRAINER] = source
+        self._devices = DeviceRelay(roles, self._bus.send_to, console)
         self._stop: asyncio.Event | None = None
         self._stale_timer: asyncio.TimerHandle | None = None
         self._stale_since_ms = 0  # Bridge-Zeit des letzten Samples (bzw. der Verbindung)
@@ -127,6 +145,7 @@ class Bridge:
             self._console.info(f"Session: {self._session.csv.path}")
             self._console.info(f"Rohdaten: {self._session.raw.path}")
             await self._heart_rate.start()  # aus bis zum ersten Befehl, fasst bis dahin BLE nicht an
+            await self._controller.start()  # ebenso
             if isinstance(self._source, SimulatorSource) and keyboard_available():
                 keyboard = Keyboard(self._on_key)
                 keyboard.start()
@@ -156,7 +175,9 @@ class Bridge:
             self._cancel_stale_timer()
             if keyboard is not None:
                 keyboard.stop()
+            self._devices.stop()  # Suchen auf Anfrage enden
             await self._heart_rate.stop()  # danach keine Pulsmeldung mehr
+            await self._controller.stop()
             await self._bus.stop()
             if self._session is not None:
                 self._session.close()  # alle Zeilen sind schon geflusht
@@ -287,8 +308,10 @@ class Bridge:
             message = parse_client_message(raw)
         except ClientMessageError as exc:
             return error_message(exc.reason, exc.detail)
+        if isinstance(message, ReclaimTrainerControl):
+            return await self._reclaim_trainer_control()
         if not isinstance(message, SetGrade):
-            return await self._heart_rate.handle(message, self._bus.sender())
+            return await self._devices.handle(message, self._bus.sender())
         return await self._set_grade(message)
 
     async def _set_grade(self, message: SetGrade) -> str:
@@ -313,7 +336,25 @@ class Bridge:
         self._render()
         return ack_message(SET_GRADE, ok, reason)
 
+    async def _reclaim_trainer_control(self) -> str:
+        """Knopf „Steuerung zurückholen“ (Verbindungsfenster): nur auf diesen Wunsch fordert die Bridge neu an."""
+        ok, reason, detail = True, None, ""
+        if not isinstance(self._source, TrainerSource):
+            ok, reason = False, "not_supported"
+        else:
+            try:
+                await self._source.reclaim_control()
+            except NotSupportedError:
+                ok, reason = False, "not_supported"
+            except ControlRefusedError as exc:  # read_only | control_lost
+                ok, reason, detail = False, exc.reason, f" ({exc})"
+            except Exception as exc:
+                ok, reason, detail = False, "source_error", f" ({exc})"
+        self._console.info(f"Steuerung zurückholen -> {('ok' if ok else reason) + detail}")
+        return ack_message(RECLAIM_TRAINER_CONTROL, ok, reason)
+
     def _status_message(self) -> str:
+        trainer = self._source if isinstance(self._source, TrainerSource) else None
         return status_message(
             bridge_time_ms(),
             self._state,
@@ -321,6 +362,13 @@ class Bridge:
             self._source.capabilities,
             self._heart_rate.status,
             self._trainer_control(),
+            trainer_device=None if trainer is None else trainer.device,
+            controller=self._controller.status,
+            signal={
+                DeviceKind.TRAINER: None if trainer is None else trainer.rssi,
+                DeviceKind.HEART_RATE: self._heart_rate.source.rssi,
+                DeviceKind.CONTROLLER: self._controller.rssi,
+            },
         )
 
     def _trainer_control(self) -> ControlState:
@@ -367,12 +415,19 @@ class Bridge:
         device = "" if status.device is None else f", {status.device.name} ({status.device.role})"
         self._console.info(f"Puls: {status.state}{device}")
 
+    def _on_controller_status(self, status: ControllerStatus) -> None:
+        """Änderung des Controllers ist eine Statusänderung: genau ein `status` an alle."""
+        self._bus.publish(self._status_message())
+        device = "" if status.device is None else f", {status.device.name} ({status.device.side or '?'})"
+        battery = "" if status.battery is None else f", Batterie {status.battery} %"
+        self._console.info(f"Controller: {status.state}{device}{battery}")
+
     def _on_heart_rate_raw(self, raw: RawNotification) -> None:
         """Rohe Puls-Notification: in die Session-Rohdatei, wie beim Rad."""
         self._log_session(lambda session: session.raw.write(raw))
 
     def _on_client_left(self, client: object) -> None:
-        self._heart_rate.client_left(client)  # seine Suche auf Anfrage endet
+        self._devices.client_left(client)  # seine Suchen auf Anfrage enden
         if client is self._grade_client:  # z. B. Spiel abgestürzt, der Begleiter bleibt verbunden
             self._grade_client = None
             if self._bus.client_count > 0:  # sonst setzt `_on_clients_changed` die Grundlast (genau einmal)

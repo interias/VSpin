@@ -108,8 +108,9 @@ func test_unreachable_bridge_is_started_with_source_from_config() -> void:
 	var args: PackedStringArray = processes.started[0][1]
 	assert_eq(program, "C:/vspin/bridge/.venv/Scripts/pythonw.exe", "pythonw (ohne Konsolenfenster), relativ zum Spiel")
 	assert_eq(args, PackedStringArray(["-m", "vspin_bridge", "--source", "ble", "--sessions-dir", "C:/vspin/bridge/sessions",
-			"--stop-file", ProjectSettings.globalize_path(STOP_FILE), "--parent-pid", str(OS.get_process_id())]),
-			"Wächter auf das Spiel: die Bridge endet mit ihm, auch ohne Stoppdatei")
+			"--stop-file", ProjectSettings.globalize_path(STOP_FILE), "--parent-pid", str(OS.get_process_id()),
+			"--known-trainers"]),
+			"Wächter auf das Spiel: die Bridge endet mit ihm, auch ohne Stoppdatei; Trainer nur aus den gemerkten (Spec #75)")
 	assert_false(FileAccess.file_exists(STOP_FILE), "alte Stoppdatei weg, sonst endete die Bridge sofort")
 	assert_string_contains(launcher.hint(), "wird gestartet (Quelle ble)")
 
@@ -139,6 +140,19 @@ func test_read_only_from_config_file_starts_the_trainer_bridge_with_read_only() 
 	assert_string_contains(" ".join(args), "--source ble")
 	assert_eq(args[-1], "--read-only", "Trainer nur lesen")
 	assert_true(launcher.stop())
+
+
+func test_known_trainers_is_passed_only_to_the_trainer_bridge() -> void:
+	# Spec #75: Die Bridge aus dem Spiel verbindet nur gemerkte Trainer – die Liste schickt das Spiel; ohne sie keinen.
+	for source in ["sim", "ble"]:
+		processes = FakeProcesses.new()
+		var port := _closed_port()
+		var config := _config(port)
+		config.bridge_source = source
+		var launcher := _launcher(config, port)
+		await _settle(launcher)
+		assert_eq(processes.started[0][1].has("--known-trainers"), source == "ble", "--known-trainers (%s)" % source)
+		assert_true(launcher.stop())
 
 
 func test_read_only_is_passed_only_to_the_trainer_bridge() -> void:

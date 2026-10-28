@@ -5,16 +5,23 @@ Clients → Bridge: `set_grade`. `status` trägt seit Spec #75 den Block `traine
 Puls (Spec #64): Bridge → Clients zusätzlich `heart_rate_found`, `heart_rate_search_ended` (nur an
 den Anfrager der Suche); Clients → Bridge `set_heart_rate_devices`, `start_heart_rate_search`,
 `stop_heart_rate_search`.
+Verbindungsfenster (Spec #75): Rollen `trainer | heart_rate | controller` (`DeviceKind`). Clients → Bridge `set_devices`,
+`start_device_search`, `stop_device_search`, `reclaim_trainer_control`; Bridge → Anfrager `device_found`,
+`device_search_ended`. Die Pulsbefehle aus #64 sind Aliase für `kind: heart_rate`. `status` trägt dazu `controller`
+und `signal` (Signalstärke je Rolle), `trainer` zusätzlich `device`.
 """
 
 import json
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
+from enum import StrEnum
 
 from ..ble import Advertisement
 from ..sources.base import Capability, TelemetrySample
+from ..sources.controller import ControllerDevice, ControllerState, ControllerStatus, Side, controller_side
 from ..sources.heart_rate import HeartRateDevice, HeartRateState, HeartRateStatus, Role
+from ..sources.trainer import TrainerDevice
 
 PROTOCOL_VERSION = 0
 
@@ -42,6 +49,9 @@ def status_message(
     capabilities: Iterable[Capability],
     heart_rate: HeartRateStatus = HeartRateStatus(HeartRateState.OFF),
     trainer_control: str = "not_supported",
+    trainer_device: TrainerDevice | None = None,
+    controller: ControllerStatus = ControllerStatus(ControllerState.OFF),
+    signal: dict[str, int | None] | None = None,
 ) -> str:
     return _encode(
         {
@@ -52,15 +62,36 @@ def status_message(
             "source": source,
             "capabilities": sorted(str(c) for c in capabilities),
             "heart_rate": heart_rate_block(heart_rate),  # Pulsquelle, hinter dem Radteil
-            "trainer": trainer_block(trainer_control),  # Steuerung des Trainers (Spec #75)
+            "trainer": trainer_block(trainer_control, trainer_device),  # Steuerung des Trainers (Spec #75)
+            "controller": controller_block(controller),  # Lenkercontroller (Spec #75)
+            "signal": signal_block(signal or {}),  # Signalstärke je Rolle (Verbindungsfenster)
         }
     )
 
 
-def trainer_block(control: str) -> dict:
-    """Trainerblock in `status`: Stand der Steuerung (`ControlState`). Ein Objekt, damit weitere Felder (Rolle, Name,
-    Signalstärke) additiv dazukommen."""
-    return {"control": str(control)}
+def trainer_block(control: str, device: TrainerDevice | None = None) -> dict:
+    """Trainerblock in `status`: Stand der Steuerung (`ControlState`) und der verbundene Trainer (`null` ohne
+    Verbindung bzw. bei Simulator und Replay)."""
+    return {
+        "control": str(control),
+        "device": None if device is None else {"address": device.address, "name": device.name},
+    }
+
+
+def controller_block(status: ControllerStatus) -> dict:
+    """Controllerblock in `status`: Zustand, Gerät (bei `connected`/`locked`, sonst `null`) und Batterie in Prozent."""
+    device = status.device
+    side = None if device is None or device.side is None else str(device.side)
+    return {
+        "state": str(status.state),
+        "device": None if device is None else {"address": device.address, "name": device.name, "side": side},
+        "battery": status.battery,
+    }
+
+
+def signal_block(signal: dict[str, int | None]) -> dict:
+    """Signalstärke (dBm) je Rolle: die Ankündigung, nach der das Gerät verbunden wurde; `null` ohne Gerät."""
+    return {str(kind): signal.get(str(kind)) for kind in DeviceKind}
 
 
 def _encode(message: dict) -> str:
@@ -86,7 +117,7 @@ class SetGrade:
     grade: float  # Anteil, 0.07 = 7 % (ADR-0007)
 
 
-def parse_client_message(raw: str | bytes) -> "SetGrade | HeartRateCommand":
+def parse_client_message(raw: str | bytes) -> "SetGrade | DeviceCommand | ReclaimTrainerControl":
     """Prüft eine Client-Nachricht. Wirft `ClientMessageError` mit `reason` aus docs/bus-protocol.md."""
     if not isinstance(raw, str):
         raise ClientMessageError("invalid_json", "Binärframe – erwartet UTF-8-JSON als Textframe")
@@ -107,6 +138,10 @@ def parse_client_message(raw: str | bytes) -> "SetGrade | HeartRateCommand":
     kind = message["type"]
     if kind in HEART_RATE_COMMANDS:
         return _heart_rate_command(kind, message)
+    if kind in DEVICE_COMMANDS:
+        return _device_command(kind, message)
+    if kind == RECLAIM_TRAINER_CONTROL:
+        return ReclaimTrainerControl()
     if kind != SET_GRADE:
         raise ClientMessageError("unknown_type", f"unbekannter type {kind!r}")
     return SetGrade(grade=_grade(message.get("grade")))
@@ -138,8 +173,24 @@ def _grade(value: object) -> float:
     return grade
 
 
-# --- Puls (Spec #64) ---------------------------------------------------------
+# --- Rollen und Verbindungsfenster (Spec #75) -----------------------------------
 
+
+class DeviceKind(StrEnum):
+    """Rolle eines Geräts im Verbindungsfenster; je Rolle eine Kachel und eine Suche zur Zeit."""
+
+    TRAINER = "trainer"
+    HEART_RATE = "heart_rate"
+    CONTROLLER = "controller"
+
+
+SET_DEVICES = "set_devices"
+START_DEVICE_SEARCH = "start_device_search"
+STOP_DEVICE_SEARCH = "stop_device_search"
+DEVICE_COMMANDS = (SET_DEVICES, START_DEVICE_SEARCH, STOP_DEVICE_SEARCH)
+RECLAIM_TRAINER_CONTROL = "reclaim_trainer_control"
+
+# Puls (Spec #64): Aliase für `kind: heart_rate`; Antworten und Suchergebnisse in der alten Form.
 SET_HEART_RATE_DEVICES = "set_heart_rate_devices"
 START_HEART_RATE_SEARCH = "start_heart_rate_search"
 STOP_HEART_RATE_SEARCH = "stop_heart_rate_search"
@@ -147,23 +198,35 @@ HEART_RATE_COMMANDS = (SET_HEART_RATE_DEVICES, START_HEART_RATE_SEARCH, STOP_HEA
 
 SEARCH_DURATION_MAX_S = 120.0  # Suche auf Anfrage ist immer zeitlich begrenzt
 
-
-@dataclass(frozen=True, slots=True)
-class SetHeartRateDevices:
-    devices: tuple[HeartRateDevice, ...]  # höchster Vorrang zuerst; leer = aus
+Device = TrainerDevice | HeartRateDevice | ControllerDevice
 
 
 @dataclass(frozen=True, slots=True)
-class StartHeartRateSearch:
-    duration_s: float | None  # None = Standarddauer der Pulsquelle
+class SetDevices:
+    kind: DeviceKind
+    devices: tuple[Device, ...]  # höchster Vorrang zuerst (Trainer: das stärkste gemerkte gewinnt); leer = keins
+    for_type: str = SET_DEVICES  # Typ der Anfrage (Alias aus #64: `set_heart_rate_devices`) – für das `ack`
 
 
 @dataclass(frozen=True, slots=True)
-class StopHeartRateSearch:
+class StartDeviceSearch:
+    kind: DeviceKind
+    duration_s: float | None  # None = Standarddauer der Rolle
+    for_type: str = START_DEVICE_SEARCH  # Alias `start_heart_rate_search`: Ergebnisse als `heart_rate_found`
+
+
+@dataclass(frozen=True, slots=True)
+class StopDeviceSearch:
+    kind: DeviceKind | None  # None = alle eigenen Suchen
+    for_type: str = STOP_DEVICE_SEARCH
+
+
+@dataclass(frozen=True, slots=True)
+class ReclaimTrainerControl:
     pass
 
 
-HeartRateCommand = SetHeartRateDevices | StartHeartRateSearch | StopHeartRateSearch
+DeviceCommand = SetDevices | StartDeviceSearch | StopDeviceSearch
 
 
 def heart_rate_block(status: HeartRateStatus) -> dict:
@@ -194,31 +257,82 @@ def heart_rate_search_ended_message(t_ms: int, reason: str) -> str:
     return _encode({"v": PROTOCOL_VERSION, "type": "heart_rate_search_ended", "t_ms": t_ms, "reason": reason})
 
 
-def _heart_rate_command(kind: str, message: dict) -> HeartRateCommand:
+def device_found_message(t_ms: int, kind: DeviceKind, found: Advertisement) -> str:
+    """Suchergebnis einer Rolle; beim Controller mit `side` (`left | right | null`) aus den Herstellerdaten."""
+    message = {
+        "v": PROTOCOL_VERSION,
+        "type": "device_found",
+        "t_ms": t_ms,
+        "kind": str(kind),
+        "address": found.address,
+        "name": found.name,
+        "rssi": found.rssi,
+    }
+    if kind is DeviceKind.CONTROLLER:
+        side = controller_side(found)
+        message["side"] = None if side is None else str(side)
+    return _encode(message)
+
+
+def device_search_ended_message(t_ms: int, kind: DeviceKind, reason: str) -> str:
+    return _encode(
+        {"v": PROTOCOL_VERSION, "type": "device_search_ended", "t_ms": t_ms, "kind": str(kind), "reason": reason}
+    )
+
+
+def _heart_rate_command(kind: str, message: dict) -> DeviceCommand:
     if kind == SET_HEART_RATE_DEVICES:
-        return SetHeartRateDevices(_devices(message.get("devices")))
+        return SetDevices(DeviceKind.HEART_RATE, _devices(DeviceKind.HEART_RATE, message.get("devices")), kind)
     if kind == START_HEART_RATE_SEARCH:
-        return StartHeartRateSearch(_duration(message.get("duration_s")))
-    return StopHeartRateSearch()
+        return StartDeviceSearch(DeviceKind.HEART_RATE, _duration(message.get("duration_s")), kind)
+    return StopDeviceSearch(DeviceKind.HEART_RATE, kind)
 
 
-def _devices(value: object) -> tuple[HeartRateDevice, ...]:
+def _device_command(kind: str, message: dict) -> DeviceCommand:
+    if kind == STOP_DEVICE_SEARCH:
+        return StopDeviceSearch(None if message.get("kind") is None else _kind(message.get("kind")))
+    role = _kind(message.get("kind"))
+    if kind == SET_DEVICES:
+        return SetDevices(role, _devices(role, message.get("devices")))
+    return StartDeviceSearch(role, _duration(message.get("duration_s")))
+
+
+def _kind(value: object) -> DeviceKind:
+    if value not in tuple(DeviceKind):
+        raise ClientMessageError(
+            "invalid_kind", f"'kind' muss 'trainer', 'heart_rate' oder 'controller' sein, war {value!r}"
+        )
+    return DeviceKind(value)
+
+
+def _devices(kind: DeviceKind, value: object) -> tuple[Device, ...]:
     if not isinstance(value, list):
         raise ClientMessageError("invalid_devices", f"'devices' muss eine Liste sein, war {value!r}")
     devices = []
     for i, entry in enumerate(value):
         if not isinstance(entry, dict):
             raise ClientMessageError("invalid_devices", f"devices[{i}] muss ein Objekt sein, war {entry!r}")
-        address, name, role = entry.get("address"), entry.get("name"), entry.get("role")
+        address, name = entry.get("address"), entry.get("name")
         if not isinstance(address, str) or not address:
             raise ClientMessageError("invalid_devices", f"devices[{i}].address muss ein nicht leerer Text sein")
         if not isinstance(name, str):
             raise ClientMessageError("invalid_devices", f"devices[{i}].name muss ein Text sein, war {name!r}")
-        if role not in tuple(Role):
-            raise ClientMessageError(
-                "invalid_devices", f"devices[{i}].role muss 'strap' oder 'watch' sein, war {role!r}"
-            )
-        devices.append(HeartRateDevice(address, name, Role(role)))
+        if kind is DeviceKind.HEART_RATE:
+            role = entry.get("role")
+            if role not in tuple(Role):
+                raise ClientMessageError(
+                    "invalid_devices", f"devices[{i}].role muss 'strap' oder 'watch' sein, war {role!r}"
+                )
+            devices.append(HeartRateDevice(address, name, Role(role)))
+        elif kind is DeviceKind.CONTROLLER:
+            side = entry.get("side")
+            if side is not None and side not in tuple(Side):
+                raise ClientMessageError(
+                    "invalid_devices", f"devices[{i}].side muss 'left', 'right' oder null sein, war {side!r}"
+                )
+            devices.append(ControllerDevice(address, name, None if side is None else Side(side)))
+        else:
+            devices.append(TrainerDevice(address, name))
     return tuple(devices)
 
 

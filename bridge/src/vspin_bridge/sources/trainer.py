@@ -30,7 +30,8 @@ Widerstand (ADR-0007, Nachtrag Spec #75; Bausteine in `trainer_control.py`):
   Quelle nach Ablauf des Intervalls mit dem dann aktuellen Wert nach; der Endwert geht nie verloren.
 - **Kontrollverlust:** `0x2ADA` `0xFF` (Control Permission Lost) oder `0x01` (Reset durch jemand anderen) oder eine
   Antwort `0x05` → `lost`. Ab dann schreibt die Quelle nichts mehr, bis der Trainer neu verbunden ist; erst dann fordert
-  sie die Steuerung neu an (Regel: angefordert wird nur beim Verbinden, nie im Streit mit einer anderen App).
+  sie die Steuerung neu an (Regel: angefordert wird nur beim Verbinden oder auf „Steuerung zurückholen“, unten – nie
+  im Streit mit einer anderen App).
 - **Grundlast:** `reset_grade()` (Bridge: alle Clients weg oder der Client der letzten Steigung weg) schreibt sofort
   Steigung 0, `release()` (Bridge endet) Steigung 0 und danach `0x01` Reset, der die Steuerung zurückgibt – beide nie
   gedrosselt. `release()` gibt auch nach `error` frei, wenn `0x00` in dieser Verbindung bestätigt war, nie nach `lost`.
@@ -38,12 +39,26 @@ Widerstand (ADR-0007, Nachtrag Spec #75; Bausteine in `trainer_control.py`):
 - **Nur lesen** (`read_only`, CLI `--read-only`): kein Abo von `0x2AD9`, keine Anforderung, kein Schreibzugriff;
   `set_grade` → `ControlRefusedError("read_only")`.
 - Stand der Steuerung in `control` (`ControlState`); jede Änderung meldet `on_control_changed(state, grund)`.
+- **Steuerung zurückholen** (`reclaim_control()`, Knopf im Verbindungsfenster): nach `lost` oder `error` nur auf einen
+  Klick des Fahrers – `0x00`, `0x07` und die letzte Steigung wie beim Verbinden. Von selbst fordert die Quelle nie neu an.
+
+Verbindungsfenster (Spec #75, Rolle `trainer`):
+- **Gemerkte Trainer** (`set_known_devices`, vom Spiel über `set_devices`): Sobald eine Liste gesetzt ist, gilt nur sie –
+  die Suche nimmt das stärkste gemerkte Gerät, das sendet (FTMS vor Cycling Power); eine leere Liste heißt: keiner, bis
+  eine Liste mit Geräten kommt. Ohne jede Liste gilt das Verhalten von oben (`--trainer` oder das stärkste Gerät); mit
+  `known_only` (CLI `--known-trainers`, Start aus dem Spiel) wartet die Quelle von Anfang an auf die Liste. Fällt der
+  verbundene Trainer aus der Liste, gibt die Quelle ihn frei (`release()`: Steigung 0, Reset) und trennt; danach
+  verbindet die Bridge neu, mit dem neuen.
+- **Suche auf Anfrage** (`start_search`): ein eigener Scanner nach FTMS und Cycling Power für die angegebene Dauer;
+  jede Ankündigung geht an den Empfänger, auch nicht gemerkte. Verbindungen berührt sie nicht.
+- **Gerät:** `device` (Adresse, Name) und `rssi` (Signalstärke der Ankündigung vor dem Verbinden), solange verbunden.
 """
 
 import asyncio
 import contextlib
 import math
-from collections.abc import AsyncIterator, Callable, Iterable
+from collections.abc import AsyncIterator, Callable, Iterable, Sequence
+from dataclasses import dataclass
 
 from ..ble import Advertisement, BleAdapter, BleConnection, BleError
 from ..clock import bridge_time_ms
@@ -86,6 +101,12 @@ GRADE_INTERVAL_S = 0.5  # … und höchstens alle 0,5 s (2 Hz)
 _LOST = object()  # Marke in der Warteschlange: die Verbindung ist weg
 
 
+@dataclass(frozen=True, slots=True)
+class TrainerDevice:
+    address: str
+    name: str
+
+
 class TrainerSource:
     name = "ble"
     power_estimated = False  # der Trainer misst die Leistung (ADR-0004, Nachtrag Spec #75)
@@ -100,9 +121,16 @@ class TrainerSource:
         read_only: bool = False,
         response_timeout_s: float = RESPONSE_TIMEOUT_S,
         grade_interval_s: float = GRADE_INTERVAL_S,
+        known_only: bool = False,
     ) -> None:
         self._adapter = adapter
         self._address = address
+        # Gemerkte Trainer (Verbindungsfenster): None = noch keine Liste (Verhalten ohne Spiel), [] = keiner.
+        self._known: list[TrainerDevice] | None = [] if known_only else None
+        self._known_changed = asyncio.Event()
+        self.device: TrainerDevice | None = None  # verbundener Trainer
+        self.rssi: int | None = None  # Signalstärke seiner Ankündigung vor dem Verbinden
+        self._search: asyncio.Task[None] | None = None  # Suche auf Anfrage
         self._scan_s = scan_s
         self._settle_s = settle_s
         self._read_only = read_only
@@ -131,8 +159,9 @@ class TrainerSource:
 
     async def connect(self) -> None:
         """Sucht den Trainer, verbindet, liest die Features und abonniert. Wirft `SourceDisconnectedError`,
-        wenn kein Trainer da ist oder etwas scheitert."""
-        address = await self._find()
+        wenn kein Trainer da ist oder etwas scheitert. Mit leerer Liste gemerkter Trainer wartet es auf eine Liste."""
+        found = await self._find()
+        address = found.address
         queue: asyncio.Queue[object] = asyncio.Queue()
         self._queue = queue
         self._cycling_power = False
@@ -149,6 +178,8 @@ class TrainerSource:
 
         try:
             connection = await self._adapter.connect(address, on_disconnect)
+            self.device = TrainerDevice(address, self._device_name(found))
+            self.rssi = found.rssi
             services = connection.service_uuids
             self._cycling_power_available = CYCLING_POWER_SERVICE in services
             if FTMS_SERVICE in services:
@@ -175,13 +206,22 @@ class TrainerSource:
             else:
                 raise BleError(f"{address} hat weder FTMS noch Cycling Power")
         except (BleError, ParseError) as exc:
+            self._forget_device()
             self._end_control(queue, control_point)
             await self._close(connection)
             raise SourceDisconnectedError(f"Trainer {address}: {exc}") from exc
         except BaseException:  # abgebrochen (Bridge endet) mitten im Verbinden: nichts offen lassen
+            self._forget_device()
             self._end_control(queue, control_point)
             await self._close(connection)
             raise
+        if not self._wanted(address):  # während des Verbindens aus der Liste gefallen: freigeben, nicht nutzen
+            with contextlib.suppress(Exception):
+                await self.release()
+            self._forget_device()
+            self._end_control(queue, control_point)
+            await self._close(connection)
+            raise SourceDisconnectedError(f"Trainer {address} nicht mehr gemerkt")
         self._connection = connection
 
     async def samples(self) -> AsyncIterator[RawNotification]:
@@ -201,6 +241,7 @@ class TrainerSource:
         finally:
             if self._connection is connection:
                 self._connection = None
+                self._forget_device()
             self._end_control(queue, control_point)
             await self._close(connection)
 
@@ -270,6 +311,95 @@ class TrainerSource:
         if errors:
             raise RuntimeError("; ".join(errors))
 
+    async def reclaim_control(self) -> None:
+        """Steuerung zurückholen (Knopf „Steuerung zurückholen“, Bus `reclaim_trainer_control`): nur auf den Klick des
+        Fahrers, gedacht nach `lost` oder `error`. Fordert `0x00`/`0x07` neu an und sendet die letzte Steigung nach –
+        nach denselben Regeln wie beim Verbinden. Steuert VSpin schon (`active`, `requesting`), passiert nichts. Wirft
+        `ControlRefusedError` (`read_only`; `control_lost`, wenn der Trainer wieder ablehnt), `NotSupportedError` oder
+        `RuntimeError` (nicht verbunden, Freigabe läuft, Übernehmen gescheitert)."""
+        if self._read_only:
+            raise ControlRefusedError("read_only", "Nur-lesen-Modus (--read-only): VSpin steuert den Trainer nicht")
+        if self._releasing:
+            raise RuntimeError("Trainer wird freigegeben")
+        if self.control is ControlState.NOT_SUPPORTED:
+            raise NotSupportedError("Der Trainer nimmt keine Steigung an")
+        control_point = self._control_point
+        if control_point is None or control_point.closed or self._connection is None:
+            raise RuntimeError(f"Trainer gerade nicht verbunden ({self.control})")
+        if self.control in (ControlState.ACTIVE, ControlState.REQUESTING):
+            return
+        self.on_info("Steuerung zurückholen: fordere die Steuerung neu an")
+        await self._request_control(control_point)
+        if self.control is ControlState.ACTIVE:
+            return
+        if self.control is ControlState.LOST:
+            raise ControlRefusedError("control_lost", "der Trainer verweigert die Steuerung (eine andere App steuert)")
+        if self.control is ControlState.NOT_SUPPORTED:
+            raise NotSupportedError("Der Trainer nimmt keine Steigung an")
+        raise RuntimeError(f"Steuerung nicht übernommen ({self.control})")
+
+    # --- Verbindungsfenster --------------------------------------------------------------
+
+    async def set_known_devices(self, devices: Sequence[TrainerDevice]) -> None:
+        """Gemerkte Trainer (Spiel über `set_devices`); ab jetzt gilt nur diese Liste, leer = keiner. Fällt der verbundene
+        Trainer heraus: erst freigeben (Steigung 0, Reset), dann trennen – die Bridge verbindet danach neu."""
+        self._known = list(devices)
+        self._known_changed.set()
+        connection = self._connection
+        if connection is None or self._wanted(connection.address):
+            return
+        self.on_info(f"Trainer {connection.address} nicht mehr gemerkt: Freigabe, dann Wechsel")
+        try:
+            await self.release()
+        except Exception as exc:  # trotzdem trennen: der Trainer gehört nicht mehr zur Fahrt
+            self.on_info(f"Trainer beim Wechsel nicht freigegeben: {exc}")
+        await self._close(connection)
+
+    @property
+    def searching(self) -> bool:
+        """Läuft gerade eine Suche auf Anfrage?"""
+        return self._search is not None and not self._search.done()
+
+    def start_search(self, on_found: Callable[[Advertisement], None], duration_s: float | None = None) -> None:
+        """Suche auf Anfrage nach Trainern (FTMS, Cycling Power): `on_found` bekommt jede Ankündigung, bis `duration_s`
+        (Standard `scan_s`) um ist oder `stop_search` kommt; ein neuer Aufruf ersetzt eine laufende Suche."""
+        self.stop_search()
+        duration = self._scan_s if duration_s is None else duration_s
+        self._search = asyncio.create_task(self._run_search(on_found, duration), name="trainer-search")
+
+    def stop_search(self) -> None:
+        if self._search is not None:
+            self._search.cancel()
+            self._search = None
+
+    async def _run_search(self, on_found: Callable[[Advertisement], None], duration_s: float) -> None:
+        scan = None
+        try:
+            scan = await self._adapter.start_scan(on_found, services=[FTMS_SERVICE, CYCLING_POWER_SERVICE])
+            await asyncio.sleep(duration_s)
+        except BleError as exc:  # z. B. ohne Bluetooth: die Suche endet am Zeitlimit ohne Treffer
+            self.on_info(f"Trainersuche nicht möglich: {exc}")
+        finally:
+            if scan is not None:
+                with contextlib.suppress(BleError):
+                    await scan.stop()
+
+    def _wanted(self, address: str) -> bool:
+        """Kommt dieser Trainer in Frage? Mit Liste nur ein gemerkter, sonst `--trainer` bzw. jeder."""
+        if self._known is None:
+            return self._address is None or address.lower() == self._address.lower()
+        return any(known.address.lower() == address.lower() for known in self._known)
+
+    def _device_name(self, advertisement: Advertisement) -> str:
+        for known in self._known or ():
+            if known.address.lower() == advertisement.address.lower() and known.name:
+                return known.name
+        return advertisement.name or ""
+
+    def _forget_device(self) -> None:
+        self.device = None
+        self.rssi = None
+
     # --- Steuerung -----------------------------------------------------------------------
 
     async def _take_control(self, connection: BleConnection, control_point: ControlPoint) -> None:
@@ -284,6 +414,10 @@ class TrainerSource:
         self._control_point = control_point
         with contextlib.suppress(BleError):  # Machine Status ist optional; ohne ihn meldet sich ein Verlust per 0x05
             await connection.subscribe(MACHINE_STATUS, lambda data: self._on_machine_status(control_point, data))
+        await self._request_control(control_point)
+
+    async def _request_control(self, control_point: ControlPoint) -> None:
+        """`0x00` Request Control, `0x07` Start, danach die letzte Steigung – im Verbinden und beim Zurückholen."""
         self._set_control(ControlState.REQUESTING, "fordere die Steuerung an")
         try:
             await control_point.request(OP_REQUEST_CONTROL)
@@ -387,13 +521,17 @@ class TrainerSource:
 
     # --- Hilfen --------------------------------------------------------------------------
 
-    async def _find(self) -> str:
-        """Adresse des Trainers; wirft `SourceDisconnectedError`, wenn nach `scan_s` keiner gesendet hat."""
+    async def _find(self) -> Advertisement:
+        """Ankündigung des Trainers; wirft `SourceDisconnectedError`, wenn nach `scan_s` keiner gesendet hat. Mit leerer
+        Liste gemerkter Trainer wartet es zuerst, bis eine Liste mit Geräten kommt."""
+        while self._known is not None and not self._known:
+            self._known_changed.clear()
+            await self._known_changed.wait()
         seen: dict[str, Advertisement] = {}
         found = asyncio.Event()
 
         def on_found(advertisement: Advertisement) -> None:
-            if self._address is None or advertisement.address.lower() == self._address.lower():
+            if self._wanted(advertisement.address):
                 seen[advertisement.address] = advertisement
                 found.set()
 
@@ -406,15 +544,21 @@ class TrainerSource:
                 await asyncio.wait_for(found.wait(), self._scan_s)
             except TimeoutError:
                 what = "Trainer" if self._address is None else f"Trainer {self._address}"
+                if self._known is not None:
+                    what = "Gemerkter Trainer"
                 raise SourceDisconnectedError(
                     f"{what} nicht gefunden (ist er an und von Zwift, der Hersteller-App o. Ä. getrennt?)"
                 ) from None
-            if self._address is None:
+            # ohne Adresse bzw. mit mehreren gemerkten: noch kurz auf ein stärkeres Gerät warten
+            if (self._known is None and self._address is None) or (self._known is not None and len(self._known) > 1):
                 await asyncio.sleep(self._settle_s)
         finally:
             with contextlib.suppress(BleError):
                 await scan.stop()
-        return _strongest(seen.values()).address
+        candidates = [advertisement for advertisement in seen.values() if self._wanted(advertisement.address)]
+        if not candidates:  # die Liste hat sich während der Suche geändert
+            raise SourceDisconnectedError("gemerkter Trainer nicht mehr in der Liste")
+        return _strongest(candidates)
 
     async def _subscribe(self, connection: BleConnection, queue: asyncio.Queue[object], char: str) -> None:
         await connection.subscribe(char, lambda data: queue.put_nowait(RawNotification(bridge_time_ms(), char, data)))

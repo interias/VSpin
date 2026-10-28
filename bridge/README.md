@@ -27,6 +27,7 @@ vspin-bridge --source sim --hr-replay DATEI.raw.jsonl      # Pulsquelle spielt d
 vspin-bridge --source ble                                  # Trainer per BLE (FTMS): das stärkste Gerät mit FTMS
 vspin-bridge --source ble --trainer AA:BB:CC:DD:EE:FF      # bestimmter Trainer (siehe Trainer)
 vspin-bridge --source ble --read-only                      # Trainer nur lesen, nicht steuern (siehe Trainer)
+vspin-bridge --source ble --known-trainers                 # Trainer nur aus der Liste des Spiels (Start aus dem Spiel)
 ```
 
 Im Terminal: Pfeil hoch/`+` = Kadenz +5, Pfeil runter/`-` = Kadenz −5 (0–200 rpm), `q` oder
@@ -73,6 +74,14 @@ den Widerstand über die virtuelle Steigung (siehe Steuerung), sofern er das kan
 - **Suche:** nach FTMS `0x1826` und Cycling Power `0x1818` zugleich. Ohne `--trainer ADRESSE` nimmt die Bridge das
   **stärkste Gerät mit FTMS**, ersatzweise das stärkste mit Cycling Power; mit Adresse gilt nur dieses Gerät. Der
   Trainer darf nicht noch bei Zwift, der Hersteller-App o. Ä. verbunden sein (BLE hält eine Verbindung).
+- **Gemerkte Trainer (Verbindungsfenster):** Schickt ein Client `set_devices` mit `kind: "trainer"`, gilt ab dann nur
+  diese Liste: die Bridge nimmt das stärkste gemerkte Gerät, das sendet; eine leere Liste heißt, kein Trainer verbindet
+  sich von selbst. `--trainer` und das stärkste Gerät gelten nur bis zur ersten Liste (Bridge von Hand ohne Spiel).
+  Mit `--known-trainers` – so startet das Spiel die Bridge – wartet sie von Anfang an auf die Liste. Fällt der
+  verbundene Trainer aus der Liste (das Spiel merkt einen anderen), gibt die Bridge ihn frei wie beim Beenden
+  (Steigung 0, Reset) und verbindet danach den neuen. `status.trainer.device` nennt den verbundenen Trainer,
+  `status.signal.trainer` seine Signalstärke beim Verbinden; `start_device_search` mit `kind: "trainer"` sucht auf
+  Anfrage (docs/bus-protocol.md „Rollen“).
 - **Werte:** Features `0x2ACC` → Capabilities (`SPEED`, `POWER`, `CADENCE`); Indoor Bike Data `0x2AD2` liefert Tempo,
   Leistung und Kadenz. Fehlt die Kadenz dort (laut Features oder in den ersten drei Notifications), kommt Cycling
   Power Measurement `0x2A63` dazu (Kadenz aus den Kurbeldaten). Die Watt sind **gemessen** (`power_estimated: false`,
@@ -105,6 +114,9 @@ ADR-0007 Nachtrag Spec #75). Es gibt immer nur einen Steuerer; den Stand meldet 
 - **Andere App steuert:** Meldet `0x2ADA` Control Permission Lost (`0xFF`) oder einen fremden Reset, oder antwortet der
   Trainer `0x05`, ist die Steuerung `lost`: Die Bridge schreibt nichts mehr, bis der Trainer neu verbunden ist (dann
   fordert sie neu an), `set_grade` bekommt `reason: "control_lost"`, das Spiel zeigt einen Hinweis.
+- **Steuerung zurückholen:** Auf `reclaim_trainer_control` (Knopf im Verbindungsfenster bei `lost` und `error`) fordert
+  die Bridge `0x00`/`0x07` neu an und sendet die zuletzt gemeldete Steigung nach – nur auf diesen Wunsch des Fahrers,
+  nie von selbst (`Steuerung zurückholen -> ok` bzw. der Grund im Terminal).
 - **`--read-only`:** Nur lesen – keine Anforderung, kein Abo des Control Points, kein einziger Schreibzugriff;
   `status.trainer.control` ist `read_only`, `set_grade` bekommt `reason: "read_only"`. Für den Fall, dass Zwift oder
   eine andere App den Trainer steuert. Aus dem Spiel: `config.cfg [bridge] trainer_read_only=true`.
@@ -171,6 +183,31 @@ Merken), verbindet auf Anfrage und spielt die Notifications im Takt der Aufnahme
 die Verbindung ab wie bei einem abgenommenen Gurt (`disconnected`); das Gerät erscheint danach nicht wieder. Eine
 kaputte Datei oder eine ohne `0x2A37`-Zeilen bricht den Start mit einer Meldung ab. Der Launcher des Spiels
 braucht die Option nicht.
+
+## Controller
+
+Dritte Rolle neben Rad und Puls (`sources/controller.py`, Spec #75): der linke bzw. rechte Lenkercontroller des Zwift
+Ride. Wie der Puls braucht er keine Startparameter, bleibt `off`, bis ein Client `set_devices` mit
+`kind: "controller"` schickt, und verbindet dann im Hintergrund das beste gemerkte Gerät, das sendet (der linke zuerst:
+er gibt die Tasten des rechten weiter). Erkannt wird er an Herstellerdaten der Firma `0x094A` (erstes Byte 7 = rechts,
+8 = links), ersatzweise am Namen „Zwift SF2“. Nach dem Verbinden prüft die Bridge die Gerätedatenbank: Fehlt `0xFC82`
+(bzw. `00000001-19ca-4651-86e5-fa29dcdd09d1`), ist er **gesperrt** (`status.controller.state: "locked"`; ab Firmware
+1.3 versteckt der Ride V2 den Service, bis er einmal in Zwift verbunden war, etwa 24 h lang) – dann trennt sie und
+versucht es frühestens nach 30 s wieder. Den Akku liest sie einmal aus `0x2A19`. Sie **schreibt nie** auf den
+Controller: kein Handshake, keine Tasten, kein Abo. Im Terminal steht jede Änderung, z. B.
+`Controller: connected, Zwift SF2 (left), Batterie 81 %`.
+
+## Verbindungsfenster am Bus
+
+Gemerkte Geräte und Suche auf Anfrage laufen für alle Rollen über `device_relay.py`: `set_devices`,
+`start_device_search`, `stop_device_search` mit `kind` `trainer | heart_rate | controller`; Ergebnisse
+(`device_found`) und ihr Ende (`device_search_ended`) nur an den Anfrager, eine Suche je Rolle. Die Pulsbefehle aus
+#64 sind Aliase für `kind: "heart_rate"` und antworten in ihrer alten Form. Tests: `tests/test_bus_devices.py` (je
+Rolle ein eigener Fake, der Controller über `InProcessBridge(..., controller=…)`).
+
+**Nur am Gerät prüfbar:** die Suche nach Herstellerdaten unter WinRT, die Sperre des Controllers und ihr Ende nach
+dem Verbinden in Zwift, drei gleichzeitige Verbindungen (Trainer, Puls, Controller) an einem Adapter, Background
+Pairing mit dem echten Trainer.
 
 ## Profile
 

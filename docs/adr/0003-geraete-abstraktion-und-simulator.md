@@ -59,3 +59,17 @@ Die Bridge zeichnet rohe BLE-Notifications mit Zeitstempel auf (Replay-Format).
   Widerstandsstufe. Sie heißt daher wie die Bus-Nachricht `set_grade`; das Gerät setzt die
   Steigung selbst in Widerstand um (ADR-0007). Der Simulator wertet sie aus und antwortet
   trotzdem mit `NotSupported`.
+
+## Nachtrag (2026-10-28, Spec #75): Das Spiel wählt den Trainer zur Laufzeit
+
+- Mit dem Verbindungsfenster (Kacheln je Rolle: Trainer, Puls, Controller) wählt nicht mehr allein das CLI die
+  Radquelle: Welches BLE-Gerät die Radquelle ist, entscheidet das Spiel zur Laufzeit. Es merkt sich Trainer (wie die
+  Pulsgeräte) in `user://settings.cfg` und schickt die Liste nach jedem Verbinden über den Bus (`set_devices`,
+  `kind: "trainer"`); die Bridge verbindet das stärkste gemerkte Gerät, das sendet („Background Pairing“). Merkt das
+  Spiel einen anderen, gibt die Bridge den alten frei (Steigung 0, Reset) und verbindet den neuen.
+- `--source ble` heißt damit „Trainer aus den gemerkten Geräten“. Eine leere Liste heißt: kein Trainer verbindet
+  sich von selbst. Ohne jede Liste – eine Bridge von Hand ohne Spiel – gilt weiter `--trainer ADRESSE` bzw. das
+  stärkste FTMS-Gerät; die Bridge aus dem Spiel startet mit `--known-trainers` und wartet auf die Liste, damit sie vor
+  ihr kein fremdes Gerät übernimmt.
+- `sim` und `replay` bleiben CLI-Modi: Mit ihnen gibt es keinen Trainer, `set_devices` für den Trainer bleibt ohne
+  Wirkung. Die Klasse der echten Radquelle heißt `TrainerSource` (die Tabelle oben nennt noch `BleSource`).

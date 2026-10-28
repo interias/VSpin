@@ -28,6 +28,8 @@
 ##   CameraView   Kameraperspektive (#59): nach dem Wechsel mit `C` kurz ihr Name („Kamera: Nah“) unter dem Landmark
 ##   Message/Hint/Debug  Zustandsmeldung (mittig zwischen oben und unten), `set_grade`-Hinweis (über dem unteren
 ##                Panel), Debug-Anzeige F3 (unter dem Werte-Panel) – Inhalte setzt die Hauptszene.
+##   Verbindungen (Spec #75) Knopf am Ende der Rundenzeile: öffnet das Verbindungsfenster (`connections_requested`, wie
+##                die Taste V). Nur mit der Maus: er nimmt keinen Tastaturfokus, die Leertaste löst ihn nie aus.
 ## Layout nur über Anker und Container (kein fester Bildschirmort): passt in 960×1040 wie in 1920×1080, mit und
 ## ohne `stretch/mode="canvas_items"`.
 ## Niedrige Fenster (Nacharbeit #26): Ansage und Ergebnis skalieren mit der Fensterhöhe (Höhe/1080, mindestens
@@ -43,6 +45,8 @@ extends CanvasLayer
 
 ## Eine Einblendung (Celebration) erscheint gerade – je sichtbarer Einblendung einmal (#44: dezenter Klang).
 signal celebration_shown(text: String)
+## Knopf „Verbindungen“ geklickt (Spec #75): die Hauptszene öffnet das Verbindungsfenster.
+signal connections_requested
 
 ## Ab diesem Betrag gilt die Steigung als bergauf/bergab, ab GRADE_STEEP als steil.
 const GRADE_FLAT := 0.005
@@ -91,6 +95,9 @@ const POPUP_FONT_PX := 40
 const POPUP_AT := 0.34
 const POPUP_STACK_PX := 52.0
 const COLOR_POPUP := Color(1.0, 0.86, 0.35)
+## Knopf zum Verbindungsfenster (Spec #75): Text und Schriftgröße – klein, damit die Rundenzeile in 1152 px passt.
+const CONNECTIONS_TEXT := "Verbindungen (V)"
+const CONNECTIONS_FONT_PX := 16
 
 @onready var _top: Control = %Top
 @onready var _stats: Control = %Stats
@@ -164,6 +171,8 @@ var _camera_view_tween: Tween
 var _celebration_queue: Array = []
 ## Ebene der Zahlen-Popups (#49).
 var _popups: Control
+## Knopf zum Verbindungsfenster (Spec #75).
+var connections_button: Button
 
 
 func _ready() -> void:
@@ -177,6 +186,14 @@ func _ready() -> void:
 	_popups.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_popups.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_popups)
+	connections_button = Button.new()
+	connections_button.name = "Connections"
+	connections_button.text = CONNECTIONS_TEXT
+	connections_button.focus_mode = Control.FOCUS_NONE  # Leertaste (Begleiter, #76) und Enter lösen ihn nie aus
+	connections_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	connections_button.add_theme_font_size_override("font_size", CONNECTIONS_FONT_PX)
+	connections_button.pressed.connect(connections_requested.emit)
+	_lap_caption.get_parent().add_child(connections_button)
 	_place_overlays()
 
 

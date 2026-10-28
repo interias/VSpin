@@ -43,6 +43,12 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **Control Point** | FTMS-Characteristic `0x2AD9` zum Steuern des Geräts (Write + Indicate); wir nutzen `0x00` Request Control, `0x07` Start, `0x11` Indoor Bike Simulation und beim Beenden `0x01` Reset. Machine Status `0x2ADA` meldet u. a. den Verlust der Steuerung (`0xFF`). |
 | **Session** | Ein Bridge-Lauf; erzeugt `sessions/<zeit>.csv` und `sessions/<zeit>.raw.jsonl`. |
 | **HeartRateSource** | Zweite Quelle der Bridge neben der Radquelle: Puls per BLE Heart Rate Service `0x180D`. Gemerkte Geräte haben die Rolle Gurt (Brustgurt) oder Uhr (Garmin-Uhr mit „Herzfrequenz übertragen“); ihre Reihenfolge ist der Vorrang, ein verbundenes Gerät mit geringerem Vorrang wird gegen eines mit höherem getauscht. |
+| **Rolle** | Wofür ein BLE-Gerät im Verbindungsfenster steht: `trainer`, `heart_rate` (Puls) oder `controller` (Bus-Feld `kind`). Je Rolle gemerkte Geräte (`set_devices`) und eine Suche auf Anfrage zur Zeit. Nicht zu verwechseln mit der Pulsrolle Gurt/Uhr eines Pulsgeräts. |
+| **Verbindungsfenster** | Fenster im Spiel mit einer **Kachel** je Rolle (Zustand, Gerätename, Live-Wert, Signalstärke) und darunter der Einrichtung (suchen, merken, vergessen). Öffnet beim Start von selbst nur bei `config.cfg [bridge] source="ble"` ohne gemerkten Trainer, sonst über „Verbindungen“ im Startmenü, den Knopf im HUD oder die Taste V. Vorgänger ist die Geräteseite aus #64. |
+| **Kachel** | Teil des Verbindungsfensters für eine Rolle: oben der Stand, unten die Einrichtung. Die Trainerkachel zeigt auch die Steuerung, „Nur lesen“ und den Knopf „Steuerung zurückholen“. |
+| **Background Pairing** | Start ohne Dialog: Das Spiel schickt seine gemerkten Geräte nach jedem Verbinden mit dem Bus, die Bridge verbindet im Hintergrund das beste gemerkte Gerät, das sendet (Trainer: das stärkste). |
+| **Steuerung zurückholen** | Knopf im Verbindungsfenster bei `lost` oder `error` (`reclaim_trainer_control`): Nur auf diesen Klick fordert die Bridge die Steuerung neu an; von selbst nie, damit VSpin nie im Streit mit einer anderen App steuert. |
+| **Controller** | Lenkercontroller des Zwift Ride (links/rechts, Name „Zwift SF2“). VSpin verbindet ihn nur und zeigt Zustand und Akku; die Tasten nutzt es noch nicht, und es schreibt nie auf ihn. **Gesperrt** (`locked`): Ab Firmware 1.3 versteckt er seinen Service, bis er einmal in Zwift verbunden war (gilt etwa 24 h) – kein Fehler, sondern ein Hinweis. |
 
 ### Spiel
 
