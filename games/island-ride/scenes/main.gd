@@ -40,8 +40,16 @@
 ##   finished           Ziel erreicht – Ergebnis (Zeit, alle Rundenzeiten, Bestzeit, Ø Kadenz, Ø Tempo); Endzustand
 ##                      der Fahrt. Auch „Fahrt beenden“ nach mindestens einer vollen Runde (z. B. endlos) zeigt erst
 ##                      das Ergebnis der gefahrenen Runden.
+##   saving             Fahrt ohne Ergebnis beendet („Fahrt beenden“), der Dialog „Fahrt speichern“ ist offen; das Fahrmodell
+##                      steht. Nach einem Ergebnis (`finished`) bleibt der Zustand `finished`, der Dialog liegt darüber.
 ##   menu               Startmenü mit Kameraflug, keine Fahrt (kein Fahrmodell, kein `set_grade`)
 ## Verbindungspause hat Vorrang vor der manuellen; eine manuelle Pause bleibt über einen Abbruch hinweg bestehen.
+##
+## Fahrt speichern (Spec #84, `scenes/ride_save_dialog.gd`, `src/ride_trace.gd`): Beim Weg ins Menü fragt der Dialog, ob die
+## Fahrt gespeichert wird (FIT-Datei der Bridge, auf Wunsch Upload zu Garmin Connect) – in Rundfahrt, Training und Arcade.
+## Nach dem Ergebnis (`finished`) kommt er mit Enter, bei „Fahrt beenden“ ohne Ergebnis sofort (Zustand `saving`); einmal je
+## Fahrt, nur mit Fahrzeit > 0 und nur mit Bridge am Bus und Telemetrie-Zeit der Fahrt – exportieren kann nur die Bridge
+## (ADR-0008). Das Spiel führt dafür die Streckenspur (RideTrace, Bridge-Zeit); der Spielstand ist davon unberührt.
 ##
 ## Virtuelle Steigung (ADR-0007): das Spiel meldet die Steigung an der Fahrerposition per `set_grade`
 ## (Drosselung siehe GradeReporter), nicht in der Verbindungspause; danach wird sie neu gemeldet.
@@ -124,6 +132,7 @@ const STATE_RIDING := "riding"
 const STATE_PAUSED_MANUAL := "paused_manual"
 const STATE_PAUSED_CONNECTION := "paused_connection"
 const STATE_FINISHED := "finished"
+const STATE_SAVING := "saving"
 const STATE_MENU := "menu"
 
 ## Tastenbelegung: Aktion → Tasten (physische Tastenposition, unabhängig vom Layout).
@@ -145,6 +154,8 @@ const LOGBOOK := preload("res://scenes/logbook.gd")
 const WARDROBE := preload("res://scenes/wardrobe.gd")
 ## Geräteseite (Brustgurt, Uhr, LTHR und Maximalpuls; Spec #64).
 const DEVICES_MENU := preload("res://scenes/devices_menu.gd")
+## Dialog „Fahrt speichern“ am Fahrtende (Spec #84).
+const RIDE_SAVE_DIALOG := preload("res://scenes/ride_save_dialog.gd")
 ## Ausrüstung des Arcade-Modus (Inventar der Beute; #49).
 const GEAR_MENU := preload("res://scenes/gear_menu.gd")
 ## Talentbaum des Arcade-Modus (Talente aus dem Arcade-Level; #53).
@@ -209,6 +220,9 @@ var start_menu: CanvasLayer
 var logbook: CanvasLayer
 var wardrobe: CanvasLayer
 var devices_menu: CanvasLayer
+## Dialog „Fahrt speichern“ (Kind `RideSaveDialog`) und die Angaben der laufenden Fahrt dafür (Spec #84).
+var ride_save_dialog: CanvasLayer
+var ride_trace: RideTrace
 var gear_menu: CanvasLayer
 var talent_menu: CanvasLayer
 ## Talente und Arcade-Level im Arcade-Lauf (#53); keine Erweiterung in `ArcadeStage.EXTENSIONS`, siehe `_ready`.
@@ -317,6 +331,8 @@ var _gates_of: Training = null
 var _gate_index := -1
 ## Laufende Fahrt schon im Spielstand?
 var _ride_saved := false
+## Hat der Dialog „Fahrt speichern“ für die laufende Fahrt schon gefragt (einmal je Fahrt)?
+var _save_dialog_done := false
 ## Streckenposition des Kameraflugs im Titelbild.
 var _flight_m := 0.0
 ## Vor der Fahrt: Kilometer und volle Runden gesamt, Fahrerlevel; nächster voller Kilometer (gesamt) für die Ereignisse.
@@ -372,6 +388,10 @@ func _ready() -> void:
 	devices_menu.devices_changed.connect(apply_heart_rate_devices)
 	devices_menu.profile_changed.connect(_on_pulse_profile_changed)
 	add_child(devices_menu)
+	ride_save_dialog = RIDE_SAVE_DIALOG.new()
+	ride_save_dialog.name = "RideSaveDialog"
+	ride_save_dialog.closed.connect(_on_save_dialog_closed)
+	add_child(ride_save_dialog)
 	gear_menu = GEAR_MENU.new()
 	gear_menu.name = "GearMenu"
 	gear_menu.closed.connect(_on_gear_menu_closed)
@@ -423,6 +443,7 @@ func _ready() -> void:
 	bridge_launcher = BridgeLauncher.new(config, BridgeLauncher.game_dir())
 	bridge_launcher.begin()
 	model = RideModel.new(config, start_distance_m)
+	ride_trace = RideTrace.new()
 	_new_lap_timing()
 	_reset_progress()
 	hud.setup(track, world)
@@ -444,6 +465,7 @@ func _process(delta: float) -> void:
 		start_menu.show_wheel_status(bus, bridge_launcher.hint())
 		start_menu.show_heart_rate_status(bus)
 		return
+	_trace_ride()
 	if state == STATE_RIDING:
 		_ride(delta)
 	_report_grade(delta)
@@ -728,6 +750,8 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 	resistance_hint = ""
 	_manual_pause = false
 	_ride_saved = false
+	_save_dialog_done = false
+	ride_trace = RideTrace.new()
 	start_menu.close()
 	settings_menu.set_ride_active(true)
 	hud.visible = true
@@ -954,6 +978,7 @@ func _on_settings_visibility_changed() -> void:
 		logbook.focus_default.call_deferred()  # Einstellungen über dem Fahrtenbuch geschlossen
 		wardrobe.focus_default.call_deferred()  # … oder über der Garderobe
 		devices_menu.focus_default.call_deferred()  # … oder über den Geräten
+		ride_save_dialog.focus_default.call_deferred()  # … oder über dem Dialog „Fahrt speichern“
 		gear_menu.focus_default.call_deferred()  # … oder über der Ausrüstung
 		talent_menu.focus_default.call_deferred()  # … oder über den Talenten
 
@@ -974,7 +999,7 @@ func _update_round_trip_menu() -> void:
 ## Spielstand, sofern nicht schon geschehen. Mit mindestens einer vollen Runde (z. B. endlos) erst das Ergebnis, im
 ## Training nach gefahrener Zeit die Teilbewertung.
 func return_to_menu() -> void:
-	if state == STATE_MENU:
+	if state == STATE_MENU or ride_save_dialog.visible:  # der Dialog führt selbst ins Menü
 		return
 	var has_result := not lap_timing.lap_times.is_empty()
 	if training != null:
@@ -985,8 +1010,40 @@ func return_to_menu() -> void:
 		_finish_ride()
 		return
 	_save_ride()
+	if _open_save_dialog():
+		return
 	_flight_m = track.path_distance(model.distance_m)
 	_enter_menu()
+
+
+## Dialog „Fahrt speichern“ geschlossen (gespeichert, verworfen oder weitergeklickt): zurück ins Startmenü.
+func _on_save_dialog_closed() -> void:
+	_flight_m = track.path_distance(model.distance_m)
+	_enter_menu()
+
+
+## Fahrt speichern fragen (Spec #84), einmal je Fahrt: nur mit Fahrzeit, Bridge am Bus und einer Fahrt, die die Bridge
+## schreiben kann (Beginn und Ende in Bridge-Zeit, die nie zurücklief). Ohne Ergebnis (`finished`) steht das Spiel während
+## des Dialogs im Zustand `saving`. Gibt zurück, ob der Dialog offen ist.
+func _open_save_dialog() -> bool:
+	if _save_dialog_done or stats.ride_time_s <= 0.0 or not bus.bus_connected:
+		return false
+	ride_trace.finish(bus.last_telemetry_t_ms, stats.distance_m)
+	if not ride_trace.exportable():
+		return false
+	_save_dialog_done = true
+	if state != STATE_FINISHED:
+		state = STATE_SAVING
+		state_changed.emit(state)
+	ride_save_dialog.open(bus, ride_trace, "Fahrzeit %s · %.1f km" % [format_time(stats.ride_time_s), stats.distance_m / 1000.0],
+			settings_menu.settings, settings_path)
+	return true
+
+
+## Streckenspur der Fahrt mitführen (RideTrace): jedes Bild in Fahren und Pausen, in Bridge-Zeit.
+func _trace_ride() -> void:
+	if state == STATE_RIDING or state == STATE_PAUSED_MANUAL or state == STATE_PAUSED_CONNECTION:
+		ride_trace.sample(bus.last_telemetry_t_ms, stats.distance_m, state == STATE_RIDING)
 
 
 func _enter_menu() -> void:
@@ -1017,6 +1074,7 @@ func _enter_menu() -> void:
 ## Erfolgen (ohne Einblendung – die neuen Erfolge stehen im Ergebnis).
 func _finish_ride() -> void:
 	state = STATE_FINISHED
+	ride_trace.finish(bus.last_telemetry_t_ms, stats.distance_m)
 	hud.end_celebration()  # „neu!“ steht im Ergebnis; die Einblendung stünde dahinter
 	hud.clear_popups()  # ebenso die Popups (#49)
 	if training != null and training.finished() and not _ride_saved:
@@ -1096,7 +1154,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		cycle_camera_view()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("ride_pause") and state != STATE_MENU:
-		if state != STATE_FINISHED:
+		if state != STATE_FINISHED and state != STATE_SAVING:
 			_manual_pause = not _manual_pause
 		_update_state()
 		_update_view()
@@ -1322,7 +1380,7 @@ func segment_result_text(result: Dictionary) -> String:
 func _update_state() -> void:
 	if bus.bus_connected:
 		_ever_connected = true
-	if state == STATE_FINISHED or state == STATE_MENU:
+	if state == STATE_FINISHED or state == STATE_SAVING or state == STATE_MENU:
 		return
 	var connection_ok := bus.bus_connected and bus.status == BusClient.STATE_CONNECTED and _data_since_loss
 	var next := STATE_RIDING
@@ -1363,6 +1421,7 @@ func _ride(delta: float) -> void:
 	for i in range(segments_before, lap_timing.segments.results.size()):
 		hud.celebrate(segment_result_text(lap_timing.segments.results[i]))
 	if laps_done > 0:
+		ride_trace.lap_end(bus.last_telemetry_t_ms)
 		_achievement_event({"type": Achievements.EVENT_LAP, "total_laps": _laps_before + lap_timing.lap_times.size(),
 				"ride_laps": lap_timing.lap_times.size()})
 	while _km_before + stats.distance_m / 1000.0 >= _next_km:
@@ -1550,4 +1609,4 @@ func _update_view() -> void:
 	hint_label.text = resistance_hint
 	var message := status_message()
 	message_label.text = message
-	message_label.visible = not message.is_empty()
+	message_label.visible = not message.is_empty() and not ride_save_dialog.visible

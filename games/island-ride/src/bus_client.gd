@@ -12,6 +12,8 @@
 ## Puls (ADR-0008, docs/bus-protocol.md „Puls“): `heart_rate_state`/`heart_rate_device` aus `status.heart_rate`, der Wert
 ## `heart_rate_bpm` aus `telemetry.heart_rate`. Anders als die Kadenz bleibt der Wert nicht stehen: ohne laufende
 ## Telemetrie (Bus weg, Quelle `stale`/`disconnected`, Schweigen) ist er NAN – ein alter Puls wäre eine falsche Angabe.
+## Fahrt speichern (Spec #84, docs/bus-protocol.md): `save_ride` geht über `send_message`, die Antwort kommt als
+## `ride_saved` (oder `ride_rejected`); der Anmeldezustand bei Garmin steht in `garmin_login`.
 ## Die gemerkten Geräte gehören dem Spiel: `set_heart_rate_devices` schickt sie sofort und nach jedem (Neu-)Verbinden
 ## erneut, auch eine leere Liste (eine frisch gestartete Bridge kennt keine Geräte, eine geteilte die eines anderen).
 class_name BusClient
@@ -31,6 +33,12 @@ signal heart_rate_changed(state: String)
 signal heart_rate_found(address: String, device_name: String, rssi: int)
 ## Die Suche endete ohne eigenes `stop` (`heart_rate_search_ended`); `reason`: timeout | taken_over.
 signal heart_rate_search_ended(reason: String)
+## Antwort der Bridge auf `save_ride` (`ride_saved`, nur an den Absender; geparstes JSON, Spec #84).
+signal ride_saved(message: Dictionary)
+## Die Bridge lehnt ein `save_ride` ab (`error` mit `reason: "invalid_ride"`); `detail` ist ihr Grund.
+signal ride_rejected(detail: String)
+## Anmeldezustand bei Garmin Connect hat sich geändert (`status.garmin.login`, auch wenn der Bus abbricht).
+signal garmin_changed(login: String)
 
 const PROTOCOL_VERSION := 0
 const STATE_CONNECTED := "connected"
@@ -45,6 +53,11 @@ const HEART_RATE_OFF := "off"
 const HEART_RATE_DISCONNECTED := "disconnected"
 const HEART_RATE_CONNECTED := "connected"
 const HEART_RATE_STALE := "stale"
+## Anmeldezustände laut `status.garmin.login`; `unknown`, wenn die Bridge den Block nicht kennt oder der Bus fehlt.
+const GARMIN_UNKNOWN := "unknown"
+const GARMIN_LOGGED_IN := "logged_in"
+const GARMIN_NOT_LOGGED_IN := "not_logged_in"
+const GARMIN_UNAVAILABLE := "unavailable"
 
 var url: String
 var reconnect_s: float
@@ -84,6 +97,9 @@ var heart_rate_device := {}
 ## Aktueller Puls in bpm; NAN = kein Wert (`null` in der Telemetrie, keine Telemetrie). Auch ohne Pulsgerät kann ein
 ## Wert da sein: Rad oder Simulator liefern dann ihren eigenen.
 var heart_rate_bpm := NAN
+## Anmeldezustand bei Garmin Connect laut `status.garmin.login` (nur die Token-Datei der Bridge, nicht ob das Token noch
+## gilt): logged_in | not_logged_in | unavailable, sonst unknown (ältere Bridge ohne den Block, kein Bus).
+var garmin_login := GARMIN_UNKNOWN
 
 var _peer: WebSocketPeer = null
 var _retry_in_s := 0.0
@@ -230,6 +246,7 @@ func _set_bus_connected(connected: bool) -> void:
 		silent = false
 		_set_status(STATE_DISCONNECTED)
 		_set_heart_rate(HEART_RATE_OFF, {})  # ohne Bus weiß das Spiel nichts über den Puls
+		_set_garmin(GARMIN_UNKNOWN)
 
 
 func _set_status(state: String) -> void:
@@ -245,6 +262,22 @@ func _set_heart_rate(state: String, device: Dictionary) -> void:
 		heart_rate_state = state
 		heart_rate_device = device
 		heart_rate_changed.emit(state)
+
+
+func _set_garmin(login: String) -> void:
+	if garmin_login != login:
+		garmin_login = login
+		garmin_changed.emit(login)
+
+
+## `status.garmin` übernehmen; fehlt der Block (ältere Bridge) oder ist er kaputt, gilt `unknown`.
+func _read_garmin_status(block) -> void:
+	var login := GARMIN_UNKNOWN
+	if block is Dictionary:
+		var reported = block.get("login")
+		if reported in [GARMIN_LOGGED_IN, GARMIN_NOT_LOGGED_IN, GARMIN_UNAVAILABLE]:
+			login = reported
+	_set_garmin(login)
 
 
 ## `status.heart_rate` übernehmen; fehlt der Block (ältere Bridge) oder ist er kaputt, gilt `off`.
@@ -277,6 +310,7 @@ func _handle(text: String) -> void:
 			capabilities = PackedStringArray(caps) if caps is Array else PackedStringArray()
 			_set_status(str(message.get("state", STATE_DISCONNECTED)))
 			_read_heart_rate_status(message.get("heart_rate"))
+			_read_garmin_status(message.get("garmin"))
 		"telemetry":
 			_silent_s = 0.0
 			if silent:  # Telemetrie gibt es nur bei `connected` (docs/bus-protocol.md)
@@ -304,7 +338,11 @@ func _handle(text: String) -> void:
 					int(rssi) if rssi is float or rssi is int else 0)
 		"heart_rate_search_ended":
 			heart_rate_search_ended.emit(str(message.get("reason", "")))
+		"ride_saved":
+			ride_saved.emit(message)
 		"error":
+			if message.get("reason") == "invalid_ride":
+				ride_rejected.emit(str(message.get("detail", "")))
 			push_warning("BusClient: Bridge meldet Fehler %s: %s" % [message.get("reason"), message.get("detail")])
 		_:
 			pass  # unbekannte Typen ignorieren (Vorwärtskompatibilität)
