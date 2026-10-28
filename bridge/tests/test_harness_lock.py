@@ -94,7 +94,7 @@ def test_values_share_a_port_only_a_multiple_of_300_apart():
     assert lock_path(DEFAULT_PORT + port_slot(72)) != lock_path(DEFAULT_PORT + port_slot(73))
 
 
-@pytest.mark.parametrize("raw", ["x", "-1", "1.5", "4 6"])
+@pytest.mark.parametrize("raw", ["x", "-1", "1.5", "4 6", "+5", "5_0", "٣"])
 def test_invalid_port_base_stops_the_run(raw):
     # Still auf 8765 zurückzufallen hieße, einem parallelen Lauf in die Quere zu kommen.
     with pytest.raises(ValueError, match=PORT_BASE_ENV):

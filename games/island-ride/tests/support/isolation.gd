@@ -32,7 +32,8 @@ static var _user_dir_before := {}
 ## Fehlermeldung zu einem ungültigen `VSPIN_PORT_BASE`; leer, wenn der Wert gültig ist oder fehlt.
 static func port_base_error() -> String:
 	var raw := OS.get_environment(PORT_BASE_ENV).strip_edges()
-	if raw.is_empty() or (raw.is_valid_int() and int(raw) >= 0):
+	# Nur Ziffern, wie in `tools/e2e.sh` und `bridge_harness.py`: `is_valid_int` nähme auch „+5“ an (Nacharbeit #74).
+	if raw.is_empty() or (raw.is_valid_int() and raw.lstrip("0123456789").is_empty()):
 		return ""
 	return "%s=%s: erwartet eine ganze Zahl ≥ 0" % [PORT_BASE_ENV, raw]
 

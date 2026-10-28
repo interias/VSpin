@@ -13,6 +13,7 @@ import csv
 import io
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -46,13 +47,10 @@ def port_base(env: dict[str, str] | None = None) -> int:
     raw = (os.environ if env is None else env).get(PORT_BASE_ENV, "").strip()
     if not raw:
         return 0
-    try:
-        base = int(raw)
-    except ValueError:
-        raise ValueError(f"{PORT_BASE_ENV}={raw!r}: erwartet eine ganze Zahl ≥ 0") from None
-    if base < 0:
+    # Nur Ziffern, wie in `tools/e2e.sh`: `int()` nähme auch „+5“ und „5_0“ an.
+    if not re.fullmatch(r"[0-9]+", raw):
         raise ValueError(f"{PORT_BASE_ENV}={raw!r}: erwartet eine ganze Zahl ≥ 0")
-    return base
+    return int(raw)
 
 
 def port_slot(base: int) -> int:
