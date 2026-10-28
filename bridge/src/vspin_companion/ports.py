@@ -5,7 +5,7 @@ Jeder Port hat einen Fake (`fakes.py`) und – ab #78/#79 – einen echten Adapt
 (`companion_status: hoarse`); der Prozess läuft weiter.
 """
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -67,15 +67,44 @@ class Ears(Protocol):
         ...
 
 
-class Mouth(Protocol):
-    """Das Sprechen: Stimme und Wiedergabe (ADR-0011)."""
+@dataclass(frozen=True, slots=True)
+class SpeechUsage:
+    """Was die Stimme seit dem letzten `take_usage` verbraucht hat: gesprochene Zeichen, Anfragen an den Dienst und
+    deren Generation-IDs (OpenRouter `X-Generation-Id`); eine Anfrage ohne ID zählt in `requests`, nicht in `ids`."""
 
-    async def speak(self, sentence: str) -> None:
-        """Einen Satz sprechen; kehrt zurück, wenn er zu Ende gespielt (oder per `stop` abgebrochen) ist."""
+    chars: int = 0
+    requests: int = 0
+    generation_ids: tuple[str, ...] = ()
+    aborted: int = 0  # abgebrochene Synthesen (Barge-in): OpenRouter berechnet sie womöglich, wir sehen keine ID
+
+
+class Mouth(Protocol):
+    """Das Sprechen: Stimme und Wiedergabe (ADR-0011).
+
+    `speak` darf für mehrere Sätze **gleichzeitig** laufen (der Begleiter gibt jeden Satz sofort weiter, während Haiku
+    noch schreibt): Der Mund synthetisiert sofort, spielt aber strikt in der Reihenfolge der Aufrufe."""
+
+    async def speak(self, sentence: str, on_start: Callable[[], None] | None = None) -> None:
+        """Einen Satz sprechen; kehrt zurück, wenn er zu Ende gespielt (oder abgebrochen) ist. `on_start` wird
+        gerufen, sobald tatsächlich Ton zu hören ist (Antwortzeit, Status `speaking`)."""
         ...
 
     async def stop(self) -> None:
-        """Laufende Wiedergabe sofort abbrechen (Barge-in, #79); ohne Wiedergabe wirkungslos."""
+        """Laufende Wiedergabe **und** offene Synthese sofort abbrechen (Barge-in, #79); sonst wirkungslos."""
+        ...
+
+    def set_volume(self, volume: float) -> None:
+        """Lautstärke 0..1 für alles, was ab jetzt gespielt wird (`companion_volume` des Spiels)."""
+        ...
+
+    def take_usage(self) -> SpeechUsage:
+        """Verbrauch seit dem letzten Aufruf liefern und zurücksetzen."""
+        ...
+
+    async def cost_of(self, generation_ids: Sequence[str], patient: bool = True) -> dict[str, float]:
+        """Kosten in Dollar je Generation-ID laut Dienst. Der Dienst liefert den Datensatz erst kurz nach der Synthese:
+        der Mund wartet und fragt bei Bedarf mehrmals nach; was er danach nicht kennt, fehlt im Ergebnis.
+        `patient=False`: nur eine Abfrage, ohne Wartezeit (letzter Versuch beim Beenden)."""
         ...
 
 

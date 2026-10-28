@@ -4,7 +4,6 @@ Den Fahrtzustand bekommt Haiku als eine kurze Zeile vor jeder Nachricht, nie als
 klein, Toni teilt sich die Abo-Limits mit Claude Code (Spec #76).
 """
 
-import re
 
 SILENCE = "SCHWEIGEN"  # Antwort auf den Wecker, wenn Toni nichts sagen will
 
@@ -105,15 +104,9 @@ def ride_line(state: dict | None) -> str | None:
     return ", ".join(parts) or None
 
 
-def spoken_text(parts: list[str], one_sentence: bool) -> str:
-    """Was von Tonis Antwort gesprochen wird: `SCHWEIGEN` (oder nichts) heißt schweigen; in harten Phasen nur der
-    erste Satz (in der Logik durchgesetzt, nicht nur im Prompt)."""
-    text = "".join(parts).strip()
-    if text.strip(" .!…").upper() == SILENCE:
-        return ""
-    if one_sentence:
-        text = re.split(r"(?<=[.!?…])\s+", text, maxsplit=1)[0]
-    return text
+def is_silence(text: str) -> bool:
+    """Ist `text` Tonis „ich sage nichts“ (`SCHWEIGEN`, auch mit Satzzeichen)?"""
+    return text.strip(" .!…").upper() == SILENCE
 
 
 def clock_text(seconds: float) -> str:

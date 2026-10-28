@@ -77,7 +77,7 @@ def test_wake_intervals_follow_the_configured_range_and_only_during_a_ride(
     companion.advance(first - 1)
     nothing_more(game, mouth, 0)  # eine Sekunde zu früh: nichts
     companion.advance(1)
-    spoken(game, mouth, 1)
+    spoken(game, mouth, 2)  # zwei Sätze, einzeln an den Mund
     assert brain.prompts[-1].startswith("Wecker: Kein besonderer Anlass.")
 
     wait_until(lambda: clock.pending(), 5.0, "Wecker neu gestellt")
@@ -85,14 +85,14 @@ def test_wake_intervals_follow_the_configured_range_and_only_during_a_ride(
     assert 3 * 60 <= second <= 8 * 60
     assert second == pytest.approx(expected.uniform(3, 8) * 60)
     companion.advance(second)
-    spoken(game, mouth, 2)
-    assert mouth.spoken == ["Na, schon warm? Easy peasy, lemon squeezy.", "Weiter so, Kumpel."]
+    spoken(game, mouth, 3)
+    assert mouth.spoken == ["Na, schon warm?", "Easy peasy, lemon squeezy.", "Weiter so, Kumpel."]
 
     ride_event(game, "ride_end", finished=True, distance_km=9.1, duration_s=1500)
     wait_until(lambda: clock.pending() == [], 5.0, "Wecker aus nach ride_end")
     companion.advance(30 * 60)
     ride_event(game, "medal", medal="gold", **{"for": "lap"})
-    nothing_more(game, mouth, 2)
+    nothing_more(game, mouth, 3)
     assert len(brain.prompts) == 2
 
 
@@ -106,20 +106,20 @@ def test_event_wakes_at_once_and_unprompted_sentences_keep_a_minute_apart(
     ride_start(game, clock)
 
     ride_event(game, "best_time", time_s=1199.6, previous_s=1250, **{"for": "lap"})
-    spoken(game, mouth, 1)  # sofort, ohne dass Zeit vergeht
+    spoken(game, mouth, 2)  # sofort, ohne dass Zeit vergeht (zwei Sätze)
     assert "Anlass: neue Bestzeit für die Runde: 20:00 (vorher 20:50)." in brain.prompts[0]
 
     ride_event(game, "medal", medal="gold", **{"for": "lap"})
     wait_until(lambda: clock.pending() == [clock.now() + 60], 5.0, "Medaille wartet die Minute ab")
-    nothing_more(game, mouth, 1)
+    nothing_more(game, mouth, 2)
 
     assert ask(game) == ["listening", "thinking", "speaking", "idle"]  # Fragen gehen immer durch
     assert mouth.spoken[-1] == "Klar, noch 4 km."
 
     companion.advance(59)
-    nothing_more(game, mouth, 2)
+    nothing_more(game, mouth, 3)
     companion.advance(1)
-    spoken(game, mouth, 3)
+    spoken(game, mouth, 4)
     assert "Anlass: Medaille gold für die Runde." in brain.prompts[2]
 
 
@@ -131,16 +131,16 @@ def test_the_minute_of_silence_starts_when_the_sentence_ends(bridge_process, bus
     clock = FakeClock()
 
     class SlowMouth(FakeMouth):
-        async def speak(self, sentence: str) -> None:
+        async def speak(self, sentence: str, on_start=None) -> None:
             clock.advance(10)  # der Satz dauert 10 s (läuft im Loop des Begleiters)
-            await super().speak(sentence)
+            await super().speak(sentence, on_start)
 
     mouth = SlowMouth()
     in_process_companion(brain, FakeEars(), mouth, clock)
     assert next_status(game)["state"] == "idle"
     ride_start(game, clock)
     ride_event(game, "best_time", time_s=1200, previous_s=1250)
-    spoken(game, mouth, 1)
+    spoken(game, mouth, 2)
     ride_event(game, "medal", medal="gold", **{"for": "lap"})
     wait_until(lambda: clock.pending() == [clock.now() + 60], 5.0, "Medaille wartet die Minute nach dem Satz ab")
 
@@ -219,13 +219,13 @@ def test_hard_phase_allows_one_sentence_until_the_interval_is_over(bridge_proces
     ride_event(game, "lap", lap=1, time_s=1300)
     wait_until(lambda: clock.pending() == [clock.now() + 60], 5.0, "Runde wartet die Minute ab")
     companion.advance(60)  # Intervall längst vorbei
-    spoken(game, mouth, 2)
-    assert mouth.spoken[-1] == "Runde geschafft. Das Bergdorf hat applaudiert."
+    spoken(game, mouth, 3)  # außerhalb harter Phasen beide Sätze
+    assert mouth.spoken[-2:] == ["Runde geschafft.", "Das Bergdorf hat applaudiert."]
 
     ride_event(game, "boss_start", boss="Drac de na Coca")
     wait_until(lambda: clock.pending() == [clock.now() + 60], 5.0, "Boss wartet die Minute ab")
     companion.advance(60)
-    spoken(game, mouth, 3)
+    spoken(game, mouth, 4)
     assert mouth.spoken[-1] == "Der Drac!"
     assert ask(game) == ["listening", "thinking", "speaking", "idle"]  # auch Antworten: ein Satz im Bosskampf
     assert mouth.spoken[-1] == "Noch 2 km."
