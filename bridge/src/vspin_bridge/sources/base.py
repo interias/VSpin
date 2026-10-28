@@ -41,7 +41,7 @@ class TelemetrySample:
 class RawNotification:
     """Rohe BLE-Notification, wie sie im Replay-Format steht (ADR-0003, ADR-0008):
     `t_ms` Zeitstempel der Aufnahme, `char` volle 128-Bit-UUID der Characteristic,
-    `data` die Nutzdaten. Byte-Quellen (Replay, später BLE) liefern diese statt fertiger
+    `data` die Nutzdaten. Byte-Quellen (Replay, Trainer per BLE) liefern diese statt fertiger
     Samples; die Bridge schreibt sie in die Session-Rohdatei und schickt sie durch die Parser."""
 
     t_ms: int

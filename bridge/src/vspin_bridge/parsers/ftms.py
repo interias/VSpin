@@ -82,6 +82,30 @@ def parse_indoor_bike_data(data: bytes) -> IndoorBikeData:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class FitnessMachineFeatures:
+    """Was der Trainer in `0x2AD2` liefern kann (Characteristic Fitness Machine Feature `0x2ACC`)."""
+
+    cadence: bool
+    power: bool
+
+
+CADENCE_SUPPORTED = 1 << 1
+POWER_MEASUREMENT_SUPPORTED = 1 << 14
+
+
+def parse_fitness_machine_features(data: bytes) -> FitnessMachineFeatures:
+    """Fitness Machine Feature `0x2ACC`: `uint32` Fitness Machine Features (Bit 1 = Cadence, Bit 14 = Power
+    Measurement), danach `uint32` Target Setting Features (hier unbenutzt, das Steuern ist ein eigenes Paket).
+    Wirft `ParseError`, wenn die Features fehlen."""
+    if len(data) < 4:
+        raise ParseError(f"Fitness Machine Feature zu kurz ({len(data)} Bytes)")
+    features = int.from_bytes(data[:4], "little")
+    return FitnessMachineFeatures(
+        cadence=bool(features & CADENCE_SUPPORTED), power=bool(features & POWER_MEASUREMENT_SUPPORTED)
+    )
+
+
 def _read(fmt: str, data: bytes, offset: int, name: str) -> tuple[tuple, int]:
     size = 3 if fmt == "uint24" else struct.calcsize(fmt)
     if len(data) < offset + size:

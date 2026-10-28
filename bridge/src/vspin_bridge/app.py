@@ -72,7 +72,7 @@ class Bridge:
         self._session: Session | None = None
         # Datenaufbereitung (ADR-0004) für alle Quellen; Parser-Zustand je Verbindung.
         self._processor = CadenceProcessor(reports_cadence=Capability.CADENCE in source.capabilities)
-        self._decoder = Decoder()
+        self._decoder = self._new_decoder()
         self._reported: set[str] = set()  # schon im Terminal gemeldete Parser-Probleme
         self._console = console
         self._state = DISCONNECTED
@@ -152,7 +152,7 @@ class Bridge:
         while True:
             try:
                 await self._source.connect()
-                self._decoder = Decoder()  # neue Verbindung: Zählerstände (CSC) neu
+                self._decoder = self._new_decoder()  # neue Verbindung: Zählerstände (CSC) neu
                 self._set_state(CONNECTED, "Quelle verbunden")
                 self._arm_stale_timer()
                 async for item in self._source.samples():
@@ -169,6 +169,10 @@ class Bridge:
                 continue
             self._set_state(DISCONNECTED, "Quelle beendet")
             return
+
+    def _new_decoder(self) -> Decoder:
+        """Die Herkunft der Watt gehört der Quelle (Trainer misst; Replay und andere schätzen, ADR-0004)."""
+        return Decoder(power_estimated=getattr(self._source, "power_estimated", True))
 
     def _on_raw(self, raw: RawNotification) -> None:
         """Rohe Notification: in die Session-Rohdatei, dann durch die Parser."""
