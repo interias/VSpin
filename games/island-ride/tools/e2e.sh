@@ -2,7 +2,8 @@
 # Manuelle E2E-Prüfung: echte Bridge (Simulator) + Spiel headless. Belegt „mehr Kadenz → schneller“.
 # Startet je Kadenz `vspin-bridge --source sim --sim-cadence N` auf ws://127.0.0.1:8765,
 # lässt tools/e2e_probe.gd fahren und beendet die Bridge wieder. Port 8765 muss frei sein.
-# Mit VSPIN_PORT_BASE=n (#62) laufen Bridge und Probe auf Port 8765 + n – parallel zu anderen Läufen.
+# Mit VSPIN_PORT_BASE=n (#62) laufen Bridge und Probe auf Port 8765 + Platz (0 für n = 0, sonst 1 + (n − 1) mod 300,
+# wie TestIsolation.port_slot, #72) – parallel zu anderen Läufen.
 #
 #   GODOT=/pfad/zu/godot PYTHON=/pfad/zu/python games/island-ride/tools/e2e.sh [Kadenz ...]
 # Standard: Kadenzen 60 und 90, je 6 s.
@@ -12,11 +13,13 @@ GODOT="${GODOT:-godot}"
 PYTHON="${PYTHON:-python}"
 SECONDS_PER_RUN="${SECONDS_PER_RUN:-6}"
 base="${VSPIN_PORT_BASE:-0}"
-if ! [[ "$base" =~ ^[0-9]+$ ]] || [ "$base" -gt 466 ]; then
-  echo "VSPIN_PORT_BASE=$base: erwartet eine ganze Zahl 0–466" >&2  # laut statt still auf 8765 (#62)
+if ! [[ "$base" =~ ^[0-9]+$ ]]; then
+  echo "VSPIN_PORT_BASE=$base: erwartet eine ganze Zahl ≥ 0" >&2  # laut statt still auf 8765 (#62)
   exit 1
 fi
-port=$((8765 + base))
+base=$((10#$base))
+slot=$(( base == 0 ? 0 : 1 + (base - 1) % 300 ))
+port=$((8765 + slot))
 project="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bridge="$(cd "$project/../../bridge" && pwd)"
 cadences=("$@")

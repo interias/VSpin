@@ -27,7 +27,7 @@ test_commands:
 known_red: keine                   # seit #25 sind alle Bridge-Tests grün
 # lint_commands: keine – der Lint-Vergleich entfällt
 
-test_isolation_env: VSPIN_PORT_BASE   # Wert = Nummer des Pakets (<nr>), 0–466; Begründung unten „Fenster 3“
+test_isolation_env: VSPIN_PORT_BASE   # Wert = Nummer des Pakets (<nr>), jede ganze Zahl ≥ 0; Begründung unten „Fenster 3“
 window: 3
 max_rounds: 3
 always_collide:
@@ -44,11 +44,16 @@ plan_artifact: publish
 # Projektregeln
 
 **Fenster 3.** Seit #62 hat jeder Worktree ein eigenes Testbett über `VSPIN_PORT_BASE=<nr>` (Nummer des
-Pakets, bzw. des Epics im Epic-Worktree; ganze Zahl 0–466, ein ungültiger Wert bricht den Lauf ab). Je Wert getrennt:
-der Bus-Port der Bridge-Tests (8765 + n, die Bridge bekommt `--port`), die Sperre der Bridge-Tests
-(`vspin-bridge-tests-<port>.lock` im Temp-Ordner, unter Windows und Linux), `--basetemp` (je `<name>`), die
-Fake-Bus-Ports der GUT-Tests (18765 + 100·n, 100 je Lauf) und deren Dateien (Spielstand, Einstellungen,
-Gelände-Cache unter `games/island-ride/.godot/test_user/<n>/`, ohnehin je Worktree). Kein Test schreibt in das echte
+Pakets, bzw. des Epics im Epic-Worktree; jede ganze Zahl ≥ 0, ein ungültiger Wert bricht den Lauf ab). Die Ports
+hängen am Platz p: 0 für n = 0, sonst 1 + (n − 1) mod 300 (#72); für n = 1–300 ist p = n. Je Platz getrennt: der
+Bus-Port der Bridge-Tests (8765 + p, die Bridge bekommt `--port`), die Sperre der Bridge-Tests
+(`vspin-bridge-tests-<port>.lock` im Temp-Ordner, unter Windows und Linux) und die Fake-Bus-Ports der GUT-Tests
+(18765 + 100·p, 100 je Lauf); alle Ports liegen in 8765–48864, unter dem dynamischen Bereich 49152–65535, aus dem
+Windows (Hyper-V, WinNAT) Ports ausschließt. Je Wert getrennt: `--basetemp` (je `<name>`) und die Dateien der
+GUT-Tests (Spielstand, Einstellungen, Gelände-Cache unter `games/island-ride/.godot/test_user/<n>/`, ohnehin je
+Worktree). **Kollision:** Zwei Nummern teilen Ports genau dann, wenn sie sich um ein Vielfaches von 300
+unterscheiden (z. B. 72 und 372); solche Pakete – auch ein Paket und der Epic-Worktree – laufen nie gleichzeitig. Bridge-Tests warteten dann nur auf die
+Sperre, GUT-Tests könnten scheitern. Kein Test schreibt in das echte
 `user://`; ein Wächter in den GUT-Hooks lässt den Lauf sonst scheitern. Geteilt bleiben nur das venv (nur gelesen)
 und was die Engine selbst schreibt (Protokolle, Sperrdatei, Shader- und Pipeline-Caches in `user://` – der Wächter übergeht sie –, Editor-Dateien beim `--import`).
 **Nicht isoliert** sind der Web-Export-Check (`docker compose`, Ports 8765/8080) und Prüfhilfen gegen die echte
