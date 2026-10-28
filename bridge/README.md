@@ -58,6 +58,27 @@ Der Simulator senkt bergauf die Kadenz (um 2 × Steigung, höchstens auf die Hä
 bei Steigung 0 oder bergab gilt wieder die per Tastatur eingestellte Kadenz.
 Kaputte oder unbekannte Nachrichten werden mit `error` beantwortet (docs/bus-protocol.md).
 
+Nachrichten zwischen Spiel und Begleiter (`ride_state`, `ride_event`, `companion_ptt`, `companion_status`, #77)
+leitet die Bridge unverändert an alle anderen Clients weiter, nie an den Absender, und antwortet nicht darauf.
+Sie prüft nur den Umschlag (JSON-Objekt, `type`, `v`); die Felder stehen in docs/bus-protocol.md.
+
+## Begleiter (vspin-companion)
+
+Toni, der sprechende Begleiter (Spec #76, ADR-0011), ist ein eigener Prozess im selben Projekt, ein Bus-Client wie
+das Spiel:
+
+```
+python -m vspin_companion                  # im Ordner bridge/, mit PYTHONPATH=src; wartet auf den Bus, falls er fehlt
+```
+
+`--port PORT` und `--host` wie bei der Bridge, `--data-dir ORDNER` für die Ablage (sonst `VSPIN_COMPANION_DIR`,
+sonst `%APPDATA%\VSpin\companion\`), `--stop-file DATEI` zum sauberen Beenden. In der Ablage liegt
+`companion.json` (`brain` = `oauth` | `api_key`, Wecker-Takt, Stimme). Fehlt sie, gelten die Standardwerte, und
+geschrieben wird sie nicht. Die echten Adapter für Denken, Hören und Sprechen fehlen noch (#78, #79). Bis dahin meldet Toni
+`idle` und wird beim ersten Drücken der Sprechtaste heiser (`companion_status: hoarse`); der Prozess läuft weiter.
+Die Abhängigkeiten der echten Adapter kommen ins optionale Extra `companion` (`pyproject.toml`); die Tests brauchen
+es nicht.
+
 ## Profile
 
 ```
@@ -256,6 +277,8 @@ Testmuster: Tests starten die Bridge als echten Prozess (`python -m vspin_bridge
 `PYTHONPATH=src`) und prüfen nur das am Bus beobachtbare Verhalten über Test-Clients
 (`tests/bridge_harness.py`, Fixtures `bridge_process`/`bus_client` in `tests/conftest.py`).
 Port 8765 (mit `VSPIN_PORT_BASE` 8765 + Platz, siehe unten) muss frei sein. Kein Rad, kein Windows nötig.
+Den Begleiter prüfen die Tests nur mit Fakes für Denken, Hören, Sprechen und Uhr (`vspin_companion/fakes.py`,
+`tests/companion_harness.py`) an einer echten Bridge. Kein Test ruft Claude, OpenRouter, das Mikrofon oder die GPU.
 
 **Parallele Testläufe (#62):** `VSPIN_PORT_BASE=n` (jede ganze Zahl ≥ 0, etwa die Paketnummer; ohne Variable 0) gibt
 einem Lauf – etwa je Worktree – den eigenen Bus-Port 8765 + p mit dem Platz p = 0 für n = 0, sonst 1 + (n − 1) mod 300
