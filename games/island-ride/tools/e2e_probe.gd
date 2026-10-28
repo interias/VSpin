@@ -4,8 +4,8 @@
 ## `--start-m`: Startposition auf der Strecke (Insel: 2400 = Beginn der Serpentinen; Graybox: 140 = kurz vor
 ## dem Anstieg), z. B. für `set_grade`. `--track`: Strecke statt der aus config.cfg (`island` oder `graybox`).
 ## Exit-Code 2, wenn keine Bus-Verbindung zustande kam. Mit `VSPIN_PORT_BASE=n` (#62) fährt sie gegen die Bridge auf
-## Port 8765 + n statt config.cfg [bus] url. Den Gelände-Cache legt sie ins Testverzeichnis (TestIsolation), nie
-## nach user://.
+## `TestIsolation.bus_port()` (8765 + Platz von n, #72) statt config.cfg [bus] url. Den Gelände-Cache legt sie ins
+## Testverzeichnis (TestIsolation), nie nach user://.
 extends SceneTree
 
 

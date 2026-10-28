@@ -54,14 +54,17 @@ func _message(game: Node) -> String:
 
 
 ## Training mit der kurzen Einheit aus dem Startmenü starten; danach fährt nur noch `_ride` (Kadenz bleibt vom Bus).
+## Gewartet wird im Menü, bis die Kadenz vom Bus da ist, und die Szene steht schon vor „Losfahren“ still: Kein Frame
+## in Echtzeit fährt mit, egal wie schnell der Bus unter Last verbindet (#72).
 func _start_from_menu(game: Node) -> void:
-	await run_for(0.2)
+	assert_true(await run_until(func(): return game.bus.status == BusClient.STATE_CONNECTED and game.bus.cadence > 0.0,
+			3.0), "Kadenz vom Bus da")
+	game.set_process(false)
 	game.start_menu.buttons["drive"].pressed.emit()
 	game.start_menu.buttons["training"].pressed.emit()
 	game.start_menu.set_training_units([Training.load_file(SHORT_UNIT)])
 	game.start_menu.buttons["training_start"].pressed.emit()
-	assert_true(await run_until(func(): return game.state == "riding" and game.bus.cadence > 0.0, 3.0), "Training fährt")
-	game.set_process(false)
+	assert_eq(game.state, "riding", "Training fährt")
 
 
 func test_menu_offers_the_three_units() -> void:

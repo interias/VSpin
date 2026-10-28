@@ -2,8 +2,8 @@
 ## mono) aus Rauschen und Synthese, mit festem Zufalls-Seed (immer derselbe Klang). Endlosklänge sind nahtlose Schleifen
 ## (Ende in den Anfang übergeblendet), Einzelklänge spielen einmal. Erzeugt wird einmal beim Start, ein Klang je Frame
 ## (RideSound), damit kein großer Block das Bild stocken lässt.
-##   wind       Fahrtwind: Rauschen, tiefpassgefiltert (Rauschen der Luft) plus ein schmaleres Band um ~600 Hz, dessen
-##              Stärke langsam schwankt (Böen); 3 s, 11 025 Hz
+##   wind       Fahrtwind: Rauschen, tiefpassgefiltert (Rauschen der Luft) plus ein weiches Band um ~250 Hz (zwei Tiefpässe,
+##              kaum Höhen), dessen Stärke langsam schwankt (Böen); 3 s, 11 025 Hz
 ##   sea        Meer: braunes Rauschen (Brandung) und Zischen der auslaufenden Welle, Lautstärke im Takt der Wellen
 ##              (zwei Wellen je 6 s); 11 025 Hz
 ##   rain       Regen: hochpassgefiltertes weißes Rauschen plus vereinzelte Tropfen (kurz abklingende Klicks); 2 s
@@ -66,16 +66,18 @@ static func _wind() -> AudioStreamWAV:
 	var out := PackedFloat32Array()
 	out.resize(n + fade)
 	var low := 0.0
-	var band_low := 0.0
+	var air_a := 0.0
+	var air_b := 0.0
 	var band := 0.0
 	for i in range(n + fade):
 		var t := float(i) / LOW_RATE
 		var white := rng.randf() * 2.0 - 1.0
 		low += 0.05 * (white - low)
-		band_low += 0.3 * (white - band_low)
-		band += 0.35 * (band_low - band)  # Band um einige 100 Hz: Differenz zweier Tiefpässe
+		air_a += 0.12 * (white - air_a)  # zwei Tiefpässe hintereinander: weiche Flanke, kaum Höhen
+		air_b += 0.12 * (air_a - air_b)
+		band += 0.2 * (air_b - band)  # Band um einige 100 Hz: Differenz zweier Tiefpässe
 		var gust := 0.55 + 0.3 * sin(TAU * t / 3.0) + 0.15 * sin(TAU * t * 2.0 / 3.0 + 1.3)
-		out[i] = low * 2.2 + (band_low - band) * gust * 1.4
+		out[i] = low * 2.2 + (air_b - band) * gust * 2.4
 	return _wav(_loop(out, n, fade), LOW_RATE, true)
 
 

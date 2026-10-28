@@ -55,8 +55,9 @@ godot --headless --path games/island-ride -s addons/gut/gut_cmdln.gd -gdir=res:/
 Die Tests schreiben nie in den Spielstand oder die Einstellungen unter `%APPDATA%\Godot\app_userdata\Inselfahrt`:
 Ihre Dateien liegen in `games/island-ride/.godot/test_user/`, und der Testlauf scheitert, wenn sich im echten Ordner
 etwas ändert. **Mehrere Testläufe gleichzeitig** (z. B. je Worktree): jedem Lauf eine eigene Zahl
-`VSPIN_PORT_BASE` geben (0–466; Bus-Port der Bridge-Tests 8765 + n, Testports des Spiels ab 18765 + 100·n,
-eigenes Testverzeichnis), pytest dazu mit eigenem `--basetemp`:
+`VSPIN_PORT_BASE` geben (jede ganze Zahl ≥ 0, z. B. die Ticketnummer; Platz p = 1 + (n − 1) mod 300, für 0 gilt 0;
+Bus-Port der Bridge-Tests 8765 + p, Testports des Spiels ab 18765 + 100·p, eigenes Testverzeichnis; Zahlen, die sich
+um ein Vielfaches von 300 unterscheiden, teilen die Ports), pytest dazu mit eigenem `--basetemp`:
 
 ```powershell
 $env:VSPIN_PORT_BASE = "2"
