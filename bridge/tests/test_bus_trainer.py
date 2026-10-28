@@ -23,6 +23,7 @@ from heart_rate_harness import BusReader
 from trainer_harness import (
     FEATURES_POWER_ONLY,
     KICKR,
+    KICKR_NAME,
     TARGET_SIMULATION,
     bike,
     control_responder,
@@ -42,6 +43,11 @@ from vspin_bridge.sources.trainer_control import CONTROL_POINT, MACHINE_STATUS
 pytestmark = pytest.mark.usefixtures("isolated_bus")
 
 RECONNECT_S = 0.1
+
+
+def trainer_block(control: str, connected: bool = True) -> dict:
+    """Der ganze Block `status.trainer` (seit P4 mit dem verbundenen Gerät)."""
+    return {"control": control, "device": {"address": KICKR, "name": KICKR_NAME} if connected else None}
 
 
 class Rig:
@@ -252,13 +258,13 @@ def test_status_trainer_reports_control_once_per_change(trainer_bridge, bus_clie
     rig = trainer_bridge(sim=True)
     reader = BusReader(bus_client())
     status = wait_for_state(reader, "connected")
-    assert status["trainer"] == {"control": "active"}
+    assert status["trainer"] == trainer_block("active")
     assert "RESISTANCE_CONTROL" in status["capabilities"]
     assert rig.control_writes() == [REQUEST_CONTROL, START]
 
     rig.send(MACHINE_STATUS, b"\xff")  # Zwift o. Ä. übernimmt
     lost = reader.next("status")
-    assert lost["trainer"] == {"control": "lost"} and lost["state"] == "connected"
+    assert lost["trainer"] == trainer_block("lost") and lost["state"] == "connected"
     rig.send(MACHINE_STATUS, b"\xff")
     assert [m for m in reader.drain(0.4) if m["type"] == "status"] == []  # genau ein Broadcast
     assert reader.reply(set_grade(0.05)) == ack(False, "control_lost")
@@ -270,7 +276,7 @@ def test_status_trainer_reports_control_once_per_change(trainer_bridge, bus_clie
 def test_new_client_gets_the_trainer_block_in_its_first_status(trainer_bridge, bus_client):
     trainer_bridge(sim=True)
     wait_for_state(BusReader(bus_client()), "connected")
-    assert BusReader(bus_client()).first["trainer"] == {"control": "active"}
+    assert BusReader(bus_client()).first["trainer"] == trainer_block("active")
 
 
 def test_set_grade_reaches_the_trainer_and_is_acked(trainer_bridge, bus_client):
@@ -354,7 +360,7 @@ def test_read_only_bridge_never_writes(trainer_bridge, bus_client):
     rig = trainer_bridge(sim=True, read_only=True)
     reader = BusReader(bus_client())
     status = wait_for_state(reader, "connected")
-    assert status["trainer"] == {"control": "read_only"}
+    assert status["trainer"] == trainer_block("read_only")
     assert "RESISTANCE_CONTROL" not in status["capabilities"]
     assert reader.reply(set_grade(0.07)) == ack(False, "read_only")
     reader.client.close()  # auch die Grundlast schreibt nichts
@@ -370,8 +376,8 @@ def test_reconnect_requests_control_again_and_resends_the_last_grade(trainer_bri
     wait_for_state(reader, "connected")
     assert reader.reply(set_grade(0.05)) == ack(True)
     rig.bridge.call(rig.adapter.drop, KICKR)
-    assert reader.next("status", lambda m: m["state"] == "disconnected")["trainer"] == {"control": "none"}
-    assert reader.next("status", lambda m: m["state"] == "connected")["trainer"] == {"control": "active"}
+    assert reader.next("status", lambda m: m["state"] == "disconnected")["trainer"] == trainer_block("none", False)
+    assert reader.next("status", lambda m: m["state"] == "connected")["trainer"] == trainer_block("active")
     assert rig.wait_for_writes(6) == [REQUEST_CONTROL, START, simulation(500)] * 2
     assert_one_status_per_change(reader)
 
@@ -379,7 +385,7 @@ def test_reconnect_requests_control_again_and_resends_the_last_grade(trainer_bri
 def test_trainer_without_simulation_reports_not_supported(trainer_bridge, bus_client):
     rig = trainer_bridge()
     reader = BusReader(bus_client())
-    assert wait_for_state(reader, "connected")["trainer"] == {"control": "not_supported"}
+    assert wait_for_state(reader, "connected")["trainer"] == trainer_block("not_supported")
     assert reader.reply(set_grade(0.05)) == ack(False, "not_supported")
     reader.client.close()
     rig.bridge.stop()

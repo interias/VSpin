@@ -88,6 +88,7 @@ class _Link:
         self.device = device
         self.connection: BleConnection | None = None
         self.alive = True
+        self.rssi: int | None = None  # Signalstärke der Ankündigung vor dem Verbinden (Spec #75)
 
 
 class HeartRateSource:
@@ -118,6 +119,7 @@ class HeartRateSource:
         self._scan: BleScan | None = None
         self._scan_retry_at = 0.0
         self._seen: dict[int, str] = {}  # Rang → Adresse, seit dem letzten Versuch angekündigt
+        self._rssi: dict[str, int] = {}  # Adresse → Signalstärke der letzten Ankündigung eines gemerkten Geräts
         self._retry_at = 0.0
         self._epoch = 0  # zählt jedes Setzen der Liste; ein laufender Versuch erkennt so Veraltetes
 
@@ -142,6 +144,12 @@ class HeartRateSource:
         if self._bpm is None or self._stale or time.monotonic() - self._bpm_at > self._stale_s:
             return None
         return self._bpm
+
+    @property
+    def rssi(self) -> int | None:
+        """Signalstärke (dBm) der Ankündigung, nach der das verbundene Gerät verbunden wurde (Verbindungsfenster,
+        Spec #75); `None` ohne Verbindung."""
+        return None if self._link is None else self._link.rssi
 
     @property
     def searching(self) -> bool:
@@ -261,6 +269,7 @@ class HeartRateSource:
         loop = asyncio.get_running_loop()
         epoch = self._epoch
         link = _Link(rank, replace(self._known[rank], address=address))
+        link.rssi = self._rssi.get(address)
         try:
             link.connection = await self._adapter.connect(address, lambda: self._on_disconnect(link))
             await link.connection.subscribe(HEART_RATE_MEASUREMENT, lambda data: self._on_notify(link, data))
@@ -296,6 +305,7 @@ class HeartRateSource:
         rank = self._rank(advertisement.address, advertisement.name)
         if rank is not None:
             self._seen[rank] = advertisement.address
+            self._rssi[advertisement.address] = advertisement.rssi
             self._wake.set()
 
     def _on_disconnect(self, link: _Link) -> None:

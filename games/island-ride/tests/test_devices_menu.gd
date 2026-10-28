@@ -51,8 +51,8 @@ func _sent_count(bus: FakeBusServer) -> int:
 func test_menu_entry_opens_and_closes_the_page() -> void:
 	var bus := start_fake_bus([FakeBusServer.status()])
 	var game := await _spawn_game(bus)
-	assert_true(game.start_menu.buttons.has("devices"), "Menüpunkt Geräte")
-	assert_eq((game.start_menu.buttons["devices"] as Button).text, "Geräte")
+	assert_true(game.start_menu.buttons.has("devices"), "Menüpunkt Verbindungen (früher Geräte)")
+	assert_eq((game.start_menu.buttons["devices"] as Button).text, "Verbindungen", "Verbindungsfenster (Spec #75)")
 	var menu := await _open(game)
 	assert_true(menu.visible, "Seite offen")
 	assert_false(game.start_menu.visible, "Startmenü tritt zurück")

@@ -65,27 +65,48 @@ an alle Clients je Änderung, nie doppelt, nie ohne Änderung; neue Clients beko
 `status`. Ein verbundenes Gerät mit geringerem Vorrang (Uhr) wird gegen eines mit höherem (Gurt) getauscht, sobald
 dieses sendet – das ist ein `status` mit neuem `device`, ohne `disconnected` dazwischen.
 
-Dahinter steht seit Spec #75 der Block `trainer` mit dem Stand der Steuerung des Trainers (additiv, `v` bleibt 0;
-ein Objekt, damit später weitere Felder wie Rolle, Name und Signalstärke dazukommen):
+Dahinter stehen seit Spec #75 die Blöcke `trainer` (Stand der Steuerung und verbundener Trainer), `controller`
+(Lenkercontroller) und `signal` (Signalstärke je Rolle) – additiv, `v` bleibt 0:
 ```json
 {"v": 0, "type": "status", "t_ms": 123456,
  "state": "connected", "source": "ble", "capabilities": ["CADENCE", "POWER", "RESISTANCE_CONTROL", "SPEED"],
  "heart_rate": {"state": "off", "device": null},
- "trainer": {"control": "active"}}
+ "trainer": {"control": "active", "device": {"address": "AA:BB:CC:DD:EE:01", "name": "KICKR CORE 2"}},
+ "controller": {"state": "connected", "device": {"address": "CC:00:00:00:00:08", "name": "Zwift SF2", "side": "left"},
+                "battery": 81},
+ "signal": {"trainer": -55, "heart_rate": null, "controller": -61}}
 ```
+`trainer.device`: der verbundene Trainer (`address`, `name` aus den gemerkten Geräten, sonst aus der Ankündigung),
+`null` ohne Verbindung und bei Simulator und Replay. Ob er verbunden ist, sagt weiter `state` (Radteil).
 
 | `trainer.control` | Bedeutung |
 |---|---|
 | `none` | kein Trainer verbunden (vor dem ersten Verbinden, nach einem Abbruch) |
 | `requesting` | verbunden, die Bridge fordert die Steuerung an (`0x00` Request Control, `0x07` Start) |
 | `active` | VSpin steuert: `set_grade` wird am Trainer zum Widerstand |
-| `lost` | eine andere App (z. B. Zwift) steuert den Trainer: Machine Status `0x2ADA` meldete Control Permission Lost (`0xFF`) oder einen fremden Reset, oder der Trainer antwortete `0x05`. Die Bridge schreibt dann **nichts** mehr auf den Trainer, bis er neu verbunden ist; erst beim Neuverbinden fordert sie die Steuerung wieder an. Das Spiel zeigt einen Hinweis. |
+| `lost` | eine andere App (z. B. Zwift) steuert den Trainer: Machine Status `0x2ADA` meldete Control Permission Lost (`0xFF`) oder einen fremden Reset, oder der Trainer antwortete `0x05`. Die Bridge schreibt dann **nichts** mehr auf den Trainer, bis er neu verbunden ist oder ein Client `reclaim_trainer_control` schickt (Knopf „Steuerung zurückholen“); erst dann fordert sie die Steuerung wieder an. Das Spiel zeigt einen Hinweis. |
 | `read_only` | Bridge mit `--read-only`: keine Anforderung, kein Schreibzugriff, unabhängig vom Trainer |
 | `not_supported` | Trainer ohne Indoor Bike Simulation (Target Setting Features `0x2ACC`, Bit 13) oder ohne Control Point; Simulator und Replay |
-| `error` | Anforderung gescheitert (keine Antwort im Zeitlimit, Ablehnung, Schreibfehler – z. B. ohne gebondetes Pairing); Details im Bridge-Terminal, neuer Versuch beim Neuverbinden |
+| `error` | Anforderung gescheitert (keine Antwort im Zeitlimit, Ablehnung, Schreibfehler – z. B. ohne gebondetes Pairing); Details im Bridge-Terminal, neuer Versuch beim Neuverbinden oder auf `reclaim_trainer_control` |
 
 Jede Änderung von `trainer.control` ist eine Statusänderung: genau ein `status` an alle Clients je Änderung.
 Gelesen wird der Trainer in jedem dieser Zustände weiter.
+
+| `controller.state` | Bedeutung |
+|---|---|
+| `off` | kein Controller gemerkt – so startet die Bridge, bis ein Client `set_devices` mit `kind: "controller"` schickt |
+| `disconnected` | gemerkt, keiner verbunden; die Bridge sucht im Hintergrund (nach einem Abbruch frühestens nach 3 s) |
+| `connected` | verbunden, der Service des Controllers ist sichtbar |
+| `locked` | **gesperrt:** nach dem Verbinden fehlt in der Gerätedatenbank `0xFC82` (und `00000001-19ca-4651-86e5-fa29dcdd09d1`) – ab Firmware 1.3 versteckt der Ride V2 ihn, bis er einmal in Zwift verbunden war (gilt dann etwa 24 h). Die Bridge trennt und versucht es frühestens nach 30 s wieder. Das ist kein Fehler: das Spiel zeigt „gesperrt – einmal in Zwift verbinden“. |
+
+`controller.device`: bei `connected` und `locked` das Gerät (`side`: `left | right` aus den Herstellerdaten, sonst
+die gemerkte Seite oder `null`), sonst `null`. `controller.battery`: Akku in Prozent aus Battery Level `0x2A19`
+(einmal nach dem Verbinden gelesen), `null`, wenn es ihn nicht gibt. Die Bridge **schreibt nie** auf den Controller
+(kein Handshake, keine Tasten, kein Abo). Jede Änderung ist eine Statusänderung: genau ein `status` je Änderung.
+
+`signal`: Signalstärke in dBm je Rolle (`trainer`, `heart_rate`, `controller`) – die der Ankündigung, nach der das
+verbundene (bzw. gesperrte) Gerät verbunden wurde; `null` ohne Gerät. Sie wird nur beim Verbinden gesetzt und löst
+für sich keinen `status` aus; laufend schwankende Werte liefert die Suche auf Anfrage (`device_found`).
 
 `status` kommt
 - als **erste Nachricht** an jeden neuen Client (aktueller Stand), und
@@ -170,6 +191,62 @@ Nur an den Anfrager, wenn seine Suche ohne sein `stop` endet. `reason`: `timeout
 `taken_over` (ein anderer Client sucht jetzt). Ohne Bluetooth-Adapter scheitert die Suche still: `ack`, keine
 Ergebnisse, nach Ablauf `timeout`.
 
+### Rollen: gemerkte Geräte und Suche (Verbindungsfenster, Spec #75)
+
+Der Mechanismus der Pulsbefehle gilt für jede Rolle (`kind`): `trainer`, `heart_rate`, `controller`.
+```json
+{"v": 0, "type": "set_devices", "kind": "trainer",
+ "devices": [{"address": "AA:BB:CC:DD:EE:01", "name": "KICKR CORE 2"}]}
+{"v": 0, "type": "set_devices", "kind": "controller",
+ "devices": [{"address": "CC:00:00:00:00:08", "name": "Zwift SF2", "side": "left"}]}
+{"v": 0, "type": "start_device_search", "kind": "controller", "duration_s": 30}
+{"v": 0, "type": "stop_device_search", "kind": "controller"}
+```
+Einträge je Rolle: `trainer` `address`, `name`; `heart_rate` wie bei `set_heart_rate_devices` (dazu `role`);
+`controller` `address`, `name`, `side` (`left | right | null`, optional). Antwort jeweils `ack` mit `for` = Typ der
+Anfrage. Die Listen gehören dem Spiel (`user://settings.cfg`) und gehen nach jedem (Neu-)Verbinden mit dem Bus raus;
+die Bridge verbindet im Hintergrund das beste gemerkte Gerät, das gerade sendet (nach einem Abbruch frühestens nach
+3 s) – **Background Pairing**, ein Start ohne Dialog. `stop_device_search` ohne `kind` beendet alle eigenen Suchen.
+
+- **Trainer:** Sobald ein Client für `trainer` eine Liste geschickt hat, gilt nur sie: die Bridge nimmt das
+  **stärkste** gemerkte Gerät, das sendet (FTMS vor Cycling Power). Eine **leere Liste** heißt: kein Trainer verbindet
+  sich von selbst; gesucht wird nur auf Anfrage. Ohne jede `set_devices`-Nachricht (Bridge von Hand ohne Spiel) gilt
+  `--trainer` bzw. das stärkste FTMS-Gerät; die Bridge aus dem Spiel startet mit `--known-trainers` und wartet auf die
+  Liste. Fällt der verbundene Trainer aus der Liste, gibt die Bridge ihn frei (Steigung 0, `0x01` Reset – wie beim
+  Beenden) und trennt; danach verbindet sie den neuen und sendet ihm die zuletzt gemeldete Steigung. Läuft die Bridge
+  mit Simulator oder Replay, gibt es keinen Trainer: `set_devices` bekommt `ack` (ohne Wirkung),
+  `start_device_search` `ack` mit `ok: false, reason: "not_supported"`.
+- **Controller:** Gefunden wird ein Zwift-Ride-Controller an Herstellerdaten der Firma `0x094A` mit erstem
+  Nutzdatenbyte 7 (rechts) oder 8 (links), ersatzweise am Namen „Zwift SF2“. Der linke hat Vorrang (er gibt die
+  Tasten des rechten weiter); ein verbundener rechter wird gegen den linken getauscht, sobald dieser sendet.
+- **Puls:** wie oben; `set_heart_rate_devices`, `start_heart_rate_search` und `stop_heart_rate_search` sind
+  **Aliase** für `kind: "heart_rate"` und bleiben wirksam. Wer eine Suche über den Alias startet, bekommt seine
+  Ergebnisse und ihr Ende weiter als `heart_rate_found`/`heart_rate_search_ended`.
+
+Ergebnisse gehen nur an den Anfrager (gedrosselt wie beim Puls):
+```json
+{"v": 0, "type": "device_found", "t_ms": 123456, "kind": "controller",
+ "address": "CC:00:00:00:00:08", "name": "Zwift SF2", "rssi": -60, "side": "left"}
+{"v": 0, "type": "device_search_ended", "t_ms": 123456, "kind": "controller", "reason": "timeout"}
+```
+`side` gibt es nur bei `kind: "controller"` (`null` ohne Herstellerdaten). Je Rolle gibt es eine Suche zur Zeit;
+Suchen verschiedener Rollen laufen nebeneinander. Startet ein anderer Client eine Suche derselben Rolle, bekommt der
+bisherige Anfrager das Ende mit `taken_over` – in der Form, in der er gesucht hat (Alias oder neu). Trennt sich der
+Anfrager, enden seine Suchen.
+
+### Steuerung zurückholen
+
+```json
+{"v": 0, "type": "reclaim_trainer_control"}
+```
+Nur auf ausdrücklichen Wunsch des Fahrers (Knopf „Steuerung zurückholen“ im Verbindungsfenster, sichtbar bei
+`trainer.control` `lost` und `error`): Die Bridge fordert die Steuerung neu an (`0x00`, `0x07`) und sendet die zuletzt
+gemeldete Steigung nach – nach denselben Regeln wie beim Verbinden; `trainer.control` meldet `requesting`, dann
+`active` (oder wieder `lost`). Von selbst fordert sie nach `lost` nie neu an. Antwort `ack` mit
+`for: "reclaim_trainer_control"`, nachdem der Trainer geantwortet hat; `ok: true` auch, wenn VSpin schon steuert.
+Gründe bei `ok: false`: `not_supported` (kein Trainer bzw. ohne Steuerung), `read_only`, `control_lost` (der Trainer
+lehnt wieder ab), `source_error` (nicht verbunden, keine Antwort).
+
 ## Antworten an den sendenden Client
 
 `ack` und `error` gehen **nur an den Client, der die Nachricht gesendet hat**, nie als
@@ -213,5 +290,6 @@ Antwort auf eine kaputte oder unbekannte Client-Nachricht:
 | `unsupported_version` | `v` fehlt oder ist nicht `0` |
 | `unknown_type` | `type` ist keine bekannte Client-Nachricht |
 | `invalid_grade` | `grade` fehlt oder ist keine endliche Zahl |
-| `invalid_devices` | `devices` fehlt, ist keine Liste, oder ein Eintrag ist kein Objekt mit `address` (nicht leerer Text), `name` (Text) und `role` (`strap` oder `watch`) |
+| `invalid_devices` | `devices` fehlt, ist keine Liste, oder ein Eintrag ist kein Objekt mit `address` (nicht leerer Text), `name` (Text) und – beim Puls – `role` (`strap` oder `watch`) bzw. – beim Controller – `side` (`left`, `right` oder `null`) |
+| `invalid_kind` | `kind` fehlt (bei `set_devices`, `start_device_search`) oder ist nicht `trainer`, `heart_rate` oder `controller` |
 | `invalid_duration` | `duration_s` ist keine Zahl oder nicht > 0 und höchstens 120 |

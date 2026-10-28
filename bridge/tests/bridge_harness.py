@@ -260,11 +260,12 @@ class InProcessBridge:
     z. B. einer, die bei `set_grade` einen Fehler wirft. Terminal-Ausgabe in `log()`; `stop()`
     liefert die Ausnahme, mit der `Bridge.run` endete (`None` = sauber beendet)."""
 
-    def __init__(self, source, sessions_dir: Path, host: str = HOST, heart_rate=None) -> None:
+    def __init__(self, source, sessions_dir: Path, host: str = HOST, heart_rate=None, controller=None) -> None:
         self.source = source
         self.sessions_dir = sessions_dir
         self.host = host
         self.heart_rate = heart_rate  # Fabrik der Pulsquelle (`HeartRateFactory`); None = Standard der Bridge
+        self.controller = controller  # Fabrik der Controller-Quelle (`ControllerFactory`, Spec #75); None = Standard
         self.error: BaseException | None = None
         self._output = io.StringIO()
         self._thread: threading.Thread | None = None
@@ -290,6 +291,8 @@ class InProcessBridge:
         async def main() -> None:
             self._loop, self._stop = asyncio.get_running_loop(), asyncio.Event()
             options = {} if self.heart_rate is None else {"heart_rate": self.heart_rate}
+            if self.controller is not None:
+                options["controller"] = self.controller
             await Bridge(self.source, Console(self._output), self.sessions_dir, host=self.host, port=PORT, **options).run(
                 self._stop
             )

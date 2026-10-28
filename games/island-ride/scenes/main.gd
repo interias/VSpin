@@ -90,6 +90,12 @@
 ##
 ## Geräte (Spec #64, `scenes/devices_menu.gd`): aus dem Startmenü; Brustgurt und Uhr suchen, merken (dann
 ## `apply_heart_rate_devices()`), vergessen, Live-Puls sehen, LTHR und Maximalpuls des Profils eintragen (Spielstand).
+## Verbindungsfenster (Spec #75): Dieselbe Seite ist das Fenster mit einer Kachel je Rolle (Trainer, Puls, Controller).
+## Gemerkte Geräte verbinden sich beim Start im Hintergrund: Das Spiel schickt seine Listen nach jedem Verbinden mit dem
+## Bus (Trainer und Controller: `trainer_device`/`controller_device`, RoleDevice in `settings_path`). Das Fenster öffnet
+## beim Start von selbst nur, wenn die Bridge mit `config.cfg [bridge] source="ble"` läuft und noch kein Trainer gemerkt
+## ist (`connections_needed`); sonst über „Verbindungen“ im Startmenü, den Knopf im HUD oder die Taste V während der
+## Fahrt (KEY_BINDINGS `ride_devices`). Wie bei den Einstellungen läuft die Fahrt weiter, solange es offen ist.
 ##
 ## Training (#37): „Fahren → Training“ startet eine Einheit (Training, aus `res://trainings`) als eigenen Modus
 ## (SaveGame.MODE_TRAINING). Die Insel läuft endlos (Rundenwertung mit 0 Runden); das HUD zeigt Phase, Zielkadenz,
@@ -139,6 +145,7 @@ const KEY_BINDINGS := {
 	"ride_fullscreen": [KEY_F11],
 	"ride_menu": [KEY_ENTER, KEY_KP_ENTER],
 	"ride_camera": [KEY_C],
+	"ride_devices": [KEY_V],  # Verbindungsfenster (Spec #75); die Leertaste bleibt frei für den Begleiter (#76)
 }
 ## Menü „Grafik und Fenster“ (Esc/F2, F11, Beenden; siehe `scenes/settings_menu.gd`).
 const SETTINGS_MENU := preload("res://scenes/settings_menu.tscn")
@@ -148,7 +155,7 @@ const START_MENU := preload("res://scenes/start_menu.tscn")
 const LOGBOOK := preload("res://scenes/logbook.gd")
 ## Garderobe (Trikot, Radfarbe, Helm mit Vorschau; #36).
 const WARDROBE := preload("res://scenes/wardrobe.gd")
-## Geräteseite (Brustgurt, Uhr, LTHR und Maximalpuls; Spec #64).
+## Verbindungsfenster (Trainer, Puls mit Brustgurt, Uhr, LTHR und Maximalpuls, Controller; Spec #64, #75).
 const DEVICES_MENU := preload("res://scenes/devices_menu.gd")
 ## Ausrüstung des Arcade-Modus (Inventar der Beute; #49).
 const GEAR_MENU := preload("res://scenes/gear_menu.gd")
@@ -211,6 +218,10 @@ var config: RideConfig = null
 var settings_path := GraphicsSettings.DEFAULT_PATH
 ## Gemerkte Pulsgeräte (Abschnitt `[heart_rate]` in `settings_path`); nach einer Änderung `apply_heart_rate_devices()`.
 var heart_rate_devices: HeartRateDevices
+## Gemerkter Trainer und Controller (Abschnitte `[trainer]`, `[controller]` in `settings_path`, Spec #75); nach einer
+## Änderung `apply_role_device(kind)`.
+var trainer_device: RoleDevice
+var controller_device: RoleDevice
 var settings_menu: CanvasLayer
 var start_menu: CanvasLayer
 var logbook: CanvasLayer
@@ -379,6 +390,7 @@ func _ready() -> void:
 	devices_menu.name = "DevicesMenu"
 	devices_menu.closed.connect(_on_devices_closed)
 	devices_menu.devices_changed.connect(apply_heart_rate_devices)
+	devices_menu.role_device_changed.connect(apply_role_device)
 	devices_menu.profile_changed.connect(_on_pulse_profile_changed)
 	add_child(devices_menu)
 	gear_menu = GEAR_MENU.new()
@@ -429,6 +441,13 @@ func _ready() -> void:
 	heart_rate_devices = HeartRateDevices.load_file(settings_path) if not settings_path.is_empty() \
 			else HeartRateDevices.new()
 	bus.set_heart_rate_devices(heart_rate_devices.bridge_list())  # geht bei jedem (Neu-)Verbinden raus
+	trainer_device = RoleDevice.load_file(BusClient.KIND_TRAINER, settings_path) if not settings_path.is_empty() \
+			else RoleDevice.new(BusClient.KIND_TRAINER)
+	controller_device = RoleDevice.load_file(BusClient.KIND_CONTROLLER, settings_path) \
+			if not settings_path.is_empty() else RoleDevice.new(BusClient.KIND_CONTROLLER)
+	bus.set_devices(BusClient.KIND_TRAINER, trainer_device.bridge_list())  # Background Pairing: ebenso
+	bus.set_devices(BusClient.KIND_CONTROLLER, controller_device.bridge_list())
+	hud.connections_requested.connect(open_devices)
 	bridge_launcher = BridgeLauncher.new(config, BridgeLauncher.game_dir())
 	bridge_launcher.begin()
 	model = RideModel.new(config, start_distance_m)
@@ -439,6 +458,8 @@ func _ready() -> void:
 	_update_camera(0.0, true)
 	if start_in_menu:
 		_enter_menu()
+		if connections_needed():
+			open_devices()  # erster Start mit Trainer: erst einrichten
 	else:
 		start_menu.close()
 		settings_menu.set_ride_active(true)
@@ -887,15 +908,25 @@ func _on_wardrobe_closed() -> void:
 	start_menu.buttons["wardrobe"].grab_focus()
 
 
-## Geräteseite aus dem Startmenü öffnen (das Menü tritt so lange zurück).
+## Verbindungsfenster öffnen: aus dem Startmenü (das Menü tritt so lange zurück) oder während der Fahrt (HUD-Knopf,
+## Taste V; die Fahrt läuft weiter wie bei den Einstellungen).
 func open_devices() -> void:
-	start_menu.close()
-	devices_menu.open(bus, heart_rate_devices, save_game)
+	if state == STATE_MENU:
+		start_menu.close()
+	devices_menu.open(bus, heart_rate_devices, save_game, trainer_device, controller_device)
 
 
 func _on_devices_closed() -> void:
+	if state != STATE_MENU:
+		return  # zurück in die Fahrt
 	start_menu.open()
 	start_menu.buttons["devices"].grab_focus()
+
+
+## Soll das Verbindungsfenster beim Start von selbst öffnen? Nur mit Trainer-Bridge (`[bridge] source="ble"`) und ohne
+## gemerkten Trainer – mit dem Simulator braucht es keinen.
+func connections_needed() -> bool:
+	return config.bridge_source == "ble" and not trainer_device.has_device()
 
 
 ## LTHR/Maximalpuls auf der Geräteseite geändert: Spielstand speichern, Zonen für die nächste Fahrt gelten ab Fahrtbeginn.
@@ -1102,8 +1133,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("ride_menu") and state == STATE_FINISHED:
 		return_to_menu()
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("ride_camera") and state != STATE_MENU and not settings_menu.visible:
+	elif event.is_action_pressed("ride_camera") and state != STATE_MENU and not settings_menu.visible \
+			and not devices_menu.visible:
 		cycle_camera_view()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("ride_devices") and state != STATE_MENU and not settings_menu.visible:
+		if devices_menu.visible:
+			devices_menu.close()
+		else:
+			open_devices()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("ride_pause") and state != STATE_MENU:
 		if state != STATE_FINISHED:
@@ -1412,6 +1450,15 @@ func apply_heart_rate_devices() -> void:
 	if not settings_path.is_empty():
 		heart_rate_devices.save_file(settings_path)
 	bus.set_heart_rate_devices(heart_rate_devices.bridge_list())
+
+
+## Speichert den gemerkten Trainer bzw. Controller (`kind`) und schickt ihn sofort an die Bridge (Verbindungsfenster).
+## Ein anderer Trainer: die Bridge gibt den alten frei und verbindet den neuen.
+func apply_role_device(kind: String) -> void:
+	var remembered: RoleDevice = trainer_device if kind == BusClient.KIND_TRAINER else controller_device
+	if not settings_path.is_empty():
+		remembered.save_file(settings_path)
+	bus.set_devices(kind, remembered.bridge_list())
 
 
 func _on_ack(message: Dictionary) -> void:

@@ -42,7 +42,7 @@ def _replay(args: argparse.Namespace) -> DeviceSource:
 
 
 def _trainer(args: argparse.Namespace) -> DeviceSource:
-    return TrainerSource(BleakAdapter(), args.trainer, read_only=args.read_only)
+    return TrainerSource(BleakAdapter(), args.trainer, read_only=args.read_only, known_only=args.known_trainers)
 
 
 SOURCES: dict[str, Callable[[argparse.Namespace], DeviceSource]] = {
@@ -78,6 +78,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="nur --source ble: Trainer nur lesen – keine Steuerung anfordern, nichts auf den Trainer schreiben "
         "(z. B. wenn Zwift ihn steuert); set_grade wird mit ack reason read_only beantwortet",
+    )
+    parser.add_argument(
+        "--known-trainers",
+        action="store_true",
+        help="nur --source ble: Trainer nur aus den gemerkten Geräten, die ein Client mit set_devices setzt (Start "
+        "aus dem Spiel); bis dahin verbindet die Bridge keinen. Ohne die Option gilt bis zur ersten Liste --trainer "
+        "bzw. das stärkste Gerät",
     )
     parser.add_argument(
         "--speed",
@@ -178,6 +185,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--trainer gibt es nur mit --source ble")
     if args.source != "ble" and args.read_only:
         parser.error("--read-only gibt es nur mit --source ble")
+    if args.source != "ble" and args.known_trainers:
+        parser.error("--known-trainers gibt es nur mit --source ble")
+    if args.known_trainers and args.trainer is not None:
+        parser.error("--known-trainers und --trainer schließen sich aus (die Liste kommt vom Client)")
     if args.source == "replay" and args.file is None:
         parser.error("--source replay braucht eine Datei: vspin-bridge --source replay DATEI.raw.jsonl")
     if args.source != "replay" and (args.file is not None or args.speed is not None or args.wait_client):

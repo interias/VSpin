@@ -72,8 +72,10 @@ def test_first_status_has_heart_rate_off_behind_the_unchanged_wheel_part(
     bridge_process("--source", "sim", "--profile", str(profile))
     client = bus_client()
     status = receive_json(client)
-    # Seit Spec #75 steht dahinter noch der Trainerblock (additiv).
-    assert list(status) == ["v", "type", "t_ms", "state", "source", "capabilities", "heart_rate", "trainer"]
+    # Seit Spec #75 stehen dahinter noch Trainer, Controller und Signalstärke (additiv).
+    assert list(status) == [
+        "v", "type", "t_ms", "state", "source", "capabilities", "heart_rate", "trainer", "controller", "signal"
+    ]
     assert wheel_part(status) == WHEEL_PART
     assert status["heart_rate"] == OFF
     assert receive_json(client)["heart_rate"] is None  # ohne Pulsgerät und ohne FTMS-Puls

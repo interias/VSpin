@@ -13,7 +13,7 @@
 ##                   das Inventar der Beute (#49) – aus demselben Grund hier und nicht auf der Hauptseite.
 ##   Fahrtenbuch   öffnet das Fahrtenbuch (Statistik, Bestzeiten, Erfolge, letzte Fahrten; #35)
 ##   Garderobe     öffnet die Garderobe (Trikot, Radfarbe, Helm mit Vorschau; #36)
-##   Geräte        öffnet die Geräteseite (Brustgurt und Uhr einrichten, LTHR und Maximalpuls; Spec #64)
+##   Verbindungen  öffnet das Verbindungsfenster (Trainer, Puls mit LTHR und Maximalpuls, Controller; Spec #64, #75)
 ##   Einstellungen öffnet das Menü „Grafik und Fenster“ (wie F2)
 ##   Beenden       beendet das Spiel (nicht im Browser; nur Enter oder Klick, nie die Leertaste – #19)
 ## Bedienung mit Maus und Tastatur (Pfeiltasten/Tab, Enter/Leertaste); beim Öffnen liegt der Fokus auf dem ersten
@@ -34,7 +34,7 @@ signal direction_changed(direction: String)
 signal logbook_requested
 ## „Garderobe“ gewählt (#36).
 signal wardrobe_requested
-## „Geräte“ gewählt (Spec #64).
+## „Verbindungen“ gewählt (Spec #64, #75).
 signal devices_requested
 ## „Fahren → Arcade → Ausrüstung“ gewählt (#49).
 signal gear_requested
@@ -465,12 +465,12 @@ func _build() -> void:
 	_add_button(_main_page, "drive", "Fahren", show_page.bind(true))
 	_add_button(_main_page, "logbook", "Fahrtenbuch", logbook_requested.emit)
 	_add_button(_main_page, "wardrobe", "Garderobe", wardrobe_requested.emit)
-	_add_button(_main_page, "devices", "Geräte", devices_requested.emit)
+	_add_button(_main_page, "devices", "Verbindungen", devices_requested.emit)  # Verbindungsfenster (Spec #75)
 	_add_button(_main_page, "settings", "Einstellungen", settings_requested.emit)
 	var quit := _add_button(_main_page, "quit", "Beenden", quit_requested.emit)
 	quit.visible = not web  # im Browser nicht
 	quit.gui_input.connect(_swallow_space.bind(quit))  # nur Enter oder Klick: Leertaste beendet nie (#19)
-	# Mit „Geräte“ hat die Hauptseite fünf Punkte: flacher und enger, damit sie samt Radstatus in 1152×648 passt.
+	# Mit „Verbindungen“ hat die Hauptseite fünf Punkte: flacher und enger, damit sie samt Radstatus in 1152×648 passt.
 	_main_page.add_theme_constant_override("separation", MAIN_PAGE_SEPARATION)
 	for key in ["drive", "logbook", "wardrobe", "devices", "settings", "quit"]:
 		(buttons[key] as Button).custom_minimum_size.y = MAIN_BUTTON_HEIGHT

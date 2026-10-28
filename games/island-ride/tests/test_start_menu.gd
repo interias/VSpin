@@ -117,7 +117,7 @@ func test_menu_items_and_disabled_entries() -> void:
 	assert_eq(texts["logbook"], "Fahrtenbuch")
 	assert_eq(texts["wardrobe"], "Garderobe", "Garderobe wählbar (#36)")
 	assert_eq(texts["training"], "Training", "Training wählbar (#37)")
-	assert_eq(texts["devices"], "Geräte", "Geräte wählbar (Spec #64)")
+	assert_eq(texts["devices"], "Verbindungen", "Verbindungen wählbar (Spec #64, #75)")
 	for key in ["drive", "round_trip", "training", "arcade", "logbook", "wardrobe", "devices", "settings", "quit", "back"]:
 		assert_false(buttons[key].disabled, "%s wählbar" % key)
 	assert_true(buttons["quit"].is_visible_in_tree(), "Beenden auf dem Desktop")

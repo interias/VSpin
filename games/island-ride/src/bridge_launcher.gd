@@ -185,6 +185,8 @@ func _launch() -> void:
 			"--stop-file", _stop_file, "--parent-pid", str(OS.get_process_id())])
 	if _source == "sim":  # ohne Terminal keine Pfeiltasten: Start-Kadenz aus config.cfg, sonst stünde sie auf 0
 		args.append_array(["--sim-cadence", str(int(roundf(_sim_cadence)))])
+	if _source == "ble":  # Trainer nur aus den gemerkten Geräten des Spiels, bis dahin keiner (Spec #75)
+		args.append("--known-trainers")
 	if _source == "ble" and _read_only:  # Trainer nur lesen (`[bridge] trainer_read_only`, Spec #75)
 		args.append("--read-only")
 	pid = _processes.start(program, args)
