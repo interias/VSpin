@@ -508,6 +508,7 @@ Startmenü) und „Beenden“ (beendet das Spiel; im Browser ausgeblendet) – `
 | Schatten | Niedrig/Mittel/Hoch (Schattenatlas 2048/4096/8192, Weichzeichnung) | Mittel (wie bisher) |
 | Tempo-Effekte | An, Aus – Geschwindigkeitslinien und Sichtfeld-Kick ab 35 km/h (#42) | An |
 | Panorama-Momente | An, Aus – Kameraschwenk mit Namen an Sehenswürdigkeiten (#43) | An |
+| Leuchten (Ausrüstung) | An, Aus – Puls und Schimmer legendärer Ausrüstungssymbole (#83) | An |
 | Kamera | Nah, Verfolger, Weit – wie Taste `C`; steht im Spielstand, nicht in `settings.cfg` (#59) | Verfolger |
 | Tageszeit | Echtzeit (Mallorca), feste Uhrzeit 6:00/9:00/12:00/15:00/18:00/20:30/22:00/0:00, Zeitraffer 12/24/48 min je Tag (startet bei der aktuellen Uhrzeit des Spiels) | wie `config.cfg [sky]` (Echtzeit) |
 | Wetter | Wechselnd (meist sonnig), Klar, Leicht bewölkt, Bewölkt, Regen (fest) – sofort, ohne Überblendung | wie `config.cfg [sky]` (Wechselnd) |
@@ -1211,6 +1212,42 @@ wieder alle. Darunter stehen die Summe der Werte und die **Stärke** neben der *
 (grün, wenn sie reicht; eine Empfehlung, keine Sperre). Reine Darstellung über Inventory, Loot und ArcadeTiers: keine
 neuen Werte, keine Wirkung außerhalb des Arcade (ADR-0010). Passt in 960 × 1040, 1920 × 1080 und 1152 × 648; Fahrer und
 Plätze scrollen, wenn die Höhe nicht reicht. Test: `tests/test_character_sheet.gd`.
+
+**Ausrüstungssymbole (#83):** Jedes Teil hat ein kleines Bild, das zeigt, was es ist und wie gut es ist. Jeder Platz hat
+eine eigene Low-Poly-Form: Diamantrahmen mit Sattel und Lenker, Speichenrad mit Felgenflanke, Trikot mit Kragen,
+Reißverschluss und Brustband, schlanker Aerohelm mit langer Heckspitze, Längsschlitzen und Visier, Radschuh im Profil mit Sohle, Drehverschluss und
+Pedalplatte samt Cleat,
+Talisman als Amulett mit Drac, Tramuntana oder Dimonis (gewöhnliche als Kiesel). Rahmen und Hintergrund stehen in der
+Farbe der Seltenheit, legendäre Teile leuchten mit Puls und Schimmer. Selten und legendär behalten die Rahmenfarben
+aus der Beute (Gelb, Orange), sind im Symbol aber auch ohne Leuchten zu trennen: selten mit hellem goldgelbem Hintergrund
+und silbergoldener Zier, legendär mit Strahlenkranz von Glutorange bis Blutrot und goldener Zier. Farbe (aus einer Inselpalette), Muster (Streifen,
+Karo, Verlauf) und Detail folgen dem **Inhalt** des Teils (Platz, Seltenheit, Werte, Effekt), nicht seiner id – ein Fund
+sieht beim Einblenden so aus wie später im Inventar. Talisman-Motiv legendärer Teile aus dem Effekt (Rückstoß, Auf dem
+Sprung → Tramuntana; Tiefer Atem, Im Fluss → Drac; Kombo-Ernte → Dimonis), sonst aus dem Inhalt. Leere Plätze zeigen die
+graue Silhouette ihrer Form. Die Bilder entstehen beim ersten Anzeigen aus Grundkörpern in je einem eigenen SubViewport
+(einmal gerendert, nur im Speicher, höchstens 6 neue je Bild, im Browser 4 ohne MSAA); gemessen offscreen 0,5 ms je neues
+Symbol (Browser-Renderer 2,1 ms). **Leuchten (Ausrüstung)** im Grafikmenü schaltet das Leuchten ab. Logik und Modelle:
+`src/item_icons.gd`, fertiges Control: `src/item_icon_view.gd`, Tests: `tests/test_item_icons.gd`. Sichtprüfung und
+Messung: `godot --path games/island-ride --position -32000,-32000 -s res://tools/icon_gallery.gd -- --out=<ordner>
+[--compat] [--count=40]` (Bögen je Platz × Seltenheit, Silhouetten, Talisman-Motive, Leuchten an/aus, Zeitmessung; für
+den echten Browser-Renderer zusätzlich `--rendering-method gl_compatibility`).
+
+**Symbole im Ausrüstungsmenü (#83):** Jeder Platz des Charakterblatts zeigt das Symbol des angelegten Teils (80 px,
+Rahmen in der Farbe der Seltenheit) mit Name und Werten darunter; ein leerer Platz zeigt die graue Silhouette seiner
+Form. Jede Zeile der Inventarliste beginnt mit dem Symbol ihres Teils (56 px); das Detail zeigt das gewählte Teil groß
+(112 px) und im Vergleich das angelegte Teil des Platzes klein (64 px, bei leerem Platz die Silhouette). Die Symbole sind
+nur Anzeige in den Knöpfen – Fokus, Maus und Tastatur bleiben wie zuvor. Die Liste wird bei jeder Änderung neu
+aufgebaut, die Bilder kommen aus dem Cache von `ItemIcons`: ein Inventar mit 50 Teilen öffnet sofort, die Symbole füllen
+sich von oben nach unten. Tests: `tests/test_gear_icons.gd`. Sichtprüfung: `icon_gallery.gd -- --out=<ordner> --gear`
+(je ein Bild in 960 × 1040, 1920 × 1080 und 1152 × 648, Beispielstand nur im Speicher).
+
+**Fund-Karte (#83):** Fällt im Arcade-Lauf ein Teil, schiebt rechts im HUD unter der Minikarte eine Karte ein
+(`LootToast`, `src/loot_toast.gd`): das Ausrüstungssymbol (legendäre Teile leuchten), der Name in der Farbe der
+Seltenheit, die Seltenheit (bei legendären Teilen mit Effekt) und die Werte. Einschieben 0,35 s, stehen 5 s, ausblenden
+0,6 s; höchstens zwei Karten untereinander, weitere Funde warten. Text-Popup und Lichtsäule bleiben. Die Größe folgt der
+HUD-Schrift (Symbol 96 px bei 1080 px Höhe, nie unter 64 px); im Halbbild wird die Karte schmaler und lässt den
+Popups in der Mitte Platz. Sie fängt keine Maus und ist im Menü, im Ergebnis und bei einer neuen Fahrt weg.
+`ArcadeStage.loot_toast` hält sie; `RideHud` bleibt unberührt. Tests: `tests/test_loot_toast.gd`.
 
 **Am Fahrer:** Im Arcade-Lauf trägt der Fahrer die angelegten Teile in der Farbe ihrer Seltenheit – Rahmen, Felgen,
 Trikot (Brustband dunkler), Helm (Streifen dunkler), Schuhe und den Talisman am Sattel. Jedes angelegte Teil überdeckt

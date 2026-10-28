@@ -5,6 +5,15 @@
 ## zeigt das Charakterblatt links. Oben Splitter und Teile. Logik in Inventory/Loot; die Hauptszene speichert (`gear_changed`).
 ## Die Werte wirken nur im Arcade-Modus (ADR-0010).
 ##
+## Ausrüstungssymbole (#83, `ItemIconView`): jeder Platz zeigt oben im Knopf das Symbol des angelegten Teils (SLOT_ICON px,
+## Rahmen in der Farbe der Seltenheit) oder die graue Silhouette seiner Form, darunter Name und Werte; jede Zeile der Liste
+## hat vorn das Symbol ihres Teils (ROW_ICON px); im Detail steht das gewählte Teil mit großem Symbol (DETAIL_ICON px) und
+## im Vergleich das angelegte Teil des Platzes (COMPARE_ICON px) neben der Überschrift. Die Symbole liegen als Kinder in
+## den Knöpfen (die Maus geht durch, Fokus und Klick bleiben beim Knopf). Die Liste baut `_refresh` bei jeder Änderung neu,
+## die Bilder aber nicht: `ItemIcons` hält sie im Cache (derselbe Inhalt = dieselbe Textur), neue entstehen höchstens
+## PER_FRAME je Bild – ein Inventar mit 50 Teilen öffnet sofort, die Symbole füllen sich von oben nach unten. Die Knopfstile
+## mit dem Innenrand für das Symbol sind einmal gebaut und von allen Knöpfen geteilt.
+##
 ## Charakterblatt (#68): links der Fahrer in der Mitte (die Vorschau der Garderobe, `rider_preview.gd`, mit Garderobe und
 ## angelegter Ausrüstung) und die sechs Plätze (Loot.SLOTS) drumherum. Jeder Platz zeigt das angelegte Teil (Name und Werte
 ## in der Farbe der Seltenheit) oder „leer“; ein Klick (Enter) darauf zeigt in der Liste nur die passenden Teile des
@@ -32,6 +41,13 @@ const EMPTY_TEXT := "Noch keine Beute – Herausforderungen im Arcade-Modus werf
 ## Plätze links und rechts vom Fahrer.
 const LEFT_SLOTS := ["helm", "trikot", "schuhe"]
 const RIGHT_SLOTS := ["rahmen", "laufraeder", "talisman"]
+## Kantenlängen der Ausrüstungssymbole (px) je Fläche.
+const SLOT_ICON := 80.0
+const ROW_ICON := 56.0
+const DETAIL_ICON := 112.0
+const COMPARE_ICON := 64.0
+## Abstand der Symbole zum Knopfrand und zum Rand des Scrollbereichs (px); das Leuchten ragt etwas darüber hinaus.
+const ICON_INSET := 10.0
 
 ## Knöpfe: je Teil „item_<id>“, je Platz „slot_<platz>“, dazu „equip“, „salvage“ und „back“.
 var buttons := {}
@@ -52,6 +68,12 @@ var _group: ButtonGroup
 var _slot_group: ButtonGroup
 var _totals: Label
 var _strength: Label
+var _slot_icons := {}
+var _detail_icon: ItemIconView
+var _compare_icon: ItemIconView
+## Knopfstile mit Innenrand für das Symbol: Zeilen der Liste (Symbol links) und Plätze (Symbol oben), je geteilt.
+var _row_styles := {}
+var _slot_styles := {}
 
 
 func _ready() -> void:
@@ -161,6 +183,21 @@ func effect_text() -> String:
 	return _detail_effect.text
 
 
+## Symbol im Knopf `key` („slot_<platz>“ oder „item_<id>“), null wenn es keinen gibt (für Tests).
+func icon_of(key: String) -> ItemIconView:
+	return buttons[key].find_child("ItemIcon", false, false) if buttons.has(key) else null
+
+
+## Großes Symbol des gewählten Teils im Detail (für Tests); unsichtbar, wenn nichts gewählt ist.
+func detail_icon() -> ItemIconView:
+	return _detail_icon
+
+
+## Kleines Symbol des angelegten Teils (oder die Silhouette) im Vergleich (für Tests); unsichtbar beim angelegten Teil selbst.
+func compare_icon() -> ItemIconView:
+	return _compare_icon
+
+
 ## Kopfzeile wie angezeigt (Splitter, Teile).
 func info_text() -> String:
 	return _info.text
@@ -214,7 +251,9 @@ func _refresh() -> void:
 		button.toggle_mode = true
 		button.button_group = _group
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size = Vector2(0, 58)
+		button.custom_minimum_size = Vector2(0, ROW_ICON + 2 * ICON_INSET)
+		for state in _row_styles:
+			button.add_theme_stylebox_override(state, _row_styles[state])
 		for state in ["font_color", "font_hover_color", "font_focus_color", "font_pressed_color",
 				"font_hover_pressed_color"]:
 			button.add_theme_color_override(state, Loot.color_of(item["rarity"]))
@@ -222,6 +261,7 @@ func _refresh() -> void:
 		button.pressed.connect(select.bind(id))
 		button.focus_entered.connect(select.bind(id))  # Pfeiltasten wählen mit
 		_list.add_child(button)
+		button.add_child(_place_icon(ItemIconView.of_item(item, ROW_ICON), false))
 		buttons[button.name] = button
 	if buttons.has("item_%d" % selected_id):
 		buttons["item_%d" % selected_id].set_pressed_no_signal(true)
@@ -247,6 +287,10 @@ func _refresh_sheet() -> void:
 		var item: Dictionary = worn.get(slot, {})
 		button.text = "%s\n%s" % [Loot.SLOTS[slot]["name"], "leer" if item.is_empty()
 				else "%s\n%s" % [Loot.item_name(item), Loot.stats_text(item).replace(" · ", "\n")]]
+		if item.is_empty():
+			_slot_icons[slot].show_empty(slot)
+		else:
+			_slot_icons[slot].show_item(item)
 		var color: Color = COLOR_SAME if item.is_empty() else Loot.color_of(item["rarity"])
 		for state in ["font_color", "font_hover_color", "font_focus_color", "font_pressed_color",
 				"font_hover_pressed_color"]:
@@ -280,17 +324,26 @@ func _show_detail() -> void:
 		_detail_name.add_theme_color_override("font_color", COLOR_SAME)
 		_detail_stats.text = ""
 		_detail_effect.text = ""
+		_detail_icon.visible = false
+		_compare_icon.visible = false
 		_set_enabled(equip, false)
 		_set_enabled(salvage, false)
 		salvage.text = "Verwerten"
 		return
 	var worn := Inventory.is_equipped(_save, selected_id)
+	_detail_icon.visible = true
+	_detail_icon.show_item(item)
 	_detail_name.text = Loot.item_name(item)
 	_detail_name.add_theme_color_override("font_color", Loot.color_of(item["rarity"]))
 	_detail_stats.text = Loot.stats_text(item).replace(" · ", "\n")
 	_detail_effect.text = "Effekt: %s\n%s" % [Loot.effect_name(item), Loot.effect_text(item)] \
 			if Loot.effect_of(item) != "" else ""
 	var current: Dictionary = Inventory.equipped(_save).get(item["slot"], {})
+	_compare_icon.visible = not worn  # das angelegte Teil neben dem gewählten; ist es das gewählte, steht es schon oben
+	if current.is_empty():
+		_compare_icon.show_empty(item["slot"])
+	else:
+		_compare_icon.show_item(current)
 	var heading := Label.new()
 	heading.text = "Angelegt: %s" % ("dieses Teil" if worn else (Loot.item_name(current) if not current.is_empty()
 			else "nichts – jeder Wert ist besser"))
@@ -321,6 +374,7 @@ func _set_enabled(button: Button, enabled: bool) -> void:
 func _build() -> void:
 	_group = ButtonGroup.new()
 	_group.allow_unpress = false
+	_row_styles = _padded_styles(ROW_ICON + ICON_INSET + 12.0, 0.0)
 	var theme := Theme.new()
 	theme.default_font_size = 20
 	var layout := Control.new()
@@ -382,6 +436,7 @@ func _build() -> void:
 	var side := PanelContainer.new()
 	side.name = "Detail"
 	side.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	side.size_flags_stretch_ratio = 1.3  # das große Symbol und der Vergleich brauchen etwas mehr Höhe als die Liste
 	side.add_theme_stylebox_override("panel", _panel_style(0.78, 14))
 	right.add_child(side)
 	var side_column := VBoxContainer.new()
@@ -397,25 +452,45 @@ func _build() -> void:
 	detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	detail.add_theme_constant_override("separation", 8)
 	side_scroll.add_child(detail)
+	var header_margin := _inset(detail, "DetailHeaderMargin")  # Platz für das Leuchten im Scrollbereich
+	var header := HBoxContainer.new()
+	header.name = "DetailHeader"
+	header.add_theme_constant_override("separation", 14)
+	header_margin.add_child(header)
+	_detail_icon = _plain_icon(DETAIL_ICON, "DetailIcon")
+	header.add_child(_detail_icon)
+	var heading_texts := VBoxContainer.new()
+	heading_texts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	heading_texts.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	header.add_child(heading_texts)
 	_detail_name = Label.new()
 	_detail_name.name = "Name"
 	_detail_name.add_theme_font_size_override("font_size", 24)
 	_detail_name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	detail.add_child(_detail_name)
+	heading_texts.add_child(_detail_name)
 	_detail_stats = Label.new()
 	_detail_stats.name = "Stats"
+	_detail_stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART  # schmal: Werte brechen um statt das Fenster zu sprengen
 	_detail_stats.add_theme_font_size_override("font_size", 17)
-	detail.add_child(_detail_stats)
+	heading_texts.add_child(_detail_stats)
 	_detail_effect = Label.new()
 	_detail_effect.name = "Effect"
 	_detail_effect.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_detail_effect.add_theme_font_size_override("font_size", 17)
 	_detail_effect.add_theme_color_override("font_color", Loot.color_of(Loot.LEGENDARY))
 	detail.add_child(_detail_effect)
+	var compare_margin := _inset(detail, "CompareMargin")
+	var compare_row := HBoxContainer.new()
+	compare_row.name = "CompareRow"
+	compare_row.add_theme_constant_override("separation", 12)
+	compare_margin.add_child(compare_row)
+	_compare_icon = _plain_icon(COMPARE_ICON, "CompareIcon")
+	compare_row.add_child(_compare_icon)
 	_compare = VBoxContainer.new()
 	_compare.name = "Compare"
+	_compare.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_compare.add_theme_constant_override("separation", 2)
-	detail.add_child(_compare)
+	compare_row.add_child(_compare)
 	var actions := HFlowContainer.new()  # außerhalb des Scrollbereichs: immer erreichbar
 	actions.name = "ItemActions"
 	actions.add_theme_constant_override("h_separation", 8)
@@ -482,14 +557,16 @@ func _slot_column(parent: Container, node_name: String, slots: Array) -> void:
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	column.add_theme_constant_override("separation", 8)
 	parent.add_child(column)
-	var selected := _panel_style(0.95, 6)
-	selected.set_border_width_all(3)
-	selected.border_color = COLOR_HEADING
-	selected.set_corner_radius_all(4)
+	if _slot_styles.is_empty():
+		var selected := _panel_style(0.95, 6)
+		selected.set_border_width_all(3)
+		selected.border_color = COLOR_HEADING
+		selected.set_corner_radius_all(4)
+		_slot_styles = _padded_styles(0.0, SLOT_ICON + 2 * ICON_INSET, selected)
 	for slot in slots:
 		var button := Button.new()
 		button.name = "slot_" + slot
-		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		button.alignment = HORIZONTAL_ALIGNMENT_CENTER  # unter dem Symbol
 		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		button.toggle_mode = true
 		button.button_group = _slot_group
@@ -497,11 +574,73 @@ func _slot_column(parent: Container, node_name: String, slots: Array) -> void:
 		button.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		button.custom_minimum_size = Vector2(140, 80)
 		button.add_theme_font_size_override("font_size", 15)
-		for state in ["pressed", "hover_pressed"]:  # gewählter Platz: goldener Rahmen
-			button.add_theme_stylebox_override(state, selected)
+		for state in _slot_styles:  # gewählter Platz (pressed): goldener Rahmen; oben Platz für das Symbol
+			button.add_theme_stylebox_override(state, _slot_styles[state])
 		button.pressed.connect(select_slot.bind(slot))
 		column.add_child(button)
+		var icon := ItemIconView.of_slot(slot, SLOT_ICON)
+		button.add_child(_place_icon(icon, true))
+		_slot_icons[slot] = icon
 		buttons[button.name] = button
+
+
+## Knopfstile (Zustand → Stil) mit mindestens `left` bzw. `top` px Innenrand, in dem das Symbol im Knopf Platz hat;
+## `selected` ersetzt den Stil des gedrückten Knopfes. Einmal gebaut und von allen Knöpfen einer Art geteilt.
+func _padded_styles(left: float, top: float, selected: StyleBox = null) -> Dictionary:
+	var probe := Button.new()
+	var styles := {}
+	for state in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+		var style: StyleBox = (selected if selected != null and state.ends_with("pressed")
+				else probe.get_theme_stylebox(state)).duplicate()
+		style.set_content_margin(SIDE_LEFT, maxf(left, style.get_margin(SIDE_LEFT)))
+		style.set_content_margin(SIDE_TOP, maxf(top, style.get_margin(SIDE_TOP)))
+		styles[state] = style
+	probe.free()
+	return styles
+
+
+## Symbol `icon` im Knopf platzieren: oben mittig (`on_top`) oder links in der Mitte; der Knopf behält Fokus und Klick.
+func _place_icon(icon: ItemIconView, on_top: bool) -> ItemIconView:
+	var px := icon.icon_size
+	if on_top:
+		icon.anchor_left = 0.5
+		icon.anchor_right = 0.5
+		icon.anchor_top = 0.0
+		icon.anchor_bottom = 0.0
+		icon.offset_left = -px / 2.0
+		icon.offset_right = px / 2.0
+		icon.offset_top = ICON_INSET
+		icon.offset_bottom = ICON_INSET + px
+	else:
+		icon.anchor_left = 0.0
+		icon.anchor_right = 0.0
+		icon.anchor_top = 0.5
+		icon.anchor_bottom = 0.5
+		icon.offset_left = ICON_INSET
+		icon.offset_right = ICON_INSET + px
+		icon.offset_top = -px / 2.0
+		icon.offset_bottom = px / 2.0
+	return icon
+
+
+## Leeres Symbol für das Detail (der Inhalt kommt mit `show_item`), oben bündig.
+func _plain_icon(px: float, node_name: String) -> ItemIconView:
+	var icon := ItemIconView.new()
+	icon.icon_size = px
+	icon.name = node_name
+	icon.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	icon.visible = false
+	return icon
+
+
+## Rand um einen Bereich im Scrollbereich, damit das Leuchten eines Symbols nicht abgeschnitten wird.
+func _inset(parent: Container, node_name: String) -> MarginContainer:
+	var margin := MarginContainer.new()
+	margin.name = node_name
+	for side in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, int(ICON_INSET))  # größer als das Leuchten (9 px bei DETAIL_ICON)
+	parent.add_child(margin)
+	return margin
 
 
 func _button(parent: Container, key: String, text: String, action: Callable) -> Button:

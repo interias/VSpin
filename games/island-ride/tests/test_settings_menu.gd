@@ -10,6 +10,8 @@ func after_each() -> void:
 	super.after_each()
 	if FileAccess.file_exists(TEMP_PATH):
 		DirAccess.remove_absolute(TEMP_PATH)
+	ItemIcons.glow_enabled = true
+	ItemIcons.clear_cache()
 
 
 ## Menü allein, mit Testdatei und wahlweise als Browser-Variante.
@@ -102,6 +104,30 @@ func test_web_hides_window_options() -> void:
 	assert_true(menu.options["render_scale"].visible, "Render-Auflösung bleibt")
 	assert_eq(menu.options["aa"].item_count, GraphicsSettings.AA_MODES_COMPATIBILITY.size(), "nur MSAA")
 	assert_false(menu.find_child("Quit", true, false).visible, "Beenden gibt es im Browser nicht")
+
+
+## „Leuchten (Ausrüstung)“ (#83): Zeile im Grafikmenü, „Aus“ schaltet das Leuchten legendärer Symbole sofort ab und
+## wird gespeichert, „An“ zeigt es wieder – ohne die Hauptszene; auch im Browser.
+func test_item_glow_row_switches_glow_of_item_icons() -> void:
+	var menu := _spawn_menu(false)
+	assert_eq(menu._rows["item_glow"][0].text, "Leuchten (Ausrüstung)")
+	assert_eq(menu.options["item_glow"].item_count, 2, "An, Aus")
+	assert_true(ItemIcons.glow_enabled, "Standard an, beim Start angewendet")
+	var icon := ItemIconView.of_item({"id": 0, "slot": "helm", "rarity": Loot.LEGENDARY, "stats": {"zone_width_rpm": 6},
+		"effect": "rueckstoss"})
+	add_child_autofree(icon)
+	await wait_process_frames(2)
+	assert_true(icon.is_glowing(), "an: das legendäre Symbol leuchtet")
+	_choose(menu, "item_glow", false)
+	assert_false(ItemIcons.glow_enabled, "aus wirkt sofort")
+	assert_false(GraphicsSettings.load_file(TEMP_PATH).item_glow, "gespeichert")
+	await wait_process_frames(2)
+	assert_false(icon.is_glowing(), "aus: kein Leuchten")
+	_choose(menu, "item_glow", true)
+	await wait_process_frames(2)
+	assert_true(icon.is_glowing(), "wieder an")
+	assert_true(GraphicsSettings.load_file(TEMP_PATH).item_glow)
+	assert_true(_spawn_menu(true, true).options["item_glow"].visible, "auch im Browser")
 
 
 ## Hauptszene mit eigener Einstellungsdatei; `config.cfg [sky]` hier: feste 13 Uhr, klar.

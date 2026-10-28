@@ -1,6 +1,6 @@
 ## Bühne des Arcade-Laufs (#63): alles Szenische des Arcade, das vorher in der Hauptszene (`scenes/main.gd`) stand – Lauf
-## starten und beenden, HUD-Anbindung, Start- und Zieltor, Requisiten der Bausteine, Lichtsäule und Popups der Beute,
-## Einblendungen, Zusammenfassung, Ausrüstung am Fahrer. Der Knoten ist Kind der Hauptszene und lebt so lange wie sie;
+## starten und beenden, HUD-Anbindung, Start- und Zieltor, Requisiten der Bausteine, Lichtsäule, Popups und Fund-Karte der
+## Beute, Einblendungen, Zusammenfassung, Ausrüstung am Fahrer. Der Knoten ist Kind der Hauptszene und lebt so lange wie sie;
 ## er hält den reinen Lauf (`run`: ArcadeRun, RefCounted, null = kein Arcade). Die Hauptszene behält nur den Einhängepunkt:
 ## `begin` bei `start_ride`, `advance` je Fahrschritt, `update_view` je Anzeigeschritt, `save` beim Speichern der Fahrt,
 ## `result_text` für das Ergebnis. Reine Verschiebung: kein neues Verhalten, Rundfahrt und Training sehen die Bühne nie
@@ -97,6 +97,8 @@ var finish_gate: CourseGate
 var gate_placement := GatePlacement.new()
 ## Lichtsäule des letzten Fundes (Kind von `Track`).
 var loot_beam: LootBeam
+## Fund-Karte des letzten Fundes (Kind des HUDs).
+var loot_toast: LootToast
 ## Darstellungen (ArcadeProp) je Bausteintyp.
 var props := {}
 ## Fahrtposition des letzten Anzeigeschritts (die Darstellungen lesen sie).
@@ -124,6 +126,7 @@ func setup(track_node: Track, hud_node: RideHud, format: Callable, keep_behind: 
 	loot_beam = LootBeam.new()
 	loot_beam.visible = false
 	track.add_child(loot_beam)
+	loot_toast = LootToast.attach(hud)
 	for script in EXTENSIONS:
 		add_extension(script)
 
@@ -169,6 +172,7 @@ func begin(arcade_mode: bool, tier: int, save_game: SaveGame, start_m: float) ->
 			hook.call(run, save_game)
 	loot_beam.visible = false
 	loot_beam.ride_m = NAN
+	loot_toast.clear()
 	hud.clear_popups()
 	_gate_block = null
 	_prop_block = null
@@ -220,6 +224,7 @@ func save(entry: Dictionary, save_game: SaveGame) -> void:
 ## Zurück ins Startmenü: Popups, Lichtsäule, Tore und Requisiten weg.
 func enter_menu() -> void:
 	hud.clear_popups()
+	loot_toast.clear()
 	loot_beam.visible = false
 	_update_gates(0.0, true)
 
@@ -231,6 +236,8 @@ func update_view(ride_m: float, speed_mps: float, in_menu: bool, finished: bool)
 	_show_hud(finished)
 	_update_gates(speed_mps, in_menu)
 	_update_loot_beam(in_menu)
+	if finished:  # im Menü räumt `enter_menu` auf
+		loot_toast.clear()
 
 
 ## Zusammenfassung eines Arcade-Laufs (#46): Stufe, Zeit, Runden, Strecke, Punkte (mit neuer Bestpunktzahl der Stufe),
@@ -261,7 +268,7 @@ static func result_popup_text(result: Dictionary) -> String:
 
 
 ## Feedback einer beendeten Herausforderung (#49): Punkte als Popup, ein Fund als Popup in der Farbe seiner Seltenheit
-## und als Lichtsäule LOOT_AHEAD_M vor dem Fahrer (`ride_m`).
+## mit Fund-Karte (LootToast) und als Lichtsäule LOOT_AHEAD_M vor dem Fahrer (`ride_m`).
 func show_loot(result: Dictionary, ride_m: float) -> void:
 	if result["points"] > 0:
 		hud.popup("+%d" % result["points"])
@@ -269,6 +276,7 @@ func show_loot(result: Dictionary, ride_m: float) -> void:
 	if item.is_empty():
 		return
 	hud.popup(Loot.item_name(item), Loot.color_of(item["rarity"]))
+	loot_toast.show_item(item)  # Fund-Karte mit Symbol (#83)
 	loot_beam.set_rarity(item["rarity"])
 	loot_beam.place(track, ride_m + LOOT_AHEAD_M)
 
