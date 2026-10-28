@@ -419,6 +419,7 @@ gegen den Uhrzeigersinn (#34; `--shots` dann in Metern dieser Richtung, Torböge
 |---|---|
 | `P` oder Leertaste | Pause an/aus (jederzeit) |
 | `C` | Kameraperspektive wechseln: Nah → Verfolger → Weit (in der Fahrt, nicht bei offenem Menü; #59) |
+| `V` | Verbindungsfenster auf/zu (in der Fahrt, nicht bei offenen Einstellungen; auch Knopf „Verbindungen (V)“ im HUD; #75) |
 | `Esc` oder `F2` | Menü „Grafik und Fenster“ auf/zu (jederzeit, auch aus der Pause); **Beenden** über den Knopf „Beenden“ im Menü (nicht im Browser), in der Fahrt „Fahrt beenden“ zurück ins Startmenü |
 | `Enter` | im Ziel: zurück ins Startmenü |
 | `F3` | Debug-Anzeige an/aus |
@@ -1494,7 +1495,17 @@ zeigt ihn nur an und wertet ihn aus; er verändert die Fahrt nicht.
   3 Minuten Fahrzeit auf Zonenbändern, Lücken bleiben Lücken; in der kompakten Leiste (unter 760 px) stehen Zahl und Zone in
   Zonenfarbe. Die Kurve ist nur Anzeige. Die Zonen sind die der Fahrt (dieselben wie in der Pulsstatistik). Sichtprüfung:
   `tools/view_probe.gd -- --hud --pulse=148 --lthr=165` (`--pulse=--` zeigt den Ausfall, ohne `--lthr` keine Zonen).
-- **Geräteseite** (Startmenü → „Geräte“, `scenes/devices_menu.gd`): je eine Karte für Brustgurt und Uhr mit Anleitung
+- **Verbindungsfenster** (#75; Startmenü → „Verbindungen“, HUD-Knopf oder Taste `V`, `scenes/devices_menu.gd`): oben je
+  eine Kachel für Trainer, Puls und Controller mit Zustand, Gerätename, Live-Wert (Watt und rpm, bpm, Akku) und
+  Signalstärke; ein Klick springt zur Karte der Rolle. Trainer und Controller werden wie der Puls gesucht, gemerkt
+  (`[trainer]`, `[controller]` in `settings.cfg`, `src/role_device.gd`) und vergessen; die Bridge verbindet das gemerkte
+  Gerät beim Start im Hintergrund. Beim Start öffnet sich das Fenster von selbst nur bei `source="ble"` ohne gemerkten
+  Trainer. Die Trainerkarte zeigt den Stand der Steuerung (`status.trainer.control`, auch „nur lesen“) und nach einem
+  Kontrollverlust den Knopf „Steuerung zurückholen“ – nur er fordert die Steuerung ohne Neuverbinden neu an. Die
+  Controllerkarte (Zwift Ride, links bevorzugt) zeigt „gesperrt – einmal in Zwift verbinden (gilt ca. 24 h)“, wenn der
+  Controller seinen Service versteckt; Tasten wertet VSpin nicht aus. In der Fahrt läuft die Fahrt bei offenem Fenster
+  weiter, wie bei den Einstellungen. Die Pulskarten:
+- **Pulskarten** (früher Geräteseite): je eine Karte für Brustgurt und Uhr mit Anleitung
   (Gurt: Elektroden anfeuchten, anlegen; Forerunner 970: Taste Mitte links halten → Watch Settings → Health & Wellness →
   Wrist Heart Rate → Broadcast Heart Rate, laut Garmin-Handbuch), „Suchen“ (30 s, Liste mit Name und Signalstärke, nur an
   diesen Client), „Als Brustgurt/Uhr merken“, „Vergessen“ (sofort an die Bridge und gespeichert) und Live-Puls; Hinweise,
@@ -1657,8 +1668,9 @@ src/ride_stats.gd       RideStats: Fahrzeit, Strecke, Ø Kadenz, Ø Tempo (ohne 
 src/heart_rate_zones.gd HeartRateZones: Pulszonen aus LTHR oder Maximalpuls, Grenzen und Farben je Zone – reine Logik (#64)
 src/heart_rate_stats.gd HeartRateStats: Ø-Puls, Max-Puls, Sekunden je Zone einer Fahrt – reine Logik (#64)
 src/heart_rate_devices.gd HeartRateDevices: gemerkter Brustgurt und Uhr in user://settings.cfg [heart_rate], Liste für die Bridge (#64)
+src/role_device.gd      RoleDevice: gemerkter Trainer bzw. Controller in user://settings.cfg [trainer]/[controller], Liste für die Bridge (#75)
 src/hud_pulse.gd        HudPulse: Pulskurve der letzten 3 min auf Zonenbändern (curve_points/band_rects als reine Rechnung) (#64)
-scenes/devices_menu.gd  DevicesMenu: Menüseite „Geräte“ – Anleitung, Suche, Merken/Vergessen, Live-Puls, LTHR/Maximalpuls mit Zonen (#64)
+scenes/devices_menu.gd  DevicesMenu: Verbindungsfenster – Kacheln Trainer/Puls/Controller, Suche, Merken/Vergessen, Steuerung zurückholen (#75); Pulskarten mit LTHR/Maximalpuls (#64)
 src/lap_timing.gd       LapTiming: Rundenwertung – Rundenzeiten, Ziel nach n Runden oder endlos, Bestzeit, Ghost-Aufzeichnung – reine Logik
 src/segment_timing.gd   SegmentTiming: Segmentzeiten (Live-Zeit, gewertete Segmente, Segment-Bestzeit) – reine Logik
 src/ghost.gd            Ghost: Runde als Strecke über Zeit – aufzeichnen, abspielen, Abstand in s – reine Logik
