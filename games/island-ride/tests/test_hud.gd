@@ -225,6 +225,7 @@ func _layout_in(viewport_size: Vector2i, canvas_size: Vector2i = Vector2i.ZERO) 
 	hud.show_lap_count(12, 20, "1:02:33")
 	hud.show_segment("Küstenwelle", "12:34.5")
 	hud.show_ghost("+123.4", true)
+	hud.show_gear("24/24")
 	hud.celebrate("Neue Bestzeit!  1:02:33.4")
 	(hud.get_node("Hint") as Label).text = "Widerstand: nicht unterstützt"
 	(hud.get_node("Debug") as Label).text = \
