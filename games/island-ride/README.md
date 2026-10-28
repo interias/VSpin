@@ -1446,7 +1446,7 @@ zeigt ihn nur an und wertet ihn aus; er verändert die Fahrt nicht.
   „Zonen: Z2 18:30 · Z3 4:10“; Pausen zählen nicht.
 - **HUD:** Das Werte-Panel zeigt den Puls in bpm in der Farbe seiner Zone mit Zonennummer (Z1–Z5); ohne LTHR und
   Maximalpuls nur die Zahl in Weiß; bei Ausfall „--“, die Fahrt läuft weiter. Ohne jedes Pulsgerät und ohne Pulswert fehlt
-  die Anzeige ganz (kein dauerndes „--“ ohne Gurt). Im vollen Layout zeigt eine kleine Kurve (`src/hud_pulse.gd`) die letzten
+  die Anzeige ganz (kein dauerndes „--“ ohne Gurt); war sie in der Fahrt schon da, bleibt sie bei Busverlust mit „--“ stehen. Im vollen Layout zeigt eine kleine Kurve (`src/hud_pulse.gd`) die letzten
   3 Minuten Fahrzeit auf Zonenbändern, Lücken bleiben Lücken; in der kompakten Leiste (unter 760 px) stehen Zahl und Zone in
   Zonenfarbe. Die Kurve ist nur Anzeige. Die Zonen sind die der Fahrt (dieselben wie in der Pulsstatistik). Sichtprüfung:
   `tools/view_probe.gd -- --hud --pulse=148 --lthr=165` (`--pulse=--` zeigt den Ausfall, ohne `--lthr` keine Zonen).
@@ -1454,7 +1454,8 @@ zeigt ihn nur an und wertet ihn aus; er verändert die Fahrt nicht.
   (Gurt: Elektroden anfeuchten, anlegen; Forerunner 970: Taste Mitte links halten → Watch Settings → Health & Wellness →
   Wrist Heart Rate → Broadcast Heart Rate, laut Garmin-Handbuch), „Suchen“ (30 s, Liste mit Name und Signalstärke, nur an
   diesen Client), „Als Brustgurt/Uhr merken“, „Vergessen“ (sofort an die Bridge und gespeichert) und Live-Puls; Hinweise,
-  wenn nichts gefunden wird. Darunter LTHR und Maximalpuls des Profils (80–220 bzw. 100–230 bpm, sonst abgewiesen) mit den
+  wenn nichts gefunden wird. Bricht der Bus während der Suche ab, endet sie („Suche abgebrochen“); ein Gerät hat höchstens
+  eine Rolle (als Uhr gemerkt, verliert es die Rolle Brustgurt und umgekehrt). Darunter LTHR und Maximalpuls des Profils (80–220 bzw. 100–230 bpm, sonst abgewiesen) mit den
   Zonengrenzen Z1–Z5; ohne beide Werte der Hinweis, dass der Puls ohne Zonen erscheint. Verlassen der Seite stoppt die Suche.
   Wie viele BLE-Verbindungen der HRM 600 parallel hält, ist nicht verifiziert – die Anleitung empfiehlt, die Uhr per ANT+
   mit dem Gurt zu koppeln.
