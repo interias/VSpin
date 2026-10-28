@@ -47,6 +47,9 @@ var bridge_source := "sim"
 ## Start-Kadenz des Simulators beim Start aus dem Spiel (rpm, nur bei Quelle sim).
 var bridge_sim_cadence := 80.0
 var bridge_sessions_dir := "../../bridge/sessions"
+## Begleiter Toni (#76): Programm (`pythonw.exe` des eigenen venv `bridge/.venv-companion`, nicht das der Bridge). Relative
+## Pfade gelten wie bei `bridge_program` ab dem Spielordner.
+var companion_program := "../../bridge/.venv-companion/Scripts/pythonw.exe"
 
 
 ## Liest `path`; fehlende Datei oder fehlende Schlüssel ergeben die Standardwerte.
@@ -82,6 +85,7 @@ static func load_file(path: String = DEFAULT_PATH) -> RideConfig:
 	config.bridge_source = str(file.get_value("bridge", "source", config.bridge_source))
 	config.bridge_sim_cadence = float(file.get_value("bridge", "sim_cadence", config.bridge_sim_cadence))
 	config.bridge_sessions_dir = str(file.get_value("bridge", "sessions_dir", config.bridge_sessions_dir))
+	config.companion_program = str(file.get_value("companion", "program", config.companion_program))
 	return config
 
 

@@ -36,6 +36,12 @@ func test_missing_keys_fall_back_to_defaults() -> void:
 	assert_eq(config.camera_look_height_m, defaults.camera_look_height_m)
 
 
+func test_companion_program_is_read_from_file_and_defaults_without_the_key() -> void:
+	assert_eq(RideConfig.load_file("res://tests/fixtures/companion.cfg").companion_program, "tools/toni/pythonw.exe")
+	assert_eq(RideConfig.load_file("res://tests/fixtures/partial.cfg").companion_program, RideConfig.new().companion_program)
+	assert_eq(RideConfig.load_file().companion_program, "../../bridge/.venv-companion/Scripts/pythonw.exe", "config.cfg")
+
+
 func test_unknown_track_falls_back_to_island() -> void:
 	assert_eq(RideConfig.load_file("res://tests/fixtures/unknown_track.cfg").track, RideConfig.TRACK_ISLAND)
 

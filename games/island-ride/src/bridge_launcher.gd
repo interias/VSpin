@@ -5,7 +5,10 @@
 ## Rohdaten ab wie bei Strg+C. Erst wenn sie nicht rechtzeitig endet, wird sie hart beendet.
 ##
 ## Begleiter (Spec #76): Ist er gewünscht (`set_companion`, Einstellung „Begleiter“) und hat das Spiel die Bridge selbst
-## gestartet (`own`), startet es mit demselben Programm `-m vspin_companion --port <Bus-Port> --stop-file <Stoppdatei>`.
+## gestartet (`own`), startet es mit dem eigenen Programm aus `config.cfg [companion] program` (`pythonw.exe` des venv
+## `bridge/.venv-companion`, nicht das der Bridge: dessen schwere Pakete machen Toni sonst heiser) und
+## `-m vspin_companion --port <Bus-Port> --stop-file <Stoppdatei>`. Fehlt das Programm, startet kein Begleiter (Warnung,
+## `companion_failed`, kein neuer Versuch bis der Schalter einmal aus und wieder an war); Fahrt und Bridge laufen weiter.
 ## Nur bei eigener Bridge: Sie lief vorher nicht, also kann auch kein von Hand gestarteter Begleiter an ihr hängen –
 ## bei einer mitbenutzten Bridge gehört der Begleiter (wie die Bridge) dem, der sie gestartet hat. Zusätzlich nie, wenn
 ## schon ein Begleiter am Bus gemeldet ist (`present`): nie zwei Tonis. Ausschalten beendet nur den eigenen, sauber über
@@ -69,6 +72,8 @@ var args := PackedStringArray()
 ## PID und Aufrufzeile des eigenen Begleiters (-1 = keiner) und ob er sich von selbst beendet hat.
 var companion_pid := -1
 var companion_args := PackedStringArray()
+## Programm des Begleiters (`[companion] program`, aufgelöst) – ein anderes als das der Bridge.
+var companion_program := ""
 var companion_failed := false
 
 var _enabled: bool
@@ -98,6 +103,7 @@ func _init(config: RideConfig, base_dir: String, processes: Processes = null, pl
 		companion_stop_file := DEFAULT_COMPANION_STOP_FILE) -> void:
 	_processes = processes if processes != null else Processes.new()
 	program = _absolute(config.bridge_program, base_dir)
+	companion_program = _absolute(config.companion_program, base_dir)
 	_sessions_dir = _absolute(config.bridge_sessions_dir, base_dir)
 	_source = config.bridge_source
 	_sim_cadence = config.bridge_sim_cadence
@@ -269,15 +275,19 @@ func _companion_exited() -> void:
 
 
 func _launch_companion() -> void:
+	if not _processes.program_exists(companion_program):
+		push_warning("BridgeLauncher: Programm des Begleiters fehlt: %s" % companion_program)
+		companion_failed = true
+		return
 	DirAccess.remove_absolute(_companion_stop_file)  # Rest eines früheren Laufs
 	companion_args = PackedStringArray(["-m", "vspin_companion", "--port", str(_port), "--stop-file",
 			_companion_stop_file])
 	# Parent-Wächter ohne neues Argument: der Begleiter (#79) beendet sich, wenn dieser Prozess nicht mehr lebt. Die
 	# Umgebung erben die Kinder; ein unbekanntes CLI-Argument ließe den Start eines älteren Begleiters scheitern.
 	OS.set_environment(COMPANION_PARENT_ENV, str(OS.get_process_id()))
-	companion_pid = _processes.start(program, companion_args)
+	companion_pid = _processes.start(companion_program, companion_args)
 	if companion_pid <= 0:
-		push_warning("BridgeLauncher: Start des Begleiters gescheitert: %s %s" % [program, " ".join(companion_args)])
+		push_warning("BridgeLauncher: Start des Begleiters gescheitert: %s %s" % [companion_program, " ".join(companion_args)])
 		companion_pid = -1
 		companion_failed = true
 		return
