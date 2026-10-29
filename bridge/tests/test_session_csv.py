@@ -307,6 +307,8 @@ def test_simulator_session_has_an_empty_control_file(bridge_process, bus_client,
     assert bridge.stop() == 0
     [csv_path] = tmp_path.glob("*.csv")
     assert csv_path.with_name(csv_path.stem + ".control.jsonl").read_bytes() == b""
+    # Controller-Rohprotokoll (Spec #89): ebenso, ohne Controller leer.
+    assert csv_path.with_name(csv_path.stem + ".controller.jsonl").read_bytes() == b""
 
 
 def test_occupied_control_file_name_moves_the_whole_session(bridge_process, bus_client, tmp_path):

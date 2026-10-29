@@ -17,7 +17,9 @@ gemerkte Geräte und Suche auf Anfrage je Rolle laufen über `DeviceRelay` (`dev
 neu an.
 
 Steuerprotokoll (Spec #89): Jedes Ereignis der Trainer-Steuerung (`TrainerSource.on_control_log`) geht mit Bridge-Zeit in
-die Session-Datei `<zeit>.control.jsonl`, die erste Zeile ist der Stand beim Start der Session."""
+die Session-Datei `<zeit>.control.jsonl`, die erste Zeile ist der Stand beim Start der Session. Ebenso geht jedes Ereignis
+des Lenkercontrollers (`ControllerSource.on_log`: Verbinden, Handshake, jede Notification) roh nach
+`<zeit>.controller.jsonl`."""
 
 import asyncio
 import contextlib
@@ -63,7 +65,7 @@ from .sources.base import (
     SourceDisconnectedError,
     TelemetrySample,
 )
-from .sources.controller import ControllerStatus
+from .sources.controller import ControllerStatus, Handshake
 from .sources.heart_rate import HeartRateStatus
 from .sources.sim import SimulatorSource
 from .sources.trainer import TrainerSource
@@ -126,8 +128,9 @@ class Bridge:
         )
         # Pulsquelle (Spec #64): Zustand in `status`, Wert in `telemetry`, Rohdaten in die Session.
         self._heart_rate = HeartRateRelay(heart_rate, self._on_heart_rate_status, self._on_heart_rate_raw)
-        # Lenkercontroller (Spec #75): nur Zustand, nie ein Schreibzugriff.
+        # Lenkercontroller (Spec #75): Zustand; seit Spec #89 Klartext-Handshake und Rohprotokoll in die Session.
         self._controller = controller(self._on_controller_status)
+        self._controller.on_log = self._on_controller_log
         roles: dict[DeviceKind, Role] = {
             DeviceKind.HEART_RATE: self._heart_rate.source,
             DeviceKind.CONTROLLER: self._controller,
@@ -166,6 +169,7 @@ class Bridge:
             self._console.info(f"Session: {self._session.csv.path}")
             self._console.info(f"Rohdaten: {self._session.raw.path}")
             self._console.info(f"Steuerprotokoll: {self._session.control.path}")
+            self._console.info(f"Controller-Protokoll: {self._session.controller.path}")
             if isinstance(self._source, TrainerSource):
                 self._on_control_log(
                     {"event": "state", "state": str(self._source.control), "reason": "Stand beim Start der Session"}
@@ -447,6 +451,10 @@ class Bridge:
         """Ein Ereignis der Trainer-Steuerung ins Steuerprotokoll der Session (Spec #89)."""
         self._log_session(lambda session: session.control.write(bridge_time_ms(), entry))
 
+    def _on_controller_log(self, entry: dict) -> None:
+        """Ein Ereignis des Lenkercontrollers ins Controller-Rohprotokoll der Session (Spec #89)."""
+        self._log_session(lambda session: session.controller.write(bridge_time_ms(), entry))
+
     def _on_trainer_target(self, target_power: int | None) -> None:
         """ERG an, aus oder neue Zielleistung: genau ein `status` an alle."""
         self._bus.publish(self._status_message())
@@ -495,7 +503,8 @@ class Bridge:
         self._bus.publish(self._status_message())
         device = "" if status.device is None else f", {status.device.name} ({status.device.side or '?'})"
         battery = "" if status.battery is None else f", Batterie {status.battery} %"
-        self._console.info(f"Controller: {status.state}{device}{battery}")
+        handshake = "" if status.handshake is Handshake.NONE else f", Handshake {status.handshake}"
+        self._console.info(f"Controller: {status.state}{device}{battery}{handshake}")
 
     def _on_heart_rate_raw(self, raw: RawNotification) -> None:
         """Rohe Puls-Notification: in die Session-Rohdatei, wie beim Rad."""

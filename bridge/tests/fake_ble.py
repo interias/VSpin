@@ -14,13 +14,16 @@ Erweiterung (Spec #75), ohne Wissen über ein Protokoll (kein FTMS hier):
 - Fehlerinjektion für `read` und `write` (`fail_reads`, `fail_writes`).
 - Spec #89: `answer_before_ack` – die Antwort-Indication kommt schon, bevor der Schreibzugriff quittiert ist (so kann
   ein Stack sie ausliefern, z. B. WinRT).
+- Spec #89 (Controller): Characteristics der Gerätedatenbank mit Eigenschaften (`appear(..., characteristics=)`,
+  Standard: keine), Schreiben ohne Antwort (`writes_without_response`), Fehlerinjektion fürs Abonnieren
+  (`fail_subscribes`).
 """
 
 import asyncio
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 
-from vspin_bridge.ble import Advertisement, BleError
+from vspin_bridge.ble import Advertisement, BleError, GattCharacteristic
 
 
 @dataclass
@@ -31,6 +34,7 @@ class FakeDevice:
     services: tuple[str, ...]
     manufacturer_data: dict[int, bytes] = field(default_factory=dict)
     gatt_services: tuple[str, ...] = ()
+    characteristics: tuple[GattCharacteristic, ...] = ()
 
 
 class FakeBleAdapter:
@@ -44,6 +48,8 @@ class FakeBleAdapter:
         self.writes: list[tuple[str, str, bytes]] = []  # (Adresse, Characteristic, Daten), in Reihenfolge
         self.fail_reads: dict[str, int] = {}  # Adresse → so viele `read` scheitern
         self.fail_writes: dict[str, int] = {}  # Adresse → so viele `write` scheitern
+        self.fail_subscribes: dict[str, int] = {}  # Adresse → so viele `subscribe` scheitern
+        self.writes_without_response: list[tuple[str, str, bytes]] = []  # Schreiben mit `response=False`
         self.answers: dict[tuple[str, str], tuple[str, Callable[[bytes], bytes | None]]] = {}
         self.answer_before_ack = False  # Antwort-Indication noch vor der Quittung des Schreibzugriffs
         self.scan_starts = 0
@@ -62,10 +68,12 @@ class FakeBleAdapter:
         services: tuple[str, ...] = (),
         manufacturer_data: Mapping[int, bytes] | None = None,
         gatt_services: tuple[str, ...] | None = None,
+        characteristics: tuple[GattCharacteristic, ...] = (),
     ) -> None:
         """Gerät beginnt zu senden. `services`: angekündigte Services (leer und ohne Herstellerdaten
         = passt zu jeder Suche nach Services). `manufacturer_data`: Firmen-ID → Nutzdaten.
-        `gatt_services`: Services der Gerätedatenbank nach dem Verbinden (Standard: `services`)."""
+        `gatt_services`: Services der Gerätedatenbank nach dem Verbinden (Standard: `services`).
+        `characteristics`: Characteristics der Gerätedatenbank (Standard: keine)."""
         self.devices[address] = FakeDevice(
             address,
             name,
@@ -73,6 +81,7 @@ class FakeBleAdapter:
             services,
             dict(manufacturer_data or {}),
             services if gatt_services is None else gatt_services,
+            characteristics,
         )
         for scan in self._scans:
             scan.announce(self.devices[address])
@@ -202,6 +211,11 @@ class FakeConnection:
         device = self._adapter.devices.get(self.address)
         return frozenset(device.gatt_services) if device is not None else frozenset()
 
+    @property
+    def characteristics(self) -> tuple[GattCharacteristic, ...]:
+        device = self._adapter.devices.get(self.address)
+        return device.characteristics if device is not None else ()
+
     async def read(self, char: str) -> bytes:
         await asyncio.sleep(0)
         if not self.open:
@@ -214,7 +228,7 @@ class FakeConnection:
         except KeyError:
             raise BleError(f"{self.address}: {char} gibt es nicht") from None
 
-    async def write(self, char: str, data: bytes) -> None:
+    async def write(self, char: str, data: bytes, *, response: bool = True) -> None:
         await asyncio.sleep(0)
         if not self.open:
             raise BleError(f"{self.address} getrennt")
@@ -225,6 +239,8 @@ class FakeConnection:
         if answer is not None and answer[0] not in self.subscriptions:
             raise BleError(f"{self.address}: Indications von {answer[0]} nicht abonniert")
         self._adapter.writes.append((self.address, char, data))
+        if not response:
+            self._adapter.writes_without_response.append((self.address, char, data))
         if answer is not None:
             indicate_char, respond = answer
             response = respond(data)
@@ -239,6 +255,9 @@ class FakeConnection:
             await asyncio.sleep(self._adapter.subscribe_delay_s)
         if not self.open:
             raise BleError(f"{self.address} getrennt")
+        if self._adapter.fail_subscribes.get(self.address, 0) > 0:
+            self._adapter.fail_subscribes[self.address] -= 1
+            raise BleError(f"{self.address}: {char} nicht abonnierbar")
         self.subscriptions[char] = on_notify
 
     def notify(self, data: bytes, char: str | None = None) -> None:

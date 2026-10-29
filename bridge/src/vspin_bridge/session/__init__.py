@@ -1,6 +1,6 @@
-"""Session-Logging (ADR-0008): pro Bridge-Lauf drei Dateien unter `sessions/` –
-`<zeit>.csv` (eine Zeile pro Sample am Bus), `<zeit>.raw.jsonl` (rohe Notifications) und `<zeit>.control.jsonl`
-(Steuerprotokoll des Trainers, Spec #89).
+"""Session-Logging (ADR-0008): pro Bridge-Lauf vier Dateien unter `sessions/` –
+`<zeit>.csv` (eine Zeile pro Sample am Bus), `<zeit>.raw.jsonl` (rohe Notifications), `<zeit>.control.jsonl`
+(Steuerprotokoll des Trainers, Spec #89) und `<zeit>.controller.jsonl` (Rohprotokoll des Lenkercontrollers, Spec #89).
 
 Bewusst `session` statt des in bridge/README.md geplanten `logging`: ein Unterpaket
 `vspin_bridge.logging` wäre zwar technisch möglich, liest sich aber wie die stdlib

@@ -88,6 +88,12 @@ const CONTROLLER_OFF := "off"
 const CONTROLLER_DISCONNECTED := "disconnected"
 const CONTROLLER_CONNECTED := "connected"
 const CONTROLLER_LOCKED := "locked"
+## Stand des Klartext-Handshakes laut `status.controller.handshake` (Spec #89, Hypothese der Bridge); fehlt das Feld oder
+## ist es unbekannt, gilt `none`.
+const CONTROLLER_HANDSHAKE_NONE := "none"
+const CONTROLLER_HANDSHAKE_ANSWERED := "answered"
+const CONTROLLER_HANDSHAKE_ENCRYPTED := "encrypted"
+const CONTROLLER_HANDSHAKE_NO_ANSWER := "no_answer"
 ## Anmeldezustände laut `status.garmin.login`; `unknown`, wenn die Bridge den Block nicht kennt oder der Bus fehlt.
 const GARMIN_UNKNOWN := "unknown"
 const GARMIN_LOGGED_IN := "logged_in"
@@ -146,10 +152,11 @@ var trainer_control := ""
 ## Verbundener Trainer ({address, name}) laut `status.trainer.device`, sonst leer (Spec #75).
 var trainer_device := {}
 ## Controller laut `status.controller`: Zustand, Gerät ({address, name, side}, bei connected/locked) und Batterie in
-## Prozent (-1 = unbekannt). Ältere Bridge und Busabbruch: `off`.
+## Prozent (-1 = unbekannt). Ältere Bridge und Busabbruch: `off`. Dazu der Stand des Handshakes (`CONTROLLER_HANDSHAKE_*`).
 var controller_state := CONTROLLER_OFF
 var controller_device := {}
 var controller_battery := -1
+var controller_handshake := CONTROLLER_HANDSHAKE_NONE
 ## Signalstärke in dBm je Rolle (`status.signal`), nur für Rollen mit Wert.
 var signal_dbm := {}
 ## Anmeldezustand bei Garmin Connect laut `status.garmin.login` (nur die Token-Datei der Bridge, nicht ob das Token noch
@@ -354,6 +361,7 @@ func _set_bus_connected(connected: bool) -> void:
 		controller_state = CONTROLLER_OFF
 		controller_device = {}
 		controller_battery = -1
+		controller_handshake = CONTROLLER_HANDSHAKE_NONE
 		signal_dbm = {}
 		_set_garmin(GARMIN_UNKNOWN)
 
@@ -415,6 +423,7 @@ func _read_roles(message: Dictionary) -> void:
 	controller_state = CONTROLLER_OFF
 	controller_device = {}
 	controller_battery = -1
+	controller_handshake = CONTROLLER_HANDSHAKE_NONE
 	if block is Dictionary:
 		var reported = block.get("state")
 		if reported in [CONTROLLER_DISCONNECTED, CONTROLLER_CONNECTED, CONTROLLER_LOCKED]:
@@ -427,6 +436,10 @@ func _read_roles(message: Dictionary) -> void:
 		var battery = block.get("battery")
 		if battery is float or battery is int:
 			controller_battery = int(battery)
+		var handshake = block.get("handshake")
+		if controller_state == CONTROLLER_CONNECTED and handshake in [CONTROLLER_HANDSHAKE_ANSWERED,
+				CONTROLLER_HANDSHAKE_ENCRYPTED, CONTROLLER_HANDSHAKE_NO_ANSWER]:
+			controller_handshake = handshake
 	signal_dbm = {}
 	var signal_block = message.get("signal")
 	if signal_block is Dictionary:

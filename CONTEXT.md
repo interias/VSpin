@@ -50,7 +50,7 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **Kachel** | Teil des Verbindungsfensters für eine Rolle: oben der Stand, unten die Einrichtung. Die Trainerkachel zeigt auch die Steuerung, „Nur lesen“ und den Knopf „Steuerung zurückholen“. |
 | **Background Pairing** | Start ohne Dialog: Das Spiel schickt seine gemerkten Geräte nach jedem Verbinden mit dem Bus, die Bridge verbindet im Hintergrund das beste gemerkte Gerät, das sendet (Trainer: das stärkste). |
 | **Steuerung zurückholen** | Knopf im Verbindungsfenster bei `lost` oder `error` (`reclaim_trainer_control`): Nur auf diesen Klick fordert die Bridge die Steuerung neu an; von selbst nie, damit VSpin nie im Streit mit einer anderen App steuert. |
-| **Controller** | Lenkercontroller des Zwift Ride (links/rechts, Name „Zwift SF2“). VSpin verbindet ihn nur und zeigt Zustand und Akku; die Tasten nutzt es noch nicht, und es schreibt nie auf ihn. **Gesperrt** (`locked`): Ab Firmware 1.3 versteckt er seinen Service, bis er einmal in Zwift verbunden war (gilt etwa 24 h) – kein Fehler, sondern ein Hinweis. |
+| **Controller** | Lenkercontroller des Zwift Ride (links/rechts, Name „Zwift SF2“). VSpin verbindet ihn und zeigt Zustand und Akku; die Tasten nutzt es noch nicht. Es schreibt nur den Klartext-**Handshake** (`RideOn`, einmal je Verbindung, nach dem Abo seiner Meldungen) und schneidet alles mit, was er sendet (Controller-Protokoll der Session, Spec #89); verlangt er Verschlüsselung (`encrypted`), schreibt es nicht mehr. **Gesperrt** (`locked`): Ab Firmware 1.3 versteckt er seinen Service, bis er einmal in Zwift verbunden war (gilt etwa 24 h) – kein Fehler, sondern ein Hinweis. |
 
 ### Spiel
 
