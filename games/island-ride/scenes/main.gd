@@ -58,6 +58,8 @@
 ## meldet `grade_reporter.reset()` die echte Steigung neu. Spielabsturz und Beenden deckt die Bridge ab.
 ## Steuert eine andere App den Trainer (`status.trainer.control` `lost`) oder läuft die Bridge im Nur-lesen-Modus
 ## (`read_only`, `config.cfg [bridge] trainer_read_only`), zeigt das HUD einen Hinweis (`resistance_text()`).
+## Gänge aus (Spec #89): Steuert VSpin den Trainer nicht, sagt der Hinweis für jeden Stand der Steuerung, warum es keine
+## Gänge gibt (`gears_off_text()`); die Tasten bleiben dieselben und wirken, sobald die Steuerung `active` ist.
 ##
 ## ERG (Spec #75): In einer ERG-Einheit (Training.erg) meldet das Spiel statt der Steigung je Phase die Zielleistung per
 ## `set_target_power` – nur in `riding` und nur, solange VSpin den Trainer steuert (`gears_active`). Ohne Steuerung
@@ -245,8 +247,13 @@ const COMPANION_HOARSE_NOTICE := "Toni ist heiser"
 
 const BRIDGE_START_HINT := "Bridge starten: vspin-bridge --source sim"
 const RESISTANCE_NOT_SUPPORTED := "Widerstand: nicht unterstützt"
-const RESISTANCE_CONTROL_LOST := "Trainer wird von einer anderen App gesteuert – Widerstand aus VSpin pausiert"
-const RESISTANCE_READ_ONLY := "Trainer im Nur-lesen-Modus – Widerstand aus VSpin aus"
+const RESISTANCE_CONTROL_LOST := "Gänge aus: Trainer wird von einer anderen App gesteuert – Steuerung zurückholen (V)"
+const RESISTANCE_READ_ONLY := "Gänge aus: Trainer im Nur-lesen-Modus – Widerstand aus VSpin aus"
+## Gänge aus (Spec #89): Grund je Stand der Steuerung am Trainer (`lost` und `read_only` oben).
+const GEARS_OFF_NONE := "Gänge aus: Trainer nicht verbunden – Verbindungsfenster (V)"
+const GEARS_OFF_REQUESTING := "Gänge aus: VSpin fordert die Steuerung des Trainers an …"
+const GEARS_OFF_NOT_SUPPORTED := "Gänge aus: Trainer nimmt keine Steigung an (keine Simulation oder Control Point gesperrt)"
+const GEARS_OFF_ERROR := "Gänge aus: Steuerung gescheitert – Steuerung zurückholen im Verbindungsfenster (V)"
 
 ## Konfiguration; wenn vor `_ready` nicht gesetzt, wird `res://config.cfg` geladen.
 var config: RideConfig = null
@@ -1956,15 +1963,34 @@ func _on_ack(message: Dictionary) -> void:
 		resistance_hint = "Widerstand: Fehler (%s)" % message.get("reason")
 
 
-## Hinweis zum Widerstand im HUD: Steuert eine andere App den Trainer oder läuft die Bridge im Nur-lesen-Modus
-## (`status.trainer.control`), steht das da – unabhängig von der letzten `ack`; sonst der Hinweis aus der `ack`.
+## Hinweis zum Widerstand im HUD: Steuert VSpin den Trainer nicht (`status.trainer.control`), steht der Grund da, warum
+## es keine Gänge gibt (`gears_off_text()`) – unabhängig von der letzten `ack`; sonst der Hinweis aus der `ack`.
 func resistance_text() -> String:
+	var reason := gears_off_text()
+	return reason if not reason.is_empty() else resistance_hint
+
+
+## Warum es keine Gänge gibt (Spec #89), je Stand der Steuerung; "" bei steuerbarem Trainer (`gears_active`) und ohne
+## Angabe der Bridge. `lost` und `read_only` gelten für jede Quelle, die übrigen Stände nur mit Trainer (`source` `ble`) –
+## beim Simulator gibt es nie Gänge, da ist nichts zu tun.
+func gears_off_text() -> String:
 	match bus.trainer_control:
 		BusClient.TRAINER_CONTROL_LOST:
 			return RESISTANCE_CONTROL_LOST
 		BusClient.TRAINER_CONTROL_READ_ONLY:
 			return RESISTANCE_READ_ONLY
-	return resistance_hint
+	if bus.source != "ble":
+		return ""
+	match bus.trainer_control:
+		BusClient.TRAINER_CONTROL_NONE:
+			return GEARS_OFF_NONE
+		BusClient.TRAINER_CONTROL_REQUESTING:
+			return GEARS_OFF_REQUESTING
+		BusClient.TRAINER_CONTROL_NOT_SUPPORTED:
+			return GEARS_OFF_NOT_SUPPORTED
+		BusClient.TRAINER_CONTROL_ERROR:
+			return GEARS_OFF_ERROR
+	return ""
 
 
 func _on_telemetry(_message: Dictionary) -> void:

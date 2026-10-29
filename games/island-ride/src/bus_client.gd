@@ -77,6 +77,8 @@ const TRAINER_CONTROL_ERROR := "error"
 const TRAINER_CONTROL_ACTIVE := "active"
 const TRAINER_CONTROL_REQUESTING := "requesting"
 const TRAINER_CONTROL_NOT_SUPPORTED := "not_supported"
+## Kein Trainer verbunden (Spec #89: Grund im HUD, warum es keine Gänge gibt).
+const TRAINER_CONTROL_NONE := "none"
 ## Rollen im Verbindungsfenster (`kind`, Spec #75).
 const KIND_TRAINER := "trainer"
 const KIND_HEART_RATE := "heart_rate"

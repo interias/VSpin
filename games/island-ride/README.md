@@ -1475,6 +1475,14 @@ das Zwift-Protokoll auf dem Trainer wird nicht benutzt. `config.cfg [gears]`: `c
 im neutralen Gang, die Grundlast bleibt 0 in jedem Gang. Das HUD zeigt „Gang 12/24“ in der Rundenzeile nur, solange
 VSpin den Trainer steuert; ohne Steuerung (Simulator, nur lesen, Kontrollverlust) gilt die reine Streckensteigung.
 
+**Gänge aus – warum** (#89): Mit Trainer (`source="ble"`) und ohne Steuerung sagt der Hinweis über dem unteren Panel den
+Grund, je Stand von `status.trainer.control`: `none` Trainer nicht verbunden, `requesting` VSpin fordert die Steuerung
+an, `lost` eine andere App steuert, `read_only` Nur-lesen-Modus, `not_supported` Trainer ohne Indoor Bike Simulation
+oder Control Point nicht abonnierbar, `error` Anforderung gescheitert (keine Antwort, Ablehnung, Schreibfehler). Bei `lost` und `error` verweist er auf „Steuerung zurückholen“ im Verbindungsfenster
+(V). Die Tasten bleiben dieselben und schalten, sobald die Steuerung `active` ist. Beim Simulator gibt es keinen
+Hinweis. Was die Bridge dabei mit dem Trainer austauscht, steht im Steuerprotokoll der Session
+(`bridge/sessions/<zeit>.control.jsonl`, bridge/README.md).
+
 ### Virtuelle Steigung (`set_grade`)
 
 Das Spiel meldet die Steigung an der Fahrerposition per `{"v": 0, "type": "set_grade", "grade": 0.06}`
@@ -1495,7 +1503,7 @@ Mit einem steuerbaren Trainer (`source="ble"`, FTMS mit Simulation) wird die Ste
 das Spiel den Bus verlässt Steigung 0. Die Antwort (`ack`) der Bridge erscheint dezent unter den Werten:
 „Widerstand: nicht unterstützt“ bei `ok: false, reason: "not_supported"` (Simulator, Replay, Trainer ohne
 Simulation), „Widerstand: Fehler (…)“ bei anderem Grund, nichts bei `ok: true`. Vorrang davor hat der Stand der
-Steuerung aus `status.trainer.control`: bei `lost` der Hinweis, dass eine andere App den Trainer steuert und der
+Steuerung aus `status.trainer.control` („Gänge aus“, oben): bei `lost` der Hinweis, dass eine andere App den Trainer steuert und der
 Widerstand aus VSpin pausiert, bei `read_only` der Hinweis auf den Nur-lesen-Modus (`config.cfg [bridge]
 trainer_read_only=true` → Bridge mit `--read-only`, nur bei `source="ble"`). `error`-Antworten landen als Warnung
 im Log. Mit dem Simulator sinkt bergauf die Kadenz; die Steigung steht in der Session-CSV der Bridge (Spalte

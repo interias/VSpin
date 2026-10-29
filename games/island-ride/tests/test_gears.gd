@@ -1,6 +1,7 @@
 ## Virtuelle Gänge (Spec #75, Story 8): Gangtabelle (Grenzen, neutral, effektive Steigung, Sperre), Tasten nur bei
 ## steuerbarem Trainer ohne offenes Menü oder Fenster, `set_grade` mit effektiver Steigung gegen den Fake-Bus,
-## Grundlast bleibt 0, Ganganzeige im HUD.
+## Grundlast bleibt 0, Ganganzeige im HUD. Spec #89: Grund im HUD für jeden Stand der Steuerung ohne Gänge, die Tasten
+## wirken, sobald die Steuerung `active` wird.
 extends "res://tests/support/bus_test.gd"
 
 const CLIMB_M := 200.0  # Graybox: 6 % Steigung
@@ -183,3 +184,70 @@ func test_hud_shows_the_gear_only_with_controllable_trainer() -> void:
 	await run_for(0.3)
 	assert_false(sim_ride.get_node("Hud/Layout/Rows/Bottom/Box/Lap/Gear").is_visible_in_tree(), "Simulator: keine Anzeige")
 	assert_false(sim_ride.get_node("Hud").readout().contains("Gang"))
+
+
+# --- Gänge aus: Grund im HUD (Spec #89) ---
+
+func test_hud_says_why_there_are_no_gears_for_every_control_state() -> void:
+	var main := load("res://scenes/main.gd")
+	var expected := {
+		"none": main.GEARS_OFF_NONE,
+		"requesting": main.GEARS_OFF_REQUESTING,
+		"lost": main.RESISTANCE_CONTROL_LOST,
+		"read_only": main.RESISTANCE_READ_ONLY,
+		"not_supported": main.GEARS_OFF_NOT_SUPPORTED,
+		"error": main.GEARS_OFF_ERROR,
+	}
+	for control in expected:
+		var ctx := await _ride(control)
+		var ride = ctx[1]
+		var hint: Label = ride.get_node("Hud/Hint")
+		assert_true(await run_until(func(): return hint.text == expected[control], 2.0),
+				"Steuerung %s: Grund im HUD (%s)" % [control, hint.text])
+		assert_string_starts_with(hint.text, "Gänge aus: ")
+		assert_false(ride.get_node("Hud").readout().contains("Gang:"), "Steuerung %s: keine Ganganzeige" % control)
+		ride.queue_free()
+		await get_tree().process_frame
+	assert_eq(expected.size(), 6, "alle Stände außer active")
+
+
+func test_lost_and_error_point_to_reclaiming_control_in_the_connection_window() -> void:
+	var main := load("res://scenes/main.gd")
+	for text in [main.RESISTANCE_CONTROL_LOST, main.GEARS_OFF_ERROR]:
+		assert_string_contains(text, "Steuerung zurückholen")
+		assert_string_contains(text, "(V)")
+	assert_string_contains(main.RESISTANCE_CONTROL_LOST, "von einer anderen App gesteuert")
+
+
+func test_no_reason_while_vspin_controls_the_trainer_and_none_for_the_simulator() -> void:
+	var ctx := await _ride()
+	var ride = ctx[1]
+	await run_for(0.3)
+	assert_eq(ride.get_node("Hud/Hint").text, "", "VSpin steuert: kein Grund")
+	var sim := start_fake_bus([FakeBusServer.status("connected", "sim", ["CADENCE"], 0.0, {}, "not_supported")]
+			+ FakeBusServer.steady_cadence(80.0, 0.0, 10.0))
+	var sim_ride := spawn_ride(sim, CLIMB_M)
+	assert_true(await run_until(func(): return sim_ride.state == "riding", 3.0))
+	await run_for(0.3)
+	assert_eq(sim_ride.bus.trainer_control, "not_supported")
+	assert_eq(sim_ride.get_node("Hud/Hint").text, "", "Simulator: nichts zu tun, kein Grund")
+
+
+func test_keys_shift_as_soon_as_control_becomes_active() -> void:
+	# Tastatur bleibt der Ersatz (US 6): dieselben Tasten wirken, sobald die Bridge die Steuerung hat.
+	var steps := [FakeBusServer.status("connected", "ble", ["CADENCE", "RESISTANCE_CONTROL"], 0.0, {}, "error"),
+			FakeBusServer.status("connected", "ble", ["CADENCE", "RESISTANCE_CONTROL"], 1.5, {}, "active")] \
+			+ FakeBusServer.steady_cadence(80.0, 0.0, 30.0)
+	var bus := start_fake_bus(steps)
+	var ride := spawn_ride(bus, CLIMB_M)
+	var hint: Label = ride.get_node("Hud/Hint")
+	assert_true(await run_until(func(): return ride.state == "riding" and hint.text == ride.GEARS_OFF_ERROR, 1.4))
+	await press_key(KEY_UP)
+	assert_eq(ride.gears.gear, 12, "error: kein Schalten")
+	assert_true(await run_until(func(): return ride.gears_active(), 3.0))
+	assert_true(await run_until(func(): return hint.text == "", 1.0), "active: Grund verschwindet")
+	await press_key(KEY_UP)
+	assert_eq(ride.gears.gear, 13, "active: Pfeil ↑ schaltet")
+	await press_key(KEY_KP_SUBTRACT)
+	assert_eq(ride.gears.gear, 12, "active: Ziffernblock − schaltet")
+	assert_string_contains(ride.get_node("Hud").readout(), "Gang: 12/24")

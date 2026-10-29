@@ -93,9 +93,10 @@ ein `status` an alle Clients.
 | `lost` | eine andere App (z. B. Zwift) steuert den Trainer: Machine Status `0x2ADA` meldete Control Permission Lost (`0xFF`) oder einen fremden Reset, oder der Trainer antwortete `0x05`. Die Bridge schreibt dann **nichts** mehr auf den Trainer, bis er neu verbunden ist oder ein Client `reclaim_trainer_control` schickt (Knopf „Steuerung zurückholen“); erst dann fordert sie die Steuerung wieder an. Das Spiel zeigt einen Hinweis. |
 | `read_only` | Bridge mit `--read-only`: keine Anforderung, kein Schreibzugriff, unabhängig vom Trainer |
 | `not_supported` | Trainer ohne Indoor Bike Simulation (Target Setting Features `0x2ACC`, Bit 13) oder ohne Control Point; Simulator und Replay |
-| `error` | Anforderung gescheitert (keine Antwort im Zeitlimit, Ablehnung, Schreibfehler – z. B. ohne gebondetes Pairing); Details im Bridge-Terminal, neuer Versuch beim Neuverbinden oder auf `reclaim_trainer_control` |
+| `error` | Anforderung gescheitert (keine Antwort im Zeitlimit, Ablehnung, Schreibfehler – z. B. ohne gebondetes Pairing); Details im Bridge-Terminal und im Steuerprotokoll der Session (`sessions/<zeit>.control.jsonl`, bridge/README.md), neuer Versuch beim Neuverbinden oder auf `reclaim_trainer_control` |
 
-Jede Änderung von `trainer.control` ist eine Statusänderung: genau ein `status` an alle Clients je Änderung.
+Jede Änderung von `trainer.control` ist eine Statusänderung: genau ein `status` an alle Clients je Änderung. Den Grund
+einer Änderung trägt der Bus nicht; die Bridge schreibt ihn ins Steuerprotokoll der Session (Spec #89).
 Gelesen wird der Trainer in jedem dieser Zustände weiter.
 
 | `controller.state` | Bedeutung |

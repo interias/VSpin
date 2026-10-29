@@ -14,7 +14,10 @@ Zielleistung bzw. alle Clients weg, oder das Beenden – dann verlässt der Trai
 Verbindungsfenster (Spec #75): Neben Rad (Trainer) und Puls hält die Bridge den Lenkercontroller (`ControllerSource`);
 gemerkte Geräte und Suche auf Anfrage je Rolle laufen über `DeviceRelay` (`device_relay.py`). `status` trägt dazu
 `controller` und `signal`; „Steuerung zurückholen“ (`reclaim_trainer_control`) fordert die Steuerung nur auf Wunsch
-neu an."""
+neu an.
+
+Steuerprotokoll (Spec #89): Jedes Ereignis der Trainer-Steuerung (`TrainerSource.on_control_log`) geht mit Bridge-Zeit in
+die Session-Datei `<zeit>.control.jsonl`, die erste Zeile ist der Stand beim Start der Session."""
 
 import asyncio
 import contextlib
@@ -145,6 +148,7 @@ class Bridge:
             source.on_control_changed = self._on_trainer_control
             source.on_target_changed = self._on_trainer_target
             source.on_info = console.info
+            source.on_control_log = self._on_control_log
 
     async def run(self, stop: asyncio.Event) -> None:
         """Läuft, bis `stop` gesetzt wird. Wirft `BusStartError`, wenn der Bus-Port belegt ist,
@@ -161,6 +165,11 @@ class Bridge:
                 raise SessionStartError(f"{self._sessions_dir}: {exc.strerror or exc}") from exc
             self._console.info(f"Session: {self._session.csv.path}")
             self._console.info(f"Rohdaten: {self._session.raw.path}")
+            self._console.info(f"Steuerprotokoll: {self._session.control.path}")
+            if isinstance(self._source, TrainerSource):
+                self._on_control_log(
+                    {"event": "state", "state": str(self._source.control), "reason": "Stand beim Start der Session"}
+                )
             self._rides.session_csv = self._session.csv.path
             self._rides.start()
             await self._heart_rate.start()  # aus bis zum ersten Befehl, fasst bis dahin BLE nicht an
@@ -433,6 +442,10 @@ class Bridge:
         """Änderung der Steuerung ist eine Statusänderung: genau ein `status` an alle."""
         self._bus.publish(self._status_message())
         self._console.info(f"Trainer-Steuerung: {state} ({reason})")
+
+    def _on_control_log(self, entry: dict) -> None:
+        """Ein Ereignis der Trainer-Steuerung ins Steuerprotokoll der Session (Spec #89)."""
+        self._log_session(lambda session: session.control.write(bridge_time_ms(), entry))
 
     def _on_trainer_target(self, target_power: int | None) -> None:
         """ERG an, aus oder neue Zielleistung: genau ein `status` an alle."""
