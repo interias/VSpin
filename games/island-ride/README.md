@@ -671,6 +671,7 @@ wiederholt einen Block. Dabei sind:
 | **Intervalle kurz** | 8 min Aufwärmen, 10 × 30 s hart (95–105 rpm) / 30 s locker (80–90 rpm), 5 min Ausrollen | 23 min |
 | **Pyramide** | 8 min Aufwärmen, je 3 min bei 70 → 80 → 90 → 100 → 90 → 80 → 70 rpm (± 3), 5 min Ausrollen | 34 min |
 | **Tempo-Blöcke** | 6 min Aufwärmen, 3 × 8 min bei 85–90 rpm mit je 3 min Erholung, 4 min Ausrollen | 40 min |
+| **Sweet Spot (ERG)** | 8 min Aufwärmen bei 55 % FTP, 3 × 8 min bei 90 % FTP mit je 4 min bei 55 %, Ausrollen (#75) | ≈ 45 min |
 
 Die Insel läuft dabei **endlos**. Das HUD zeigt Phase, Zielkadenz, Restzeit und die nächste Phase. Der Widerstand ist
 manuell – das Spiel kennt die Knopfstellung nicht –, die Ansage ist eine Empfehlung: 10 s vor dem Wechsel als
@@ -678,6 +679,16 @@ Vorankündigung („In 8 s: Widerstand 2 Stufen hoch, 100 rpm halten“), dann n
 allein, **wie lange die Kadenz im Zielbereich lag** (ADR-0010) – je Phase und gesamt (nach Zeit gewichtet). Nach dem
 Ausrollen endet die Fahrt mit dem Ergebnis („Zielkadenz getroffen: 87 %“ und je Phase, Wiederholungen
 zusammengefasst); „Fahrt beenden“ vorher zeigt die Teilbewertung der gefahrenen Phasen.
+
+**ERG-Einheiten (#75):** Eine Phase kann statt der Zielkadenz eine **Zielleistung** tragen, absolut (`power_w`) oder
+als Anteil der FTP (`power_ftp`, z. B. 0.9); eine Einheit mischt beides nicht. Die **FTP** steht im Fahrerprofil neben
+LTHR und Maximalpuls (Verbindungsfenster, 50–600 W, Spielstand `pulse.ftp`); ohne FTP ist eine %-FTP-Einheit im Menü
+ausgegraut. Steuert VSpin den Trainer, sendet das Spiel je Phase `set_target_power` – der Trainer hält die Leistung
+(ERG), es geht kein `set_grade`, die Gänge sind gesperrt und die Ganganzeige ist aus; beim Verlassen der Fahrt (Pause,
+Ziel, Menü) erst `set_target_power null`, dann die Grundlast `set_grade 0`, beim Weiterfahren wieder die Zielleistung.
+Ohne Steuerung läuft die Einheit ohne ERG weiter, die Watt werden angesagt („In 8 s: 225 W“). Bewertet wird der Anteil
+der Zeit im Leistungsband (± 5 %, mindestens ± 10 W), das Ergebnis heißt „Zielleistung getroffen“. Steuert VSpin den
+Trainer (SIM oder ERG), entfallen die Ansagen zum Widerstandsknopf auch in Kadenz-Einheiten.
 
 Runden im Training zählen **nicht** für Bestzeit, Medaillen, Segmentzeiten und Ghost (die Vorgabe wechselt, die
 Runden wären nicht vergleichbar); die Kilometer zählen fürs Fahrerlevel. Ein zu Ende gefahrenes Training meldet
@@ -1700,7 +1711,7 @@ scenes/devices_menu.gd  DevicesMenu: Verbindungsfenster – Kacheln Trainer/Puls
 src/lap_timing.gd       LapTiming: Rundenwertung – Rundenzeiten, Ziel nach n Runden oder endlos, Bestzeit, Ghost-Aufzeichnung – reine Logik
 src/segment_timing.gd   SegmentTiming: Segmentzeiten (Live-Zeit, gewertete Segmente, Segment-Bestzeit) – reine Logik
 src/ghost.gd            Ghost: Runde als Strecke über Zeit – aufzeichnen, abspielen, Abstand in s – reine Logik
-src/training.gd         Training: Einheit laden, Ablauf (Phase, Restzeit, Ansage), Bewertung der Zielkadenz – reine Logik
+src/training.gd         Training: Einheit laden, Ablauf (Phase, Restzeit, Ansage), Bewertung der Zielkadenz bzw. Zielleistung (ERG, #75) – reine Logik
 src/zone_bar.gd         ZoneBar: Zonenbalken – Zielbereich, Wert als Marke, Zustand in Farbe und Form (#58)
 src/gate_placement.gd   GatePlacement: Lage eines zeitgebundenen Tors aus Restzeit und Tempo, Festsetzen – reine Logik (#58)
 src/course_gate.gd      CourseGate: Start- und Zieltor über der Straße, an einer Fahrtposition gestellt (#58)
@@ -1747,7 +1758,7 @@ src/ability_extension.gd AbilityExtension: Erweiterung der Arcade-Bühne (`Arcad
 src/tier_arcade.gd      TierArcade: Erweiterung der Arcade-Bühne (`ArcadeStage.EXTENSIONS`) – Hinweis beim Rundenwechsel, besiegte Bosse eintragen und die nächste Stufe freischalten, Zusammenfassungszeilen (#54)
 src/balancing.gd        Balancing: Simulation des Arcade-Modus ohne Grafik – Kadenzverläufe (Einsteiger, Trainierter, Sprinter) als Daten, Läufe und Laufbahnen über die echten Module, Bericht als Markdown – reine Logik (#55)
 src/ability_hud.gd      AbilityHud: Leiste „bereit / aktiv / Abklingzeit“ und Einblendung „… ausgelöst“ unter dem HUD (#50)
-trainings/              Trainingseinheiten als Dateien (JSON): Intervalle kurz, Pyramide, Tempo-Blöcke
+trainings/              Trainingseinheiten als Dateien (JSON): Intervalle kurz, Pyramide, Tempo-Blöcke, Sweet Spot (ERG)
 src/medals.gd           Medals: Medaillen-Schwellen aus dem Fahrmodell (70/85/95 rpm bzw. 150/200/250 W, #75), Medaille einer Zeit – reine Logik
 src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik
 src/gears.gd            Gears: virtuelle Gänge, effektive Steigung = Strecke + f(Gang), Sperre für ERG – reine Logik (#75)
