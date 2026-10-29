@@ -162,6 +162,9 @@ def test_example_profile_starts(bridge_process, bus_client, name):
         "source": "sim",
         "capabilities": ["CADENCE"],
         "heart_rate": {"state": "off", "device": None},  # Pulsquelle bis zum ersten Befehl aus (#64)
+        "trainer": {"control": "not_supported", "device": None, "mode": "sim", "target_power": None},  # der Simulator steuert nichts (Spec #75)
+        "controller": {"state": "off", "device": None, "battery": None},  # bis zum ersten Befehl aus (Spec #75)
+        "signal": {"trainer": None, "heart_rate": None, "controller": None},
         "garmin": None,  # Anmeldezustand (#84), hängt vom Extra `garmin` ab – unten geprüft
     }
     # Heimatverzeichnis der Bridge ist der Testordner: nie das Token des Nutzers, also nie `logged_in`.

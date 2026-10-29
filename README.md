@@ -13,7 +13,7 @@
 
 ## Was VSpin macht
 
-Spinning-Räder wie das **Wenoker JC312** senden ihre Messwerte per Bluetooth Low Energy, gedacht für Apps wie
+Smart-Trainer senden ihre Messwerte per Bluetooth Low Energy (FTMS), gedacht für Apps wie
 Zwift oder Kinomap. VSpin nimmt diese Werte selbst ab und stellt sie eigenen Spielen zur Verfügung:
 
 - **Rad verbinden:** Die Bridge spricht die Bluetooth-Standards für Fitnessgeräte (FTMS) und für Trittfrequenz
@@ -30,7 +30,7 @@ Zwift oder Kinomap. VSpin nimmt diese Werte selbst ab und stellt sie eigenen Spi
 
 ```mermaid
 flowchart LR
-  Rad["Indoor-Bike<br>(JC312)"] -- "Bluetooth LE<br>FTMS / CSC" --> Bridge
+  Rad["Trainer<br>(FTMS)"] -- "Bluetooth LE<br>FTMS / CSC" --> Bridge
   Sim["Simulator /<br>Aufzeichnung"] --> Bridge
   Bridge["vspin-bridge<br>(Python)"] -- "Kadenz, Tempo, Status<br>WebSocket 127.0.0.1:8765" --> Spiel["Spiele<br>(Godot 4)"]
   Spiel -- "Steigung" --> Bridge
@@ -64,7 +64,7 @@ alle Optionen stehen in der **[Anleitung](docs/anleitung.md)**.
 ## Stand
 
 VSpin ist in Arbeit (v1). Bridge, Simulator, Aufzeichnung und die Inselfahrt laufen ohne Rad. Es fehlt noch die
-Verbindung zum echten JC312 unter Windows; dafür braucht es zuerst einen Mitschnitt seines Bluetooth-Protokolls.
+Verbindung zum echten Trainer unter Windows; dafür braucht es zuerst einen Mitschnitt seines Bluetooth-Protokolls.
 
 ## Im Repository
 
@@ -72,7 +72,7 @@ Verbindung zum echten JC312 unter Windows; dafür braucht es zuerst einen Mitsch
 |---|---|
 | [`bridge/`](bridge/) | Bridge in Python: Bluetooth-, Simulator- und Replay-Quellen, Parser, Bus, Aufzeichnung |
 | [`games/island-ride/`](games/island-ride/) | Spiel „Inselfahrt“ (Godot 4) |
-| [`tools/`](tools/) | Hilfsskripte, z. B. Bluetooth-Mitschnitt des Rads |
+| [`tools/`](tools/) | Hilfsskripte, z. B. die Geräteprüfung für Trainer und Zwift-Controller (`tools\geraete-pruefen.cmd`) |
 | [`docs/`](docs/) | [Anleitung](docs/anleitung.md), [Bus-Protokoll](docs/bus-protocol.md), [Architekturentscheidungen](docs/adr/), [Marke](docs/brand/) |
 | [`CONTEXT.md`](CONTEXT.md) | Glossar |
 

@@ -5,16 +5,16 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 
 ## Ausgangslage
 
-- **Gerät:** Wenoker JC312 Spinning-Bike, Bluetooth LE, laut Hersteller Zwift/Kinomap-kompatibel.
-- **Widerstand:** manuell per Drehknopf (Magnetbremse), keine elektronische Steuerung.
+- **Gerät:** Trainer (FTMS), Bluetooth LE; erstes Gerät ist der Wahoo KICKR CORE 2.
+- **Widerstand:** vom Trainer elektronisch gesteuert (Indoor Bike Simulation, ERG).
 - **Host:** Windows-PC mit USB-Bluetooth-Dongle.
-- **Protokoll:** noch unbekannt – vermutlich FTMS oder CSC; Verifikation per nRF-Connect-Dump.
+- **Protokoll:** FTMS (Fitness Machine Service); Verifikation per nRF-Connect-Dump.
 
 ## Glossar
 
 | Begriff | Bedeutung |
 |---|---|
-| **JC312** | Das konkrete Indoor-Bike (Wenoker JC312). |
+| **Trainer (FTMS)** | Rad-Trainer (z. B. Wahoo KICKR CORE 2) als Gerät der Bridge: liest Leistung, Kadenz und Tempo per BLE Fitness Machine Service `0x1826` (Indoor Bike Data `0x2AD2`, Features `0x2ACC`); fehlt die Kadenz dort, kommt sie aus Cycling Power `0x2A63`. Bus-`source` ist `ble` (`vspin-bridge --source ble`), die Watt sind **measured**. Kann er Indoor Bike Simulation, steuert die Bridge ihn: die virtuelle Steigung wird zum Widerstand (**Steuerung**). |
 | **Telemetrie** | Vom Rad gelieferte Messwerte: Kadenz, Geschwindigkeit, ggf. Leistung. |
 | **Kadenz** | Kurbelumdrehungen pro Minute (rpm). Primärer Game-Input. |
 | **FTMS** | Bluetooth Fitness Machine Service (UUID `0x1826`), u. a. Indoor Bike Data `0x2AD2`, Control Point `0x2AD9`. |
@@ -28,19 +28,28 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **Prototyp-Game** | Das eine Spiel in v1: ein 3D-Radsimulator (Kadenz → Geschwindigkeit), siehe ADR-0005. |
 | **Teststrecke** | Die Insel-Strecke des Radsimulators – abwechslungsreich, möglichst an ein reales Vorbild angelehnt. |
 | **Rundkurs** | Die ca. 8–10 km lange Mallorca-Stil-Strecke: Hafen → Küste → Serpentinen → Pinienhain → Bergdorf → Abfahrt. |
-| **virtuelle Steigung** | Steigung der Strecke, die nur die Spielgeschwindigkeit beeinflusst, nicht den echten Widerstand. |
+| **virtuelle Steigung** | Steigung der Strecke an der Fahrerposition. Sie wirkt auf die Spielgeschwindigkeit und – per `set_grade` – am Trainer als Widerstand (Spec #75); ohne Trainer mit Steuerung (Simulator, Replay, Nur-lesen-Modus) nur im Spiel. |
 | **Bridge** (`vspin-bridge`) | Python-Prozess, der als einziger BLE spricht und Telemetrie auf den Bus publiziert. |
 | **Bus** | Lokaler WebSocket (`ws://127.0.0.1:8765`, JSON), über den Bridge und Clients kommunizieren. |
 | **Client** | Alles, was am Bus hängt: Games, Begleiter, Logger, Dashboard. |
-| **measured / estimated** | Herkunft eines Werts: gemessen vom Gerät bzw. hochgerechnet. Geschätzte Watt werden als „~142 W“ angezeigt. |
+| **measured / estimated** | Herkunft eines Werts: gemessen vom Gerät bzw. hochgerechnet. Geschätzte Watt werden als „~142 W“ angezeigt. Die Herkunft hängt am Gerät: der Trainer (FTMS) misst, Replay und Simulator schätzen. |
 | **stale** | Verbindungsstatus: verbunden, aber > 3 s keine Daten. Games pausieren. |
-| **set_grade** | Bus-Nachricht vom Game an die Bridge mit der aktuellen virtuellen Steigung; ab v1 gesendet, bis zum ESP32 mit `not_supported` beantwortet. |
-| **ESP32-Retrofit** | Spätere Ausbaustufe: Stepper am Widerstandsknopf + Hall-Sensor; meldet sich als FTMS-Smart-Bike mit Control Point. |
-| **Control Point** | FTMS-Characteristic `0x2AD9` zum Steuern des Geräts; wir nutzen Op `0x11` (Indoor Bike Simulation). |
+| **set_grade** | Bus-Nachricht vom Game an die Bridge mit der aktuellen virtuellen Steigung (Anteil, 0.07 = 7 %). Die Bridge antwortet dem Absender mit einem **ack**: `ok: true`, wenn die Steigung angenommen ist (am Trainer gedrosselt umgesetzt), sonst mit Grund – `not_supported` (Quelle ohne `RESISTANCE_CONTROL`), `read_only`, `control_lost`, `source_error`. |
+| **Steuerung** | Die Bridge steuert den Trainer über den FTMS Control Point; es gibt immer nur einen Steuerer. Stand auf dem Bus in `status.trainer.control` (`none`, `requesting`, `active`, `lost`, `read_only`, `not_supported`, `error`). `lost` = eine andere App (z. B. Zwift) steuert; die Bridge schreibt dann bis zum Neuverbinden nichts und das Spiel zeigt einen Hinweis. |
+| **Nur-lesen-Modus** | Bridge mit `--read-only` (Spiel: `config.cfg [bridge] trainer_read_only`): liest den Trainer, fordert keine Steuerung an und schreibt nichts auf ihn – damit sich zwei Apps nicht um die Steuerung streiten. |
+| **Gang (virtuell)** / **effektive Steigung** | Gang = Stufe der Gangtabelle in VSpin (`Gears`, `config.cfg [gears]`: Anzahl, neutraler Gang, Schritt in Prozentpunkten; Standard 24 / 12 / 0,5). Schalten per Tastatur (Pfeil ↑ schwerer, Pfeil ↓ leichter, Ziffernblock +/−), nur bei steuerbarem Trainer (`status.trainer.control == active`), nicht im ERG-Modus. Effektive Steigung = Steigung der Strecke + (Gang − neutral) × Schritt; sie geht per `set_grade` an den Trainer und ist der einzige Weg des Gangs – das Fahrmodell und die Grundlast (0) kennen ihn nicht, das Zwift-Protokoll wird nicht benutzt (Spec #75). |
+| **Grundlast** | Sichere Last am Trainer: Steigung 0. Das Spiel sendet sie beim Verlassen der Fahrt (Pause, Verbindungspause, Ziel, Menü), die Bridge setzt sie, wenn alle Clients weg sind oder der Client der letzten Steigung geht, und beim Beenden (dann zusätzlich Reset). Nie gedrosselt. |
+| **Control Point** | FTMS-Characteristic `0x2AD9` zum Steuern des Geräts (Write + Indicate); wir nutzen `0x00` Request Control, `0x07` Start, `0x11` Indoor Bike Simulation, `0x05` Set Target Power (ERG) und beim Beenden `0x01` Reset. Machine Status `0x2ADA` meldet u. a. den Verlust der Steuerung (`0xFF`). |
 | **Session** | Ein Bridge-Lauf; erzeugt `sessions/<zeit>.csv` und `sessions/<zeit>.raw.jsonl`. |
 | **FIT-Datei** | Eine **Fahrt** als FIT-Aktivität (Garmins Dateiformat) in der **Fahrtablage** `sessions/rides/<zeit>_<ride_id>.fit`; die Bridge schreibt sie aus der Session-CSV, ohne geschätzte Watt (ADR-0008, Nachtrag #84). Lässt sich von Hand in Garmin Connect importieren. |
 | **Fahrtablage** | Ordner `sessions/rides/` der Bridge: die **FIT-Datei** jeder gespeicherten **Fahrt** und `rides.json` mit Wanduhr-Anker, Session-CSV und Upload-Marke je `ride_id` – die Merkliste, damit keine Fahrt zweimal hochgeladen wird. Eine Fahrt aus einer früheren **Session** wird nie neu geschrieben (#84). |
 | **HeartRateSource** | Zweite Quelle der Bridge neben der Radquelle: Puls per BLE Heart Rate Service `0x180D`. Gemerkte Geräte haben die Rolle Gurt (Brustgurt) oder Uhr (Garmin-Uhr mit „Herzfrequenz übertragen“); ihre Reihenfolge ist der Vorrang, ein verbundenes Gerät mit geringerem Vorrang wird gegen eines mit höherem getauscht. |
+| **Rolle** | Wofür ein BLE-Gerät im Verbindungsfenster steht: `trainer`, `heart_rate` (Puls) oder `controller` (Bus-Feld `kind`). Je Rolle gemerkte Geräte (`set_devices`) und eine Suche auf Anfrage zur Zeit. Nicht zu verwechseln mit der Pulsrolle Gurt/Uhr eines Pulsgeräts. |
+| **Verbindungsfenster** | Fenster im Spiel mit einer **Kachel** je Rolle (Zustand, Gerätename, Live-Wert, Signalstärke) und darunter der Einrichtung (suchen, merken, vergessen). Öffnet beim Start von selbst nur bei `config.cfg [bridge] source="ble"` ohne gemerkten Trainer, sonst über „Verbindungen“ im Startmenü, den Knopf im HUD oder die Taste V. Vorgänger ist die Geräteseite aus #64. |
+| **Kachel** | Teil des Verbindungsfensters für eine Rolle: oben der Stand, unten die Einrichtung. Die Trainerkachel zeigt auch die Steuerung, „Nur lesen“ und den Knopf „Steuerung zurückholen“. |
+| **Background Pairing** | Start ohne Dialog: Das Spiel schickt seine gemerkten Geräte nach jedem Verbinden mit dem Bus, die Bridge verbindet im Hintergrund das beste gemerkte Gerät, das sendet (Trainer: das stärkste). |
+| **Steuerung zurückholen** | Knopf im Verbindungsfenster bei `lost` oder `error` (`reclaim_trainer_control`): Nur auf diesen Klick fordert die Bridge die Steuerung neu an; von selbst nie, damit VSpin nie im Streit mit einer anderen App steuert. |
+| **Controller** | Lenkercontroller des Zwift Ride (links/rechts, Name „Zwift SF2“). VSpin verbindet ihn nur und zeigt Zustand und Akku; die Tasten nutzt es noch nicht, und es schreibt nie auf ihn. **Gesperrt** (`locked`): Ab Firmware 1.3 versteckt er seinen Service, bis er einmal in Zwift verbunden war (gilt etwa 24 h) – kein Fehler, sondern ein Hinweis. |
 
 ### Spiel
 
@@ -53,12 +62,18 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **Ghost** | Halbtransparenter Mitfahrer, der eine frühere Runde nachfährt – standardmäßig die Bestzeit, wahlweise die letzte Fahrt. |
 | **Segment** | Fester Abschnitt des Rundkurses mit eigener Zeit, z. B. die Bergwertung in den Serpentinen. |
 | **Medaille** | Bronze/Silber/Gold für eine Runden- oder Segmentzeit nach festen Schwellen. _Vermeiden:_ Medaille für Meilensteine. |
+| **Geräteart** | Womit eine Fahrt gewertet wird: `power` (Trainer mit gemessener Leistung → **Leistungsmodell**) oder `cadence` (Simulator, Rad ohne gemessene Watt → Kadenzmodell). Steht mit der ersten Telemetrie der Fahrt fest; Bestzeit, Segmentzeiten, Medaillen und Ghosts gibt es je Geräteart getrennt (ADR-0010 Nachtrag). |
+| **Leistungsmodell** | Fahrmodell bei gemessener Leistung: Tempo aus Watt und Streckensteigung mit Masse, Roll- und Luftwiderstand (`config.cfg [power]`), Trägheit wie im Kadenzmodell; die Gänge wirken nur am Trainer. Arcade-Herausforderungen hängen trotzdem an der Kadenz. |
+| **3-s-Mittel** | Mittel der gemessenen Leistung über die letzten drei Sekunden; steht im HUD klein hinter dem Wattwert („212 W · Ø3s 205 W“). |
 | **Erfolg** | Einmaliger Meilenstein, z. B. „100 km gesamt“, „Nachtfahrt“, „im Regen gefahren“. _Vermeiden:_ Achievement, Abzeichen. |
 | **Fahrerprofil** | Der eine lokale Spieler mit Fahrtenbuch, Bestzeiten, Erfolgen und Fahrerlevel. |
 | **Fahrerlevel** | Wächst mit jedem gefahrenen Kilometer in jedem Modus; schaltet nur Kosmetik frei (Trikots, Radfarben, Helme). |
 | **Jahreszeit** | Folgt wie die Tageszeit dem echten Datum auf Mallorca (Mandelblüte im Februar, trockener Sommer …), im Menü umstellbar. |
 | **Rundfahrt** | Spielmodus: Runden auf dem Rundkurs in gewählter Richtung, 1–n oder endlos; jede Runde zählt für Bestzeit und Medaille, Ghost zuschaltbar. |
-| **Training** | Spielmodus: angeleitete Einheit (z. B. Intervalle, Pyramide, Tempo-Blöcke) mit Zielkadenz und Ansagen zum Widerstandsknopf; bewertet wird, wie gut die Zielkadenz getroffen wurde. |
+| **Training** | Spielmodus: angeleitete Einheit (z. B. Intervalle, Pyramide, Tempo-Blöcke) mit Zielkadenz und Ansagen zum Widerstandsknopf; bewertet wird, wie gut die Zielkadenz getroffen wurde. Steuert VSpin den Trainer (`status.trainer.control == active`), entfällt die Ansage zum Knopf. |
+| **ERG** | Zweiter Steuermodus des Trainers (Spec #75): Der Trainer hält eine **Zielleistung** (FTMS `0x05` Target Power, Bus `set_target_power`), unabhängig von der Kadenz; Gegenstück ist SIM (Steigung, `set_grade`). Stand in `status.trainer.mode` (`sim` / `erg`) und `target_power`. In ERG wird nicht geschaltet und keine Steigung gesendet; die Grundlast verlässt ERG und setzt Steigung 0. |
+| **ERG-Einheit** / **Zielleistung** | Trainingseinheit mit Watt-Zielen je Phase, absolut (`power_w`) oder als Anteil der FTP (`power_ftp`). Das Spiel sendet je Phase die Zielleistung und sagt sie an („In 8 s: 250 W“); bewertet wird der Anteil der Zeit, in der die gemessene Leistung im Zielband lag (± 5 %, mindestens ± 10 W). Ohne steuerbaren Trainer läuft sie ohne ERG weiter (der Fahrer hält die Leistung selbst). |
+| **FTP** | Functional Threshold Power des Fahrers in W (50–600), im Profil neben LTHR und Maximalpuls (Verbindungsfenster). Einheiten in % FTP lassen sich ohne FTP nicht starten. |
 | **Arcade** | Spielmodus nach dem Diablo-Kreislauf: Herausforderungen und Bosse → Beute → stärker → höhere Stufe. Seine Werte wirken nur hier (ADR-0010). |
 | **Panorama-Moment** | Kurzer Kameraschwenk mit Namenseinblendung an Sehenswürdigkeiten; nicht bei Ghost oder Training. |
 | **Herausforderung** | Arcade: Aufgabe auf der Strecke, die nur über die Kadenz gelöst wird: Zone halten, Durchbruch (Balken über einer Schwelle füllen), Takt-Tore, Jagd, Sammeln. Scheitern ist weich: weniger oder keine Beute, die Fahrt geht weiter. |
@@ -95,13 +110,13 @@ Siehe [ADR-0002](docs/adr/0002-tech-stack-und-bus.md): Python-Bridge (bleak) →
 
 Geräte-Abstraktion: [ADR-0003](docs/adr/0003-geraete-abstraktion-und-simulator.md).
 
-Datenqualität: [ADR-0004](docs/adr/0004-datenqualitaet.md) – Kadenz ist einziger Game-Input, Watt nur geschätzt.
+Datenqualität: [ADR-0004](docs/adr/0004-datenqualitaet.md) – Kadenz ist einziger Game-Input, Watt je Gerät gemessen oder geschätzt.
 
 Insel-Welt: [ADR-0006](docs/adr/0006-insel-welt.md) – handgebaut, Mallorca-Stil.
 
 Prototyp-Game: [ADR-0005](docs/adr/0005-prototyp-game-radsimulator.md) – 3D-Radsimulator auf einer Insel.
 
-Widerstandssteuerung: [ADR-0007](docs/adr/0007-widerstandssteuerung-esp32.md) – Steigung über FTMS, ESP32 als Smart-Bike.
+Widerstandssteuerung: [ADR-0007](docs/adr/0007-widerstandssteuerung-esp32.md) – Steigung über FTMS am Trainer.
 
 Datenspeicherung: [ADR-0008](docs/adr/0008-datenspeicherung-und-export.md) – CSV + Roh-JSONL pro Bridge-Start, FIT-Datei je Fahrt, optional Garmin-Upload (#84).
 

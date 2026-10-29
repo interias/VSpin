@@ -31,6 +31,8 @@
 ##                „Toni ist heiser“ (`show_companion_notice`), der nach COMPANION_NOTICE_S ausblendet
 ##   Message/Hint/Debug  Zustandsmeldung (mittig zwischen oben und unten), `set_grade`-Hinweis (über dem unteren
 ##                Panel), Debug-Anzeige F3 (unter dem Werte-Panel) – Inhalte setzt die Hauptszene.
+##   Verbindungen (Spec #75) Knopf am Ende der Rundenzeile: öffnet das Verbindungsfenster (`connections_requested`, wie
+##                die Taste V). Nur mit der Maus: er nimmt keinen Tastaturfokus, die Leertaste löst ihn nie aus.
 ## Layout nur über Anker und Container (kein fester Bildschirmort): passt in 960×1040 wie in 1920×1080, mit und
 ## ohne `stretch/mode="canvas_items"`.
 ## Niedrige Fenster (Nacharbeit #26): Ansage und Ergebnis skalieren mit der Fensterhöhe (Höhe/1080, mindestens
@@ -46,6 +48,8 @@ extends CanvasLayer
 
 ## Eine Einblendung (Celebration) erscheint gerade – je sichtbarer Einblendung einmal (#44: dezenter Klang).
 signal celebration_shown(text: String)
+## Knopf „Verbindungen“ geklickt (Spec #75): die Hauptszene öffnet das Verbindungsfenster.
+signal connections_requested
 
 ## Ab diesem Betrag gilt die Steigung als bergauf/bergab, ab GRADE_STEEP als steil.
 const GRADE_FLAT := 0.005
@@ -98,6 +102,9 @@ const POPUP_FONT_PX := 40
 const POPUP_AT := 0.34
 const POPUP_STACK_PX := 52.0
 const COLOR_POPUP := Color(1.0, 0.86, 0.35)
+## Knopf zum Verbindungsfenster (Spec #75): Text und Schriftgröße – klein, damit die Rundenzeile in 1152 px passt.
+const CONNECTIONS_TEXT := "Verbindungen (V)"
+const CONNECTIONS_FONT_PX := 16
 
 @onready var _top: Control = %Top
 @onready var _stats: Control = %Stats
@@ -114,6 +121,7 @@ const COLOR_POPUP := Color(1.0, 0.86, 0.35)
 @onready var _lap_time_value: Label = %LapTimeValue
 @onready var _segment: Label = %Segment
 @onready var _power: Control = %Power
+@onready var _gear: Label = %Gear
 @onready var _pulse: Control = %Pulse
 @onready var _pulse_value: Label = %PulseValue
 @onready var _pulse_unit: Label = %Unit
@@ -122,6 +130,7 @@ const COLOR_POPUP := Color(1.0, 0.86, 0.35)
 @onready var _ghost: Control = %Ghost
 @onready var _ghost_value: Label = %GhostValue
 @onready var _power_value: Label = %PowerValue
+@onready var _power_average: Label = %Power.get_node("Line/Unit")
 @onready var _lap_caption: Label = %LapCaption
 @onready var _celebration: Label = %Celebration
 @onready var _training: Control = %Training
@@ -175,6 +184,8 @@ var _companion_notice_tween: Tween
 var _celebration_queue: Array = []
 ## Ebene der Zahlen-Popups (#49).
 var _popups: Control
+## Knopf zum Verbindungsfenster (Spec #75).
+var connections_button: Button
 
 
 func _ready() -> void:
@@ -188,6 +199,14 @@ func _ready() -> void:
 	_popups.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_popups.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_popups)
+	connections_button = Button.new()
+	connections_button.name = "Connections"
+	connections_button.text = CONNECTIONS_TEXT
+	connections_button.focus_mode = Control.FOCUS_NONE  # Leertaste (Begleiter, #76) und Enter lösen ihn nie aus
+	connections_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	connections_button.add_theme_font_size_override("font_size", CONNECTIONS_FONT_PX)
+	connections_button.pressed.connect(connections_requested.emit)
+	_lap_caption.get_parent().add_child(connections_button)
 	_build_companion()
 	_place_overlays()
 
@@ -246,7 +265,16 @@ func show_ride(cadence_rpm: float, speed_kmh: float, distance_m: float, time_tex
 	_section.visible = not station.is_empty()
 	_section_value.text = station
 	_power.visible = not power_text.is_empty()
-	_power_value.text = power_text
+	# Das 3-s-Mittel („212 W · Ø3s 205 W“, Spec #75) steht klein dahinter, damit die Zelle schmal bleibt.
+	var power := power_text.split(" · ", true, 1)
+	_power_value.text = power[0]
+	_power_average.text = "· " + power[1] if power.size() > 1 else ""
+
+
+## Virtueller Gang (Spec #75) als Anzeigetext („12/24“); "" = ausblenden (Trainer nicht steuerbar).
+func show_gear(text: String) -> void:
+	_gear.visible = not text.is_empty()
+	_gear.text = "Gang %s" % text
 
 
 ## Puls (#64): `bpm` (NAN, 0 oder negativ = kein Wert → „--“), `zones` sind die der laufenden Fahrt (null oder ohne Zonen:
@@ -592,6 +620,8 @@ func readout() -> String:
 		if unit != null and not unit.text.is_empty():
 			text += " " + unit.text
 		lines.append(text)
+	if _gear.is_visible_in_tree():
+		lines.append(_gear.text.replace("Gang ", "Gang: "))
 	if _pulse.is_visible_in_tree():
 		var pulse := "Puls: %s" % _pulse_value.text
 		if _pulse_has_value:

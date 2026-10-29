@@ -108,8 +108,9 @@ func test_unreachable_bridge_is_started_with_source_from_config() -> void:
 	var args: PackedStringArray = processes.started[0][1]
 	assert_eq(program, "C:/vspin/bridge/.venv/Scripts/pythonw.exe", "pythonw (ohne Konsolenfenster), relativ zum Spiel")
 	assert_eq(args, PackedStringArray(["-m", "vspin_bridge", "--source", "ble", "--sessions-dir", "C:/vspin/bridge/sessions",
-			"--stop-file", ProjectSettings.globalize_path(STOP_FILE), "--parent-pid", str(OS.get_process_id())]),
-			"Wächter auf das Spiel: die Bridge endet mit ihm, auch ohne Stoppdatei")
+			"--stop-file", ProjectSettings.globalize_path(STOP_FILE), "--parent-pid", str(OS.get_process_id()),
+			"--known-trainers"]),
+			"Wächter auf das Spiel: die Bridge endet mit ihm, auch ohne Stoppdatei; Trainer nur aus den gemerkten (Spec #75)")
 	assert_false(FileAccess.file_exists(STOP_FILE), "alte Stoppdatei weg, sonst endete die Bridge sofort")
 	assert_string_contains(launcher.hint(), "wird gestartet (Quelle ble)")
 
@@ -125,6 +126,46 @@ func test_simulator_bridge_starts_with_cadence_from_config() -> void:
 	var args: PackedStringArray = processes.started[0][1]
 	assert_eq(args.slice(args.size() - 2), PackedStringArray(["--sim-cadence", "85"]), "Kadenz aus config.cfg")
 	assert_string_contains(" ".join(args), "--source sim")
+
+
+func test_read_only_from_config_file_starts_the_trainer_bridge_with_read_only() -> void:
+	# config.cfg [bridge] trainer_read_only → `--read-only` (Spec #75, Story 5).
+	var port := _closed_port()
+	var config := RideConfig.load_file("res://tests/fixtures/trainer_read_only.cfg")
+	assert_true(config.bridge_trainer_read_only)
+	config.bus_url = "ws://127.0.0.1:%d" % port
+	var launcher := _launcher(config, port)
+	await _settle(launcher)
+	var args: PackedStringArray = processes.started[0][1]
+	assert_string_contains(" ".join(args), "--source ble")
+	assert_eq(args[-1], "--read-only", "Trainer nur lesen")
+	assert_true(launcher.stop())
+
+
+func test_known_trainers_is_passed_only_to_the_trainer_bridge() -> void:
+	# Spec #75: Die Bridge aus dem Spiel verbindet nur gemerkte Trainer – die Liste schickt das Spiel; ohne sie keinen.
+	for source in ["sim", "ble"]:
+		processes = FakeProcesses.new()
+		var port := _closed_port()
+		var config := _config(port)
+		config.bridge_source = source
+		var launcher := _launcher(config, port)
+		await _settle(launcher)
+		assert_eq(processes.started[0][1].has("--known-trainers"), source == "ble", "--known-trainers (%s)" % source)
+		assert_true(launcher.stop())
+
+
+func test_read_only_is_passed_only_to_the_trainer_bridge() -> void:
+	for source in ["sim", "ble"]:
+		processes = FakeProcesses.new()
+		var port := _closed_port()
+		var config := _config(port)
+		config.bridge_source = source
+		config.bridge_trainer_read_only = source == "sim"  # beim Simulator ohne Wirkung (die Bridge lehnte es ab)
+		var launcher := _launcher(config, port)
+		await _settle(launcher)
+		assert_false(processes.started[0][1].has("--read-only"), "kein --read-only (%s)" % source)
+		assert_true(launcher.stop())
 
 
 func test_closing_the_game_stops_own_bridge_cleanly() -> void:
@@ -208,6 +249,7 @@ func test_game_config_starts_simulator_bridge_from_repository() -> void:
 	assert_eq(config.bridge_source, "sim")
 	assert_eq(config.bridge_sim_cadence, 80.0, "Simulator aus dem Spiel tritt mit 80 rpm")
 	assert_eq(config.bridge_sessions_dir, "../../bridge/sessions")
+	assert_false(config.bridge_trainer_read_only, "Standard: VSpin steuert den Trainer (Nur-lesen aus)")
 	assert_eq(config.bus_url, "ws://127.0.0.1:%d" % BridgeLauncher.BRIDGE_PORT, "Spiel startet nur für die Bridge-Adresse")
 
 

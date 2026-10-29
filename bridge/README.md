@@ -2,7 +2,8 @@
 
 Python-Prozess, der als einziger BLE spricht und Telemetrie auf den Bus publiziert
 (ADR-0002, ADR-0003). Bisher implementiert: Quellen `sim` (Simulator: manuell, Profile,
-Rauschen) und `replay` (aufgezeichnete Roh-Notifications durch die Parser: CSC und FTMS),
+Rauschen), `replay` (aufgezeichnete Roh-Notifications durch die Parser: CSC und FTMS) und `ble`
+(Trainer per FTMS, siehe Trainer),
 die Datenaufbereitung (Glättung, Kadenz 0, Ausreißer – ADR-0004), Verbindungsstatus
 `connected | stale | disconnected`, Session-Dateien und der Bus nach
 [`docs/bus-protocol.md`](../docs/bus-protocol.md) – nur `ws://127.0.0.1:8765`.
@@ -27,6 +28,10 @@ vspin-bridge --source sim                  # oder: python -m vspin_bridge --sour
 vspin-bridge --source sim --sim-cadence 80 # Start-Kadenz in rpm (Standard 0)
 vspin-bridge --source replay DATEI.raw.jsonl --speed 10   # Aufnahme abspielen (siehe Replay)
 vspin-bridge --source sim --hr-replay DATEI.raw.jsonl      # Pulsquelle spielt die Pulszeilen ab (siehe Puls)
+vspin-bridge --source ble                                  # Trainer per BLE (FTMS): das stärkste Gerät mit FTMS
+vspin-bridge --source ble --trainer AA:BB:CC:DD:EE:FF      # bestimmter Trainer (siehe Trainer)
+vspin-bridge --source ble --read-only                      # Trainer nur lesen, nicht steuern (siehe Trainer)
+vspin-bridge --source ble --known-trainers                 # Trainer nur aus der Liste des Spiels (Start aus dem Spiel)
 ```
 
 Im Terminal: Pfeil hoch/`+` = Kadenz +5, Pfeil runter/`-` = Kadenz −5 (0–200 rpm), `q` oder
@@ -55,8 +60,9 @@ Container gedacht (`docker-compose.yml`, siehe [Anleitung](../docs/anleitung.md)
 sich mit `config.cfg [bus] url`. Die Bridge selbst liest `VSPIN_PORT_BASE` nicht.
 
 Clients können `set_grade` senden (virtuelle Steigung, ADR-0007). Die Bridge antwortet dem
-Absender mit `ack` (bis zur Widerstandssteuerung `ok: false, reason: "not_supported"`) und
-schreibt eine Zeile ins Terminal, z. B. `set_grade +0.070 (+7.0 %) -> not_supported`.
+Absender mit `ack` und schreibt eine Zeile ins Terminal, z. B. `set_grade +0.070 (+7.0 %) -> not_supported`.
+Simulator und Replay antworten `ok: false, reason: "not_supported"`; der steuernde Trainer setzt die Steigung als
+Widerstand um (`ok: true`, siehe Trainer). Weitere Gründe: `read_only`, `control_lost` (siehe Trainer).
 Scheitert die Quelle mit einem anderen Fehler, lautet die Antwort `reason: "source_error"`
 (der Fehler steht im Terminal); die Verbindung bleibt offen.
 Der Simulator senkt bergauf die Kadenz (um 2 × Steigung, höchstens auf die Hälfte);
@@ -66,6 +72,80 @@ Kaputte oder unbekannte Nachrichten werden mit `error` beantwortet (docs/bus-pro
 Nachrichten zwischen Spiel und Begleiter (`ride_state`, `ride_event`, `companion_ptt`, `companion_status`, #77)
 leitet die Bridge unverändert an alle anderen Clients weiter, nie an den Absender, und antwortet nicht darauf.
 Sie prüft nur den Umschlag (JSON-Objekt, `type`, `v`); die Felder stehen in docs/bus-protocol.md.
+
+## Trainer
+
+`--source ble` startet die Trainerquelle (`sources/trainer.py`, Spec #75) mit bleak hinter der BLE-Nahtstelle `ble/`:
+ein Rad-Trainer wie der Wahoo KICKR CORE 2 per Fitness Machine Service `0x1826`. Die Quelle liest ihn und steuert
+den Widerstand über die virtuelle Steigung (siehe Steuerung), sofern er das kann und `--read-only` nicht gesetzt ist.
+
+- **Suche:** nach FTMS `0x1826` und Cycling Power `0x1818` zugleich. Ohne `--trainer ADRESSE` nimmt die Bridge das
+  **stärkste Gerät mit FTMS**, ersatzweise das stärkste mit Cycling Power; mit Adresse gilt nur dieses Gerät. Der
+  Trainer darf nicht noch bei Zwift, der Hersteller-App o. Ä. verbunden sein (BLE hält eine Verbindung).
+- **Gemerkte Trainer (Verbindungsfenster):** Schickt ein Client `set_devices` mit `kind: "trainer"`, gilt ab dann nur
+  diese Liste: die Bridge nimmt das stärkste gemerkte Gerät, das sendet; eine leere Liste heißt, kein Trainer verbindet
+  sich von selbst. `--trainer` und das stärkste Gerät gelten nur bis zur ersten Liste (Bridge von Hand ohne Spiel).
+  Mit `--known-trainers` – so startet das Spiel die Bridge – wartet sie von Anfang an auf die Liste. Fällt der
+  verbundene Trainer aus der Liste (das Spiel merkt einen anderen), gibt die Bridge ihn frei wie beim Beenden
+  (Steigung 0, Reset) und verbindet danach den neuen. `status.trainer.device` nennt den verbundenen Trainer,
+  `status.signal.trainer` seine Signalstärke beim Verbinden; `start_device_search` mit `kind: "trainer"` sucht auf
+  Anfrage (docs/bus-protocol.md „Rollen“).
+- **Werte:** Features `0x2ACC` → Capabilities (`SPEED`, `POWER`, `CADENCE`); Indoor Bike Data `0x2AD2` liefert Tempo,
+  Leistung und Kadenz. Fehlt die Kadenz dort (laut Features oder in den ersten drei Notifications), kommt Cycling
+  Power Measurement `0x2A63` dazu (Kadenz aus den Kurbeldaten). Die Watt sind **gemessen** (`power_estimated: false`,
+  ADR-0004). Das Tempo beruht auf einem angenommenen Radumfang und wird nur durchgereicht.
+- **Rohdaten:** Jede Notification der Telemetrie (`0x2AD2`, `0x2A63`) steht in der Session-Rohdatei, im Format des
+  Replays (die Antworten des Control Points und Machine Status `0x2ADA` nicht); die Aufnahme einer Fahrt
+  lässt sich später mit `--source replay` abspielen (dort gelten die Watt wie bei jedem Replay als geschätzt).
+- **Abbruch:** Reißt die Verbindung ab oder ist der Trainer beim Start nicht da, meldet die Bridge `disconnected`
+  und sucht und verbindet alle 3 s neu (ADR-0004). Die Session läuft weiter, es gibt keine neue Datei.
+- **Windows:** Ein gebondetes Gerät fragt WinRT beim ersten geschützten Zugriff (dem Lesen der Features) nach dem
+  Pairing; das ist am Gerät noch nicht belegt.
+- **Tests:** `tests/test_trainer_source.py`, `tests/test_trainer_control.py`, `tests/test_bus_trainer.py` (Fake hinter
+  `tests/fake_ble.py`, kein echtes Gerät).
+
+### Steuerung
+
+Die virtuelle Steigung des Spiels (`set_grade`) wird am Trainer zum Widerstand (FTMS 1.0, `sources/trainer_control.py`,
+ADR-0007 Nachtrag Spec #75). Es gibt immer nur einen Steuerer; den Stand meldet `status.trainer.control`
+(docs/bus-protocol.md), jede Änderung steht im Terminal als `Trainer-Steuerung: <stand> (<grund>)`.
+
+- **Übernehmen:** Nur wenn die Target Setting Features (`0x2ACC`) Indoor Bike Simulation melden (dann Capability
+  `RESISTANCE_CONTROL`). Beim Verbinden: Indications des Control Points `0x2AD9` abonnieren (ohne Abo lehnt der
+  Trainer Schreibzugriffe ab), Machine Status `0x2ADA` abonnieren, `0x00` Request Control, `0x07` Start – jeweils mit
+  Antwort und 2 s Zeitlimit. Scheitert das, liest die Bridge weiter (`lost`, `not_supported` oder `error`).
+- **Steigung:** `0x11` mit Wind 0, Steigung in 0,01 %, Crr 0,0040, Cw 0,51 kg/m. Gedrosselt gegenüber dem zuletzt
+  geschriebenen Wert: ab 0,1 % Änderung, höchstens 2 Hz; eine gedrosselte Änderung wird mit dem dann aktuellen Wert
+  nachgeholt. Der Client bekommt trotzdem sofort `ack` `ok: true`. Keine Begrenzung: lehnt der Trainer eine Steigung
+  ab (`0x03`), lautet das `ack` `source_error`. Nach einem Neuverbinden fordert die Bridge neu an und sendet die
+  zuletzt gemeldete Steigung nach.
+- **Andere App steuert:** Meldet `0x2ADA` Control Permission Lost (`0xFF`) oder einen fremden Reset, oder antwortet der
+  Trainer `0x05`, ist die Steuerung `lost`: Die Bridge schreibt nichts mehr, bis der Trainer neu verbunden ist (dann
+  fordert sie neu an), `set_grade` bekommt `reason: "control_lost"`, das Spiel zeigt einen Hinweis.
+- **Steuerung zurückholen:** Auf `reclaim_trainer_control` (Knopf im Verbindungsfenster bei `lost` und `error`) fordert
+  die Bridge `0x00`/`0x07` neu an und sendet die zuletzt gemeldete Steigung nach – nur auf diesen Wunsch des Fahrers,
+  nie von selbst (`Steuerung zurückholen -> ok` bzw. der Grund im Terminal).
+- **`--read-only`:** Nur lesen – keine Anforderung, kein Abo des Control Points, kein einziger Schreibzugriff;
+  `status.trainer.control` ist `read_only`, `set_grade` bekommt `reason: "read_only"`. Für den Fall, dass Zwift oder
+  eine andere App den Trainer steuert. Aus dem Spiel: `config.cfg [bridge] trainer_read_only=true`.
+- **Grundlast** (Steigung 0, nie gedrosselt): Verlassen alle Clients den Bus (Spiel abgestürzt oder geschlossen),
+  schreibt die Bridge sofort Steigung 0 (`Alle Clients weg: Grundlast, Steigung 0 am Trainer`). Ebenso, wenn der
+  Client geht, der zuletzt `set_grade` geschickt hat, auch wenn andere verbunden bleiben (Spiel abgestürzt, Begleiter
+  noch da: `Client der letzten Steigung weg: …`). Beim Beenden (Strg+C, Stoppdatei, `--parent-pid`) schreibt sie
+  Steigung 0, dann `0x01` Reset, der die Steuerung zurückgibt, und trennt erst danach. Bei `control = error`, wenn der
+  Trainer `0x00` bestätigt hatte (z. B. `0x07` ohne Antwort), nur das Reset; bei `lost` nichts. Ein `set_grade`, das
+  dabei noch kommt, schreibt sie nicht mehr. Beim Pausieren sendet das
+  Spiel selbst `set_grade 0`. Ein harter Absturz der Bridge (TerminateProcess) lässt sich nicht abfangen; was der
+  Trainer dann tut, entscheidet seine Firmware.
+- **ERG** (`set_target_power`): Eine Zielleistung in W geht als `0x05` Set Target Power an den Trainer (gedrosselt ab
+  1 W, höchstens 2 Hz), `null` beendet ERG und sendet die zuletzt gemeldete Steigung nach. Voraussetzung ist Power
+  Target in den Target Setting Features (`0x2ACC`, Bit 3), sonst `ack` mit `not_supported`. `status.trainer` meldet
+  `mode` (`sim` | `erg`) und `target_power`, das Terminal `Trainer: ERG 250 W` bzw. `Trainer: SIM (Steigung)`. In ERG
+  bekommt `set_grade` `reason: "erg_active"` und schreibt nichts. Die Grundlast verlässt ERG und schreibt Steigung 0
+  (beim Beenden danach Reset); nach dem Neuverbinden und „Steuerung zurückholen“ geht die letzte Zielleistung nach.
+- **Am Gerät offen:** SIM-Gefühl und Latenz, die größte Steigung, die der KICKR CORE 2 annimmt, der Steuerkonflikt
+  mit Zwift, ob Reset die Steuerung wirklich zurückgibt, und das Verhalten bei einem Absturz der Bridge. Zu ERG: ob der
+  KICKR Power Target meldet, das ERG-Gefühl, die Reaktionszeit auf einen Zielwechsel und ob ein `0x11` ERG verlässt.
 
 ## Puls
 
@@ -81,6 +161,14 @@ begrenzt nach Pulsgeräten; die Ergebnisse bekommt nur der anfragende Client (do
 Bluetooth-Adapter (Docker, CI) läuft die Bridge normal weiter; eine Suche liefert dann nichts. Im Terminal steht
 jede Änderung, z. B. `Puls: connected, HRM-Pro (strap)`. Tests nutzen statt bleak einen skriptbaren Fake
 (`tests/fake_ble.py`, `tests/heart_rate_harness.py`).
+
+**BLE-Nahtstelle (`ble/base.py`, Spec #75):** `start_scan(on_found, services=…, manufacturer_ids=…)` sucht in einer
+Suche nach Geräten, die einen von mehreren Services ankündigen oder Herstellerdaten einer der Firmen senden (ein
+Gerät, das nur Herstellerdaten sendet, ist über Services nie zu finden; dann filtert die Nahtstelle selbst statt
+bleak). `Advertisement` trägt `service_uuids` und `manufacturer_data` mit. Die Verbindung kann außerdem `read`,
+`write` (mit Antwort, mit Zeitlimit; Fehler sind `BleError`) und nennt mit `service_uuids` die Services der
+Gerätedatenbank; `subscribe` gilt für Notify und Indicate gleich. Der Fake bildet das nach (Schreibprotokoll,
+Antwort als Indication, Fehlerinjektion).
 
 **Simulator-Puls:** Der Simulator liefert in jedem Sample einen Puls, wie ein FTMS-Rad ihn mitliefert; er gilt
 daher nur, solange kein Pulsgerät verbunden ist (die Regel oben). Ein Ruhepuls von 60 bpm läuft einem Ziel nach,
@@ -110,6 +198,31 @@ Merken), verbindet auf Anfrage und spielt die Notifications im Takt der Aufnahme
 die Verbindung ab wie bei einem abgenommenen Gurt (`disconnected`); das Gerät erscheint danach nicht wieder. Eine
 kaputte Datei oder eine ohne `0x2A37`-Zeilen bricht den Start mit einer Meldung ab. Der Launcher des Spiels
 braucht die Option nicht.
+
+## Controller
+
+Dritte Rolle neben Rad und Puls (`sources/controller.py`, Spec #75): der linke bzw. rechte Lenkercontroller des Zwift
+Ride. Wie der Puls braucht er keine Startparameter, bleibt `off`, bis ein Client `set_devices` mit
+`kind: "controller"` schickt, und verbindet dann im Hintergrund das beste gemerkte Gerät, das sendet (der linke zuerst:
+er gibt die Tasten des rechten weiter). Erkannt wird er an Herstellerdaten der Firma `0x094A` (erstes Byte 7 = rechts,
+8 = links), ersatzweise am Namen „Zwift SF2“. Nach dem Verbinden prüft die Bridge die Gerätedatenbank: Fehlt `0xFC82`
+(bzw. `00000001-19ca-4651-86e5-fa29dcdd09d1`), ist er **gesperrt** (`status.controller.state: "locked"`; ab Firmware
+1.3 versteckt der Ride V2 den Service, bis er einmal in Zwift verbunden war, etwa 24 h lang) – dann trennt sie und
+versucht es frühestens nach 30 s wieder. Den Akku liest sie einmal aus `0x2A19`. Sie **schreibt nie** auf den
+Controller: kein Handshake, keine Tasten, kein Abo. Im Terminal steht jede Änderung, z. B.
+`Controller: connected, Zwift SF2 (left), Batterie 81 %`.
+
+## Verbindungsfenster am Bus
+
+Gemerkte Geräte und Suche auf Anfrage laufen für alle Rollen über `device_relay.py`: `set_devices`,
+`start_device_search`, `stop_device_search` mit `kind` `trainer | heart_rate | controller`; Ergebnisse
+(`device_found`) und ihr Ende (`device_search_ended`) nur an den Anfrager, eine Suche je Rolle. Die Pulsbefehle aus
+#64 sind Aliase für `kind: "heart_rate"` und antworten in ihrer alten Form. Tests: `tests/test_bus_devices.py` (je
+Rolle ein eigener Fake, der Controller über `InProcessBridge(..., controller=…)`).
+
+**Nur am Gerät prüfbar:** die Suche nach Herstellerdaten unter WinRT, die Sperre des Controllers und ihr Ende nach
+dem Verbinden in Zwift, drei gleichzeitige Verbindungen (Trainer, Puls, Controller) an einem Adapter, Background
+Pairing mit dem echten Trainer.
 
 ## Begleiter (vspin-companion)
 
@@ -293,7 +406,7 @@ vspin-bridge --source replay aufnahme.raw.jsonl --speed 10   # zehnmal so schnel
 vspin-bridge --source replay aufnahme.raw.jsonl --wait-client
 ```
 
-Spielt rohe BLE-Notifications ab – aus `tools/ble_discovery.py` (`jc312_notify_*.raw.jsonl`)
+Spielt rohe BLE-Notifications ab – aus `tools/ble_discovery.py` (`trainer_<zeit>.raw.jsonl`)
 oder aus einer Session (`sessions/*.raw.jsonl`) – und schickt sie durch dieselben Parser wie
 später beim echten Rad. Format: eine Zeile pro Notification,
 
@@ -313,7 +426,7 @@ Ausgewertete Characteristics:
 | Characteristic | Werte |
 |---|---|
 | CSC Measurement `0x2A5B` | Kadenz aus den Kurbeldaten (Δ Umdrehungen / Δ Event-Zeit, Überlauf beider uint16-Zähler berücksichtigt). Raddaten werden gelesen, aber nicht ausgewertet: ohne Radumfang keine Geschwindigkeit (`speed_kmh` bleibt `null`). Nach > 64 s ohne neues Kurbel-Event ist die Event-Zeit nicht mehr eindeutig – das nächste Event ist dann nur neuer Bezugspunkt. |
-| FTMS Indoor Bike Data `0x2AD2` | Flag-basiert (uint16 Flags): alle Felder werden gelesen, damit die Offsets stimmen; genutzt werden Instantaneous Speed (0,01 km/h – vorhanden, wenn Bit 0 „More Data“ **nicht** gesetzt ist), Instantaneous Cadence (0,5 rpm), Instantaneous Power (W) und Heart Rate (bpm; 0 = kein Sensor → `null`). Was laut Flags fehlt, ist `null`. Die Leistung gilt als geschätzt: `power_estimated` ist `true` (ADR-0004 – das JC312 kennt die Stellung des Widerstandsknopfs nicht). Bytes hinter den angekündigten Feldern werden ignoriert. |
+| FTMS Indoor Bike Data `0x2AD2` | Flag-basiert (uint16 Flags): alle Felder werden gelesen, damit die Offsets stimmen; genutzt werden Instantaneous Speed (0,01 km/h – vorhanden, wenn Bit 0 „More Data“ **nicht** gesetzt ist), Instantaneous Cadence (0,5 rpm), Instantaneous Power (W) und Heart Rate (bpm; 0 = kein Sensor → `null`). Was laut Flags fehlt, ist `null`. Die Leistung gilt als geschätzt: `power_estimated` ist `true` (ADR-0004; der Trainer-Pfad meldet gemessene Watt). Bytes hinter den angekündigten Feldern werden ignoriert. |
 
 Andere Characteristics und zu kurze Pakete werden übersprungen (eine Zeile im Terminal je Art),
 stehen aber trotzdem in den Session-Rohdaten. Jede ausgewertete Notification ergibt genau ein
@@ -470,7 +583,7 @@ wie das Spiel; „Strg+C“ ist SIGINT bzw. unter Windows Strg+Untbr an die eige
 **Messung Kadenzmuster (#45):** `python tests/cadence_latency.py` (im Ordner `bridge/`, mit `PYTHONPATH=src` oder
 installiertem Paket) misst die Erkennungsverzögerung von Antritt und Innehalten am geglätteten gegen den
 ungeglätteten Wert – Profile mit Meldetakt 250 ms und 1 s, Rauschen mit Seeds 1–20, dazu CSC-Replays – und gibt eine
-Tabelle aus. `--profile DATEI`, `--interval MS`, `--seeds N`, `--replay DATEI.raw.jsonl` (z. B. ein JC312-Mitschnitt,
+Tabelle aus. `--profile DATEI`, `--interval MS`, `--seeds N`, `--replay DATEI.raw.jsonl` (z. B. ein Mitschnitt vom Trainer,
 #1) wählen andere Eingaben. Die Detektoren dort sind vorläufig (Definition im Kopf der Datei); die Zahlen ohne
 Rauschen hält `tests/test_cadence_raw.py` fest.
 
@@ -491,6 +604,6 @@ src/vspin_bridge/
   session/      Session-CSV und Rohdaten (ADR-0008)
   export/       FIT-Datei einer Fahrt (Spec #84); ride_saver.py: `save_ride` am Bus
   garmin/       Upload zu Garmin Connect, `python -m vspin_bridge.garmin login|status`
-tests/fixtures/  Replay-Fixtures (handgebaut; später echte JC312-Dumps)
+tests/fixtures/  Replay-Fixtures (handgebaut; später echte Trainer-Dumps)
 tests/cadence_latency.py  Messung Erkennungsverzögerung der Kadenzmuster (#45)
 ```

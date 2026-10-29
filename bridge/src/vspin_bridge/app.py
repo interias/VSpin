@@ -1,5 +1,20 @@
 """Bridge-Ablauf: DeviceSource → (Parser) → Datenaufbereitung → Bus + Session,
-Statuszeile im Terminal, Tastatur für den Simulator."""
+Statuszeile im Terminal, Tastatur für den Simulator.
+
+Widerstand (Spec #75): `set_grade` geht an die Quelle; der Trainer (`TrainerSource`) setzt ihn gedrosselt um und
+meldet den Stand der Steuerung (`status.trainer`). Sichere Grundlast, nie gedrosselt: Verlassen alle Clients den Bus
+(Spiel abgestürzt oder geschlossen) oder der Client, der zuletzt `set_grade` schickte (z. B. Spiel weg, Begleiter
+bleibt), setzt die Bridge sofort Steigung 0; beim Beenden Steigung 0 und Reset, bevor die
+Verbindung schließt. Bei einem harten Absturz der Bridge selbst entscheidet die Trainer-Firmware.
+
+ERG (Spec #75): `set_target_power` geht an den Trainer (`TrainerSource.set_target_power`), sein Modus und die
+Zielleistung stehen in `status.trainer`. Die Grundlast gilt auch in ERG: Der Client der letzten Steigung **oder**
+Zielleistung bzw. alle Clients weg, oder das Beenden – dann verlässt der Trainer ERG und bekommt Steigung 0.
+
+Verbindungsfenster (Spec #75): Neben Rad (Trainer) und Puls hält die Bridge den Lenkercontroller (`ControllerSource`);
+gemerkte Geräte und Suche auf Anfrage je Rolle laufen über `DeviceRelay` (`device_relay.py`). `status` trägt dazu
+`controller` und `signal`; „Steuerung zurückholen“ (`reclaim_trainer_control`) fordert die Steuerung nur auf Wunsch
+neu an."""
 
 import asyncio
 import contextlib
@@ -10,11 +25,16 @@ from pathlib import Path
 
 from .bus import HOST, PORT, BusServer, ToOthers
 from .bus.messages import (
+    RECLAIM_TRAINER_CONTROL,
     SET_GRADE,
+    SET_TARGET_POWER,
     ClientMessageError,
-    SaveRide,
+    DeviceKind,
+    ReclaimTrainerControl,
     Relay,
+    SaveRide,
     SetGrade,
+    SetTargetPower,
     ack_message,
     error_message,
     parse_client_message,
@@ -23,6 +43,7 @@ from .bus.messages import (
 )
 from .clock import bridge_time_ms
 from .console import Console
+from .device_relay import ControllerFactory, DeviceRelay, Role, bleak_controller
 from .garmin import GarminConnectUploader, LoginState, Uploader
 from .heart_rate_relay import HeartRateFactory, HeartRateRelay, bleak_heart_rate
 from .keyboard import HELP, Key, Keyboard, keyboard_available
@@ -32,14 +53,18 @@ from .ride_saver import RideSaver
 from .session import Session, open_session
 from .sources.base import (
     Capability,
+    ControlRefusedError,
     DeviceSource,
     NotSupportedError,
     RawNotification,
     SourceDisconnectedError,
     TelemetrySample,
 )
+from .sources.controller import ControllerStatus
 from .sources.heart_rate import HeartRateStatus
 from .sources.sim import SimulatorSource
+from .sources.trainer import TrainerSource
+from .sources.trainer_control import ControlState
 
 # Verbindungsstatus (ADR-0004). Jede Änderung geht genau einmal als `status` auf den Bus.
 CONNECTED = "connected"
@@ -51,6 +76,8 @@ CLOCK_RESOLUTION_S = time.get_clock_info("monotonic").resolution  # Takt von Bri
 RECONNECT_INTERVAL_S = 3.0  # nach einem Abbruch alle 3 s neu verbinden (ADR-0004)
 
 CADENCE_STEP = 5.0
+
+RELEASE_TIMEOUT_S = 4.5  # höchstens so lange dauert das Freigeben des Trainers beim Beenden (Spiel: 5 s bis zum harten Ende)
 
 DEFAULT_SESSIONS_DIR = Path("sessions")  # relativ zum Arbeitsverzeichnis der Bridge
 
@@ -69,6 +96,7 @@ class Bridge:
         host: str = HOST,
         port: int = PORT,
         heart_rate: HeartRateFactory = bleak_heart_rate,
+        controller: ControllerFactory = bleak_controller,
         uploader: Uploader | None = None,
     ) -> None:
         self._source = source
@@ -77,12 +105,14 @@ class Bridge:
         self._session: Session | None = None
         # Datenaufbereitung (ADR-0004) für alle Quellen; Parser-Zustand je Verbindung.
         self._processor = CadenceProcessor(reports_cadence=Capability.CADENCE in source.capabilities)
-        self._decoder = Decoder()
+        self._decoder = self._new_decoder()
         self._reported: set[str] = set()  # schon im Terminal gemeldete Parser-Probleme
         self._console = console
         self._state = DISCONNECTED
         self._cadence: float | None = None
         self._grade: float | None = None
+        # Client des letzten `set_grade` bzw. `set_target_power` (Grundlast, wenn er geht)
+        self._grade_client: object | None = None
         self._bus = BusServer(
             self._status_message,
             on_clients_changed=self._on_clients_changed,
@@ -92,9 +122,16 @@ class Bridge:
             on_client_left=self._on_client_left,
         )
         # Pulsquelle (Spec #64): Zustand in `status`, Wert in `telemetry`, Rohdaten in die Session.
-        self._heart_rate = HeartRateRelay(
-            heart_rate, self._on_heart_rate_status, self._on_heart_rate_raw, self._bus.send_to, console
-        )
+        self._heart_rate = HeartRateRelay(heart_rate, self._on_heart_rate_status, self._on_heart_rate_raw)
+        # Lenkercontroller (Spec #75): nur Zustand, nie ein Schreibzugriff.
+        self._controller = controller(self._on_controller_status)
+        roles: dict[DeviceKind, Role] = {
+            DeviceKind.HEART_RATE: self._heart_rate.source,
+            DeviceKind.CONTROLLER: self._controller,
+        }
+        if isinstance(source, TrainerSource):  # Simulator und Replay haben keinen Trainer
+            roles[DeviceKind.TRAINER] = source
+        self._devices = DeviceRelay(roles, self._bus.send_to, console)
         # Fahrt speichern (Spec #84): FIT-Datei in die Fahrtablage, auf Wunsch Upload zu Garmin Connect.
         self._rides = RideSaver(
             sessions_dir, uploader or GarminConnectUploader(), self._bus.send_to, self._on_garmin_login, console
@@ -103,6 +140,11 @@ class Bridge:
         self._stale_timer: asyncio.TimerHandle | None = None
         self._stale_since_ms = 0  # Bridge-Zeit des letzten Samples (bzw. der Verbindung)
         self._first_client = asyncio.Event()
+        self._tasks: set[asyncio.Task[None]] = set()  # laufende Grundlast-Aufträge
+        if isinstance(source, TrainerSource):
+            source.on_control_changed = self._on_trainer_control
+            source.on_target_changed = self._on_trainer_target
+            source.on_info = console.info
 
     async def run(self, stop: asyncio.Event) -> None:
         """Läuft, bis `stop` gesetzt wird. Wirft `BusStartError`, wenn der Bus-Port belegt ist,
@@ -122,6 +164,7 @@ class Bridge:
             self._rides.session_csv = self._session.csv.path
             self._rides.start()
             await self._heart_rate.start()  # aus bis zum ersten Befehl, fasst bis dahin BLE nicht an
+            await self._controller.start()  # ebenso
             if isinstance(self._source, SimulatorSource) and keyboard_available():
                 keyboard = Keyboard(self._on_key)
                 keyboard.start()
@@ -142,6 +185,7 @@ class Bridge:
             if pump.done() and pump.exception() is not None:
                 raise pump.exception()
             await stop.wait()  # Quelle beendet → Bus bleibt bis zum Stopp erreichbar
+            await self._release_trainer()  # Grundlast und Reset, solange die Verbindung noch steht
             for task in (pump, stopped):
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -150,8 +194,10 @@ class Bridge:
             self._cancel_stale_timer()
             if keyboard is not None:
                 keyboard.stop()
+            self._devices.stop()  # Suchen auf Anfrage enden
             await self._rides.stop()  # laufendes Speichern samt Upload zu Ende, `ride_saved` geht noch raus
             await self._heart_rate.stop()  # danach keine Pulsmeldung mehr
+            await self._controller.stop()
             await self._bus.stop()
             if self._session is not None:
                 self._session.close()  # alle Zeilen sind schon geflusht
@@ -164,7 +210,7 @@ class Bridge:
         while True:
             try:
                 await self._source.connect()
-                self._decoder = Decoder()  # neue Verbindung: Zählerstände (CSC) neu
+                self._decoder = self._new_decoder()  # neue Verbindung: Zählerstände (CSC) neu
                 self._set_state(CONNECTED, "Quelle verbunden")
                 self._arm_stale_timer()
                 async for item in self._source.samples():
@@ -181,6 +227,10 @@ class Bridge:
                 continue
             self._set_state(DISCONNECTED, "Quelle beendet")
             return
+
+    def _new_decoder(self) -> Decoder:
+        """Die Herkunft der Watt gehört der Quelle (Trainer misst; Replay und andere schätzen, ADR-0004)."""
+        return Decoder(power_estimated=getattr(self._source, "power_estimated", True))
 
     def _on_raw(self, raw: RawNotification) -> None:
         """Rohe Notification: in die Session-Rohdatei, dann durch die Parser."""
@@ -280,16 +330,21 @@ class Bridge:
             message = parse_client_message(raw)
         except ClientMessageError as exc:
             return error_message(exc.reason, exc.detail)
+        if isinstance(message, ReclaimTrainerControl):
+            return await self._reclaim_trainer_control()
+        if isinstance(message, SetTargetPower):
+            return await self._set_target_power(message)
         if isinstance(message, Relay):
             return ToOthers(message.raw)
         if isinstance(message, SaveRide):
             return self._rides.handle(message, self._bus.sender())
         if not isinstance(message, SetGrade):
-            return await self._heart_rate.handle(message, self._bus.sender())
+            return await self._devices.handle(message, self._bus.sender())
         return await self._set_grade(message)
 
     async def _set_grade(self, message: SetGrade) -> str:
         self._grade = message.grade
+        self._grade_client = self._bus.sender()
         # Andockpunkt Widerstandssteuerung: eine Quelle mit RESISTANCE_CONTROL setzt die
         # Steigung um, alle anderen werfen NotSupportedError (ADR-0003, ADR-0007) – der
         # Simulator wertet sie vorher trotzdem aus.
@@ -298,6 +353,8 @@ class Bridge:
             await self._source.set_grade(message.grade)
         except NotSupportedError:
             ok, reason = False, "not_supported"
+        except ControlRefusedError as exc:  # read_only | control_lost | erg_active (Spec #75)
+            ok, reason, detail = False, exc.reason, f" ({exc})"
         except Exception as exc:  # Quelle scheitert anders: Absender bekommt ack, Verbindung bleibt
             ok, reason, detail = False, "source_error", f" ({exc})"
         else:
@@ -307,15 +364,107 @@ class Bridge:
         self._render()
         return ack_message(SET_GRADE, ok, reason)
 
+    async def _set_target_power(self, message: SetTargetPower) -> str:
+        """ERG (Spec #75): Zielleistung an den Trainer bzw. `null` beendet ERG; `ack`-Gründe wie bei `set_grade`."""
+        self._grade_client = self._bus.sender()
+        detail = ""
+        if not isinstance(self._source, TrainerSource):  # Simulator und Replay halten keine Leistung
+            ok, reason = False, "not_supported"
+        else:
+            try:
+                await self._source.set_target_power(message.watts)
+            except NotSupportedError:
+                ok, reason = False, "not_supported"
+            except ControlRefusedError as exc:  # read_only | control_lost
+                ok, reason, detail = False, exc.reason, f" ({exc})"
+            except Exception as exc:
+                ok, reason, detail = False, "source_error", f" ({exc})"
+            else:
+                ok, reason = True, None
+        watts = "null" if message.watts is None else f"{message.watts} W"
+        self._console.info(f"set_target_power {watts} -> {('ok' if ok else reason) + detail}")
+        return ack_message(SET_TARGET_POWER, ok, reason)
+
+    async def _reclaim_trainer_control(self) -> str:
+        """Knopf „Steuerung zurückholen“ (Verbindungsfenster): nur auf diesen Wunsch fordert die Bridge neu an."""
+        ok, reason, detail = True, None, ""
+        if not isinstance(self._source, TrainerSource):
+            ok, reason = False, "not_supported"
+        else:
+            try:
+                await self._source.reclaim_control()
+            except NotSupportedError:
+                ok, reason = False, "not_supported"
+            except ControlRefusedError as exc:  # read_only | control_lost
+                ok, reason, detail = False, exc.reason, f" ({exc})"
+            except Exception as exc:
+                ok, reason, detail = False, "source_error", f" ({exc})"
+        self._console.info(f"Steuerung zurückholen -> {('ok' if ok else reason) + detail}")
+        return ack_message(RECLAIM_TRAINER_CONTROL, ok, reason)
+
     def _status_message(self) -> str:
+        trainer = self._source if isinstance(self._source, TrainerSource) else None
         return status_message(
             bridge_time_ms(),
             self._state,
             self._source.name,
             self._source.capabilities,
             self._heart_rate.status,
-            str(self._rides.login),
+            self._trainer_control(),
+            trainer_device=None if trainer is None else trainer.device,
+            controller=self._controller.status,
+            signal={
+                DeviceKind.TRAINER: None if trainer is None else trainer.rssi,
+                DeviceKind.HEART_RATE: self._heart_rate.source.rssi,
+                DeviceKind.CONTROLLER: self._controller.rssi,
+            },
+            trainer_mode="sim" if trainer is None else trainer.mode,
+            target_power=None if trainer is None else trainer.target_power,
+            garmin_login=str(self._rides.login),
         )
+
+    def _trainer_control(self) -> ControlState:
+        """Stand der Steuerung für `status.trainer`; Simulator und Replay steuern nichts."""
+        if isinstance(self._source, TrainerSource):
+            return self._source.control
+        return ControlState.NOT_SUPPORTED
+
+    def _on_trainer_control(self, state: ControlState, reason: str) -> None:
+        """Änderung der Steuerung ist eine Statusänderung: genau ein `status` an alle."""
+        self._bus.publish(self._status_message())
+        self._console.info(f"Trainer-Steuerung: {state} ({reason})")
+
+    def _on_trainer_target(self, target_power: int | None) -> None:
+        """ERG an, aus oder neue Zielleistung: genau ein `status` an alle."""
+        self._bus.publish(self._status_message())
+        self._console.info("Trainer: SIM (Steigung)" if target_power is None else f"Trainer: ERG {target_power} W")
+
+    def _start_safe_load(self, why: str) -> None:
+        if not isinstance(self._source, TrainerSource):
+            return
+        task = asyncio.create_task(self._safe_load(why))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _safe_load(self, why: str) -> None:
+        """Alle Clients weg oder der Client der letzten Steigung weg: sofort Steigung 0 (nie gedrosselt), ERG endet."""
+        assert isinstance(self._source, TrainerSource)
+        try:
+            written = await self._source.reset_grade()
+        except Exception as exc:
+            self._console.info(f"Grundlast (Steigung 0) gescheitert: {exc}")
+            return
+        if written:
+            self._console.info(f"{why}: Grundlast, Steigung 0 am Trainer")
+
+    async def _release_trainer(self) -> None:
+        """Beim Beenden: Steigung 0, dann Reset (gibt die Steuerung zurück), bevor die Verbindung schließt."""
+        if not isinstance(self._source, TrainerSource):
+            return
+        try:
+            await asyncio.wait_for(self._source.release(), RELEASE_TIMEOUT_S)
+        except Exception as exc:
+            self._console.info(f"Trainer beim Beenden nicht freigegeben: {exc}")
 
     def _on_garmin_login(self, state: LoginState) -> None:
         """Änderung des Anmeldezustands ist eine Statusänderung: genau ein `status` an alle."""
@@ -328,12 +477,23 @@ class Bridge:
         device = "" if status.device is None else f", {status.device.name} ({status.device.role})"
         self._console.info(f"Puls: {status.state}{device}")
 
+    def _on_controller_status(self, status: ControllerStatus) -> None:
+        """Änderung des Controllers ist eine Statusänderung: genau ein `status` an alle."""
+        self._bus.publish(self._status_message())
+        device = "" if status.device is None else f", {status.device.name} ({status.device.side or '?'})"
+        battery = "" if status.battery is None else f", Batterie {status.battery} %"
+        self._console.info(f"Controller: {status.state}{device}{battery}")
+
     def _on_heart_rate_raw(self, raw: RawNotification) -> None:
         """Rohe Puls-Notification: in die Session-Rohdatei, wie beim Rad."""
         self._log_session(lambda session: session.raw.write(raw))
 
     def _on_client_left(self, client: object) -> None:
-        self._heart_rate.client_left(client)  # seine Suche auf Anfrage endet
+        self._devices.client_left(client)  # seine Suchen auf Anfrage enden
+        if client is self._grade_client:  # z. B. Spiel abgestürzt, der Begleiter bleibt verbunden
+            self._grade_client = None
+            if self._bus.client_count > 0:  # sonst setzt `_on_clients_changed` die Grundlast (genau einmal)
+                self._start_safe_load("Client der letzten Steigung weg")
 
     def _set_state(self, state: str, reason: str) -> None:
         if state == self._state:
@@ -348,6 +508,8 @@ class Bridge:
     def _on_clients_changed(self, count: int) -> None:
         if count > 0:
             self._first_client.set()
+        else:  # Spiel abgestürzt oder geschlossen: sichere Grundlast
+            self._start_safe_load("Alle Clients weg")
         self._render()
 
     def _on_key(self, key: Key) -> None:

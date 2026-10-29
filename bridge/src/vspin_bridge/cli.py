@@ -1,4 +1,4 @@
-"""Kommandozeile: `vspin-bridge --source sim` bzw. `--source replay DATEI` (ADR-0003)."""
+"""Kommandozeile: `vspin-bridge --source sim`, `--source replay DATEI` bzw. `--source ble` (ADR-0003)."""
 
 import argparse
 import asyncio
@@ -12,6 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .app import DEFAULT_SESSIONS_DIR, Bridge, SessionStartError
+from .ble.bleak_adapter import BleakAdapter
 from .bus import HOST, PORT, BusStartError
 from .console import Console
 from .heart_rate_relay import HeartRateFactory, bleak_heart_rate
@@ -21,6 +22,7 @@ from .sources.heart_rate_replay import ReplayBleAdapter, load_heart_rate_replay
 from .sources.profile import ProfileError, load_profile
 from .sources.replay import ReplayError, load_replay
 from .sources.sim import Noise, SimulatorSource
+from .sources.trainer import TrainerSource
 
 
 def _simulator(args: argparse.Namespace) -> SimulatorSource:
@@ -39,8 +41,12 @@ def _replay(args: argparse.Namespace) -> DeviceSource:
     return load_replay(args.file, 1.0 if args.speed is None else args.speed)
 
 
-# Quellenwahl: ble dockt in einem Folgeticket hier an.
+def _trainer(args: argparse.Namespace) -> DeviceSource:
+    return TrainerSource(BleakAdapter(), args.trainer, read_only=args.read_only, known_only=args.known_trainers)
+
+
 SOURCES: dict[str, Callable[[argparse.Namespace], DeviceSource]] = {
+    "ble": _trainer,
     "replay": _replay,
     "sim": _simulator,
 }
@@ -59,6 +65,26 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="DATEI",
         help="nur --source replay: aufgezeichnete Roh-Notifications (.raw.jsonl)",
+    )
+    parser.add_argument(
+        "--trainer",
+        default=None,
+        metavar="ADRESSE",
+        help="nur --source ble: BLE-Adresse des Trainers (Windows: z. B. AA:BB:CC:DD:EE:FF); ohne Adresse "
+        "nimmt die Bridge das stärkste Gerät mit FTMS (ersatzweise Cycling Power)",
+    )
+    parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="nur --source ble: Trainer nur lesen – keine Steuerung anfordern, nichts auf den Trainer schreiben "
+        "(z. B. wenn Zwift ihn steuert); set_grade wird mit ack reason read_only beantwortet",
+    )
+    parser.add_argument(
+        "--known-trainers",
+        action="store_true",
+        help="nur --source ble: Trainer nur aus den gemerkten Geräten, die ein Client mit set_devices setzt (Start "
+        "aus dem Spiel); bis dahin verbindet die Bridge keinen. Ohne die Option gilt bis zur ersten Liste --trainer "
+        "bzw. das stärkste Gerät",
     )
     parser.add_argument(
         "--speed",
@@ -155,6 +181,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--profile und --sim-cadence schließen sich aus (das Profil gibt die Kadenz vor)")
     if args.seed is not None and not args.noise:
         parser.error("--seed wirkt nur zusammen mit --noise")
+    if args.source != "ble" and args.trainer is not None:
+        parser.error("--trainer gibt es nur mit --source ble")
+    if args.source != "ble" and args.read_only:
+        parser.error("--read-only gibt es nur mit --source ble")
+    if args.source != "ble" and args.known_trainers:
+        parser.error("--known-trainers gibt es nur mit --source ble")
+    if args.known_trainers and args.trainer is not None:
+        parser.error("--known-trainers und --trainer schließen sich aus (die Liste kommt vom Client)")
     if args.source == "replay" and args.file is None:
         parser.error("--source replay braucht eine Datei: vspin-bridge --source replay DATEI.raw.jsonl")
     if args.source != "replay" and (args.file is not None or args.speed is not None or args.wait_client):

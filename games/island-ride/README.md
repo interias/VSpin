@@ -349,7 +349,7 @@ Reihenfolge egal: Startet das Spiel zuerst, zeigt es „Bridge nicht erreichbar 
    `127.0.0.1:8765` erreichbar, startet das Spiel sie als unsichtbaren Kindprozess (`pythonw` aus `bridge/.venv`, kein
    Konsolenfenster) mit Quelle und Ablage aus `config.cfg [bridge]` (`autostart`, `program`, `source` = `sim`/`ble`,
    `sessions_dir`, beim Simulator die Start-Kadenz `sim_cadence`, Standard 80 rpm – unter `pythonw` gibt es keine
-   Pfeiltasten; relative Pfade ab dem Spielordner). Beim Schließen (Fenster, „Beenden“) beendet es nur diese eigene
+   Pfeiltasten; beim Trainer `trainer_read_only`, Standard `false`; relative Pfade ab dem Spielordner). Beim Schließen (Fenster, „Beenden“) beendet es nur diese eigene
    Bridge, sauber über die Stoppdatei (`--stop-file`, Session vollständig); erst wenn sie nach 5 s noch läuft, hart.
    Endet das Spiel ohne Stoppdatei (Absturz, „Stop“ im Editor), beendet sich die Bridge selbst (`--parent-pid`).
    Eine schon laufende Bridge wird nur mitbenutzt und nie beendet. Radstatus dabei: „Bridge nicht erreichbar – Bridge
@@ -420,6 +420,8 @@ gegen den Uhrzeigersinn (#34; `--shots` dann in Metern dieser Richtung, Torböge
 | `P` | Pause an/aus (jederzeit) |
 | Leertaste (halten) | **Sprechtaste** für Toni, den Begleiter: halten, sprechen, loslassen (nur in der Fahrt, Begleiter an; #80). Im Startmenü startet die Leertaste wie bisher |
 | `C` | Kameraperspektive wechseln: Nah → Verfolger → Weit (in der Fahrt, nicht bei offenem Menü; #59) |
+| `V` | Verbindungsfenster auf/zu (in der Fahrt, nicht bei offenen Einstellungen; auch Knopf „Verbindungen (V)“ im HUD; #75) |
+| `↑` / `↓`, Ziffernblock `+` / `−` | virtuell schalten: schwerer / leichter (nur mit gesteuertem Trainer, nicht bei offenem Menü, Einstellungen oder Verbindungsfenster; #75) |
 | `Esc` oder `F2` | Menü „Grafik und Fenster“ auf/zu (jederzeit, auch aus der Pause); **Beenden** über den Knopf „Beenden“ im Menü (nicht im Browser), in der Fahrt „Fahrt beenden“ zurück ins Startmenü |
 | `Enter` | im Ziel: zurück ins Startmenü |
 | `F3` | Debug-Anzeige an/aus |
@@ -673,6 +675,7 @@ wiederholt einen Block. Dabei sind:
 | **Intervalle kurz** | 8 min Aufwärmen, 10 × 30 s hart (95–105 rpm) / 30 s locker (80–90 rpm), 5 min Ausrollen | 23 min |
 | **Pyramide** | 8 min Aufwärmen, je 3 min bei 70 → 80 → 90 → 100 → 90 → 80 → 70 rpm (± 3), 5 min Ausrollen | 34 min |
 | **Tempo-Blöcke** | 6 min Aufwärmen, 3 × 8 min bei 85–90 rpm mit je 3 min Erholung, 4 min Ausrollen | 40 min |
+| **Sweet Spot (ERG)** | 8 min Aufwärmen bei 55 % FTP, 3 × 8 min bei 90 % FTP mit je 4 min bei 55 %, Ausrollen (#75) | ≈ 45 min |
 
 Die Insel läuft dabei **endlos**. Das HUD zeigt Phase, Zielkadenz, Restzeit und die nächste Phase. Der Widerstand ist
 manuell – das Spiel kennt die Knopfstellung nicht –, die Ansage ist eine Empfehlung: 10 s vor dem Wechsel als
@@ -680,6 +683,16 @@ Vorankündigung („In 8 s: Widerstand 2 Stufen hoch, 100 rpm halten“), dann n
 allein, **wie lange die Kadenz im Zielbereich lag** (ADR-0010) – je Phase und gesamt (nach Zeit gewichtet). Nach dem
 Ausrollen endet die Fahrt mit dem Ergebnis („Zielkadenz getroffen: 87 %“ und je Phase, Wiederholungen
 zusammengefasst); „Fahrt beenden“ vorher zeigt die Teilbewertung der gefahrenen Phasen.
+
+**ERG-Einheiten (#75):** Eine Phase kann statt der Zielkadenz eine **Zielleistung** tragen, absolut (`power_w`) oder
+als Anteil der FTP (`power_ftp`, z. B. 0.9); eine Einheit mischt beides nicht. Die **FTP** steht im Fahrerprofil neben
+LTHR und Maximalpuls (Verbindungsfenster, 50–600 W, Spielstand `pulse.ftp`); ohne FTP ist eine %-FTP-Einheit im Menü
+ausgegraut. Steuert VSpin den Trainer, sendet das Spiel je Phase `set_target_power` – der Trainer hält die Leistung
+(ERG), es geht kein `set_grade`, die Gänge sind gesperrt und die Ganganzeige ist aus; beim Verlassen der Fahrt (Pause,
+Ziel, Menü) erst `set_target_power null`, dann die Grundlast `set_grade 0`, beim Weiterfahren wieder die Zielleistung.
+Ohne Steuerung läuft die Einheit ohne ERG weiter, die Watt werden angesagt („In 8 s: 225 W“). Bewertet wird der Anteil
+der Zeit im Leistungsband (± 5 %, mindestens ± 10 W), das Ergebnis heißt „Zielleistung getroffen“. Steuert VSpin den
+Trainer (SIM oder ERG), entfallen die Ansagen zum Widerstandsknopf auch in Kadenz-Einheiten.
 
 Runden im Training zählen **nicht** für Bestzeit, Medaillen, Segmentzeiten und Ghost (die Vorgabe wechselt, die
 Runden wären nicht vergleichbar); die Kilometer zählen fürs Fahrerlevel. Ein zu Ende gefahrenes Training meldet
@@ -1437,6 +1450,31 @@ Wetter und Tageslicht; Hörer ist die Kamera. Ton ist nur Ausgabe (ADR-0010).
 Im Browser startet der Ton erst nach der ersten Nutzergeste (Regel der Browser); ohne Audio-Gerät (oder wenn die
 Audio-Worklets nicht laden) läuft das Spiel gleich, nur still.
 
+### Tempo aus Leistung und Wertung je Geräteart (#75)
+
+Liefert der Trainer **gemessene** Leistung (`power_estimated: false`), kommt das Tempo aus einem einfachen
+physikalischen Modell (`src/ride_model.gd`, `target_speed_power_mps`): Leistung gegen Hangabtrieb, Rollwiderstand und
+Luftwiderstand auf der Streckensteigung (nicht der Gang-Steigung), Trägheit wie im Kadenzmodell. Parameter in
+`config.cfg [power]`: `mass_kg=85`, `cda_m2=0.32`, `crr=0.004`, `air_density=1.225`, `max_kmh=70` (200 W in der Ebene
+≈ 34 km/h). Geschätzte Leistung (Simulator) behält das Kadenzmodell. Die **Geräteart** einer Fahrt (`power` oder
+`cadence`) steht beim Start bzw. mit der ersten Telemetrie fest; fehlen die Watt, gelten nach 2,5 s 0 W.
+Bestzeiten, Segmentzeiten, Medaillen und Ghosts sind je Geräteart getrennt (ADR-0010, Nachtrag): Die bisherigen
+Bereiche des Spielstands gelten als Kadenzmodell, das Leistungsmodell schreibt `measured_best_times`,
+`measured_segment_best_times`, `measured_medals`, `measured_ghosts` (additiv, Version bleibt 1). Medaillen-Schwellen im
+Leistungsmodell: Bronze 150 W, Silber 200 W, Gold 250 W (gleiche Rundensimulation wie bei 70/85/95 rpm). Das
+Fahrtenbuch zeigt beide Gerätearten, Werte des Leistungsmodells mit „· Leistung“. Arcade-Herausforderungen werten
+weiter die Kadenz. Im HUD steht gemessene Leistung mit 3-s-Mittel („212 W · Ø3s 205 W“), geschätzte weiter als „~150 W“.
+
+### Virtuelle Gänge (#75)
+
+Mit einem gesteuerten Trainer (`status.trainer.control` = `active`) schaltet der Fahrer mit `↑`/`↓` bzw. Ziffernblock
+`+`/`−` (Logik `src/gears.gd`). Der Gang verschiebt nur den Widerstand: Gemeldet wird die effektive Steigung =
+Streckensteigung + (Gang − neutraler Gang) × Schritt, über denselben `set_grade`-Weg; das Fahrmodell bleibt gleich,
+das Zwift-Protokoll auf dem Trainer wird nicht benutzt. `config.cfg [gears]`: `count=24`, `neutral=12`, `step_pp=0.5`
+(−5,5 … +6 Prozentpunkte; ein Schritt entspricht der Meldeschwelle, jeder Gangwechsel wird gesendet). Jede Fahrt beginnt
+im neutralen Gang, die Grundlast bleibt 0 in jedem Gang. Das HUD zeigt „Gang 12/24“ in der Rundenzeile nur, solange
+VSpin den Trainer steuert; ohne Steuerung (Simulator, nur lesen, Kontrollverlust) gilt die reine Streckensteigung.
+
 ### Virtuelle Steigung (`set_grade`)
 
 Das Spiel meldet die Steigung an der Fahrerposition per `{"v": 0, "type": "set_grade", "grade": 0.06}`
@@ -1448,13 +1486,20 @@ Das Spiel meldet die Steigung an der Fahrerposition per `{"v": 0, "type": "set_g
 - Endwert: weicht der gemeldete Wert (unter der Schwelle) ab und hat sich die Steigung 1 s lang nicht um
   0,5 Prozentpunkte bewegt, wird der aktuelle Wert einmal nachgesendet (danach erst wieder nach einer neuen
   Bewegung über die Schwelle) – so bleibt am Ende einer Rampe nicht ein bis zu 0,5 Prozentpunkte alter Wert stehen,
-- nicht in der Verbindungspause (sinnlos); nach der Rückkehr wird der aktuelle Wert erneut gemeldet,
+- nur beim Fahren: **Grundlast** (#75) – verlässt das Spiel den Zustand `riding` (Verbindungspause, manuelle Pause,
+  Ziel, zurück ins Menü), sendet es einmal `set_grade 0`; beim Weiterfahren wird der aktuelle Wert erneut gemeldet,
   auch wenn er sich nicht geändert hat.
 
-Die Antwort (`ack`) der Bridge erscheint dezent unter den Werten: „Widerstand: nicht unterstützt“ bei
-`ok: false, reason: "not_supported"` (Normalfall bis zum ESP32), „Widerstand: Fehler (…)“ bei anderem Grund,
-nichts bei `ok: true`. `error`-Antworten landen als Warnung im Log. Mit dem Simulator sinkt bergauf die
-Kadenz; die Steigung steht in der Session-CSV der Bridge (Spalte `grade`).
+Mit einem steuerbaren Trainer (`source="ble"`, FTMS mit Simulation) wird die Steigung zum Widerstand am Trainer
+(ADR-0007, Nachtrag #75); die Bridge drosselt selbst noch einmal (0,1 %, 2 Hz) und setzt beim Beenden oder wenn
+das Spiel den Bus verlässt Steigung 0. Die Antwort (`ack`) der Bridge erscheint dezent unter den Werten:
+„Widerstand: nicht unterstützt“ bei `ok: false, reason: "not_supported"` (Simulator, Replay, Trainer ohne
+Simulation), „Widerstand: Fehler (…)“ bei anderem Grund, nichts bei `ok: true`. Vorrang davor hat der Stand der
+Steuerung aus `status.trainer.control`: bei `lost` der Hinweis, dass eine andere App den Trainer steuert und der
+Widerstand aus VSpin pausiert, bei `read_only` der Hinweis auf den Nur-lesen-Modus (`config.cfg [bridge]
+trainer_read_only=true` → Bridge mit `--read-only`, nur bei `source="ble"`). `error`-Antworten landen als Warnung
+im Log. Mit dem Simulator sinkt bergauf die Kadenz; die Steigung steht in der Session-CSV der Bridge (Spalte
+`grade`).
 
 ### Begleiter Toni (#76, #80)
 
@@ -1522,7 +1567,17 @@ zeigt ihn nur an und wertet ihn aus; er verändert die Fahrt nicht.
   3 Minuten Fahrzeit auf Zonenbändern, Lücken bleiben Lücken; in der kompakten Leiste (unter 760 px) stehen Zahl und Zone in
   Zonenfarbe. Die Kurve ist nur Anzeige. Die Zonen sind die der Fahrt (dieselben wie in der Pulsstatistik). Sichtprüfung:
   `tools/view_probe.gd -- --hud --pulse=148 --lthr=165` (`--pulse=--` zeigt den Ausfall, ohne `--lthr` keine Zonen).
-- **Geräteseite** (Startmenü → „Geräte“, `scenes/devices_menu.gd`): je eine Karte für Brustgurt und Uhr mit Anleitung
+- **Verbindungsfenster** (#75; Startmenü → „Verbindungen“, HUD-Knopf oder Taste `V`, `scenes/devices_menu.gd`): oben je
+  eine Kachel für Trainer, Puls und Controller mit Zustand, Gerätename, Live-Wert (Watt und rpm, bpm, Akku) und
+  Signalstärke; ein Klick springt zur Karte der Rolle. Trainer und Controller werden wie der Puls gesucht, gemerkt
+  (`[trainer]`, `[controller]` in `settings.cfg`, `src/role_device.gd`) und vergessen; die Bridge verbindet das gemerkte
+  Gerät beim Start im Hintergrund. Beim Start öffnet sich das Fenster von selbst nur bei `source="ble"` ohne gemerkten
+  Trainer. Die Trainerkarte zeigt den Stand der Steuerung (`status.trainer.control`, auch „nur lesen“) und nach einem
+  Kontrollverlust den Knopf „Steuerung zurückholen“ – nur er fordert die Steuerung ohne Neuverbinden neu an. Die
+  Controllerkarte (Zwift Ride, links bevorzugt) zeigt „gesperrt – einmal in Zwift verbinden (gilt ca. 24 h)“, wenn der
+  Controller seinen Service versteckt; Tasten wertet VSpin nicht aus. In der Fahrt läuft die Fahrt bei offenem Fenster
+  weiter, wie bei den Einstellungen. Die Pulskarten:
+- **Pulskarten** (früher Geräteseite): je eine Karte für Brustgurt und Uhr mit Anleitung
   (Gurt: Elektroden anfeuchten, anlegen; Forerunner 970: Taste Mitte links halten → Watch Settings → Health & Wellness →
   Wrist Heart Rate → Broadcast Heart Rate, laut Garmin-Handbuch), „Suchen“ (30 s, Liste mit Name und Signalstärke, nur an
   diesen Client), „Als Brustgurt/Uhr merken“, „Vergessen“ (sofort an die Bridge und gespeichert) und Live-Puls; Hinweise,
@@ -1721,13 +1776,15 @@ src/ride_stats.gd       RideStats: Fahrzeit, Strecke, Ø Kadenz, Ø Tempo (ohne 
 src/heart_rate_zones.gd HeartRateZones: Pulszonen aus LTHR oder Maximalpuls, Grenzen und Farben je Zone – reine Logik (#64)
 src/heart_rate_stats.gd HeartRateStats: Ø-Puls, Max-Puls, Sekunden je Zone einer Fahrt – reine Logik (#64)
 src/heart_rate_devices.gd HeartRateDevices: gemerkter Brustgurt und Uhr in user://settings.cfg [heart_rate], Liste für die Bridge (#64)
+src/role_device.gd      RoleDevice: gemerkter Trainer bzw. Controller in user://settings.cfg [trainer]/[controller], Liste für die Bridge (#75)
 src/hud_pulse.gd        HudPulse: Pulskurve der letzten 3 min auf Zonenbändern (curve_points/band_rects als reine Rechnung) (#64)
 src/hud_companion.gd    HudCompanion: Symbol für den Zustand des Begleiters Toni, prozedural gezeichnet (#80)
 scenes/devices_menu.gd  DevicesMenu: Menüseite „Geräte“ – Anleitung, Suche, Merken/Vergessen, Live-Puls, LTHR/Maximalpuls mit Zonen (#64)
+scenes/devices_menu.gd  DevicesMenu: Verbindungsfenster – Kacheln Trainer/Puls/Controller, Suche, Merken/Vergessen, Steuerung zurückholen (#75); Pulskarten mit LTHR/Maximalpuls (#64)
 src/lap_timing.gd       LapTiming: Rundenwertung – Rundenzeiten, Ziel nach n Runden oder endlos, Bestzeit, Ghost-Aufzeichnung – reine Logik
 src/segment_timing.gd   SegmentTiming: Segmentzeiten (Live-Zeit, gewertete Segmente, Segment-Bestzeit) – reine Logik
 src/ghost.gd            Ghost: Runde als Strecke über Zeit – aufzeichnen, abspielen, Abstand in s – reine Logik
-src/training.gd         Training: Einheit laden, Ablauf (Phase, Restzeit, Ansage), Bewertung der Zielkadenz – reine Logik
+src/training.gd         Training: Einheit laden, Ablauf (Phase, Restzeit, Ansage), Bewertung der Zielkadenz bzw. Zielleistung (ERG, #75) – reine Logik
 src/zone_bar.gd         ZoneBar: Zonenbalken – Zielbereich, Wert als Marke, Zustand in Farbe und Form (#58)
 src/gate_placement.gd   GatePlacement: Lage eines zeitgebundenen Tors aus Restzeit und Tempo, Festsetzen – reine Logik (#58)
 src/course_gate.gd      CourseGate: Start- und Zieltor über der Straße, an einer Fahrtposition gestellt (#58)
@@ -1774,10 +1831,12 @@ src/ability_extension.gd AbilityExtension: Erweiterung der Arcade-Bühne (`Arcad
 src/tier_arcade.gd      TierArcade: Erweiterung der Arcade-Bühne (`ArcadeStage.EXTENSIONS`) – Hinweis beim Rundenwechsel, besiegte Bosse eintragen und die nächste Stufe freischalten, Zusammenfassungszeilen (#54)
 src/balancing.gd        Balancing: Simulation des Arcade-Modus ohne Grafik – Kadenzverläufe (Einsteiger, Trainierter, Sprinter) als Daten, Läufe und Laufbahnen über die echten Module, Bericht als Markdown – reine Logik (#55)
 src/ability_hud.gd      AbilityHud: Leiste „bereit / aktiv / Abklingzeit“ und Einblendung „… ausgelöst“ unter dem HUD (#50)
-trainings/              Trainingseinheiten als Dateien (JSON): Intervalle kurz, Pyramide, Tempo-Blöcke
-src/medals.gd           Medals: Medaillen-Schwellen aus dem Fahrmodell (70/85/95 rpm), Medaille einer Zeit – reine Logik
+trainings/              Trainingseinheiten als Dateien (JSON): Intervalle kurz, Pyramide, Tempo-Blöcke, Sweet Spot (ERG)
+src/medals.gd           Medals: Medaillen-Schwellen aus dem Fahrmodell (70/85/95 rpm bzw. 150/200/250 W, #75), Medaille einer Zeit – reine Logik
 src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik
-src/ride_model.gd       RideModel: reine Logik (Kadenz, Steigung, Δt, Konfig → Geschwindigkeit, Position)
+src/gears.gd            Gears: virtuelle Gänge, effektive Steigung = Strecke + f(Gang), Sperre für ERG – reine Logik (#75)
+src/ride_model.gd       RideModel: reine Logik (Kadenz bzw. gemessene Leistung, Steigung, Δt, Konfig → Geschwindigkeit, Position; Geräteart, #75)
+src/power_average.gd    PowerAverage: 3-s-Mittel der gemessenen Leistung fürs HUD – reine Logik (#75)
 src/rider_motion.gd     RiderMotion: Kurbel-/Radwinkel, Schräglage, Vorbeuge, Glieder-IK – reine Logik
 src/rider_model.gd      RiderModel: Fahrer und Rennrad aus Grundkörpern, Pose aus RiderMotion; Garderobe und Arcade-Ausrüstung mit Talisman (#36, #49)
 src/ride_config.gd      RideConfig: liest config.cfg

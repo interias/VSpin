@@ -179,9 +179,10 @@ func _riding(cadence: float, fields: Dictionary = {}) -> Node:
 func test_lap_time_depends_only_on_cadence_and_grade() -> void:
 	var plain := await _riding(90.0)
 	var reference := _lap_time(plain)
-	# Alles andere anders: gemessene Watt, Tempo und Puls vom Rad, Nacht, Regen, endlose Rundenzahl gewählt,
-	# eine gespeicherte Bestzeit.
-	var other := await _riding(90.0, {"power_w": 420.0, "power_estimated": false, "speed_kmh": 55.0, "heart_rate": 172})
+	# Alles andere anders: geschätzte Watt, Tempo und Puls vom Rad, Nacht, Regen, endlose Rundenzahl gewählt,
+	# eine gespeicherte Bestzeit. Gemessene Watt wechseln seit Spec #75 ins Leistungsmodell (ADR-0010 Nachtrag,
+	# tests/test_power_ride.gd); im Kadenzmodell zählen weiter nur Kadenz und Steigung.
+	var other := await _riding(90.0, {"power_w": 420.0, "power_estimated": true, "speed_kmh": 55.0, "heart_rate": 172})
 	other.sky.set_time_mode(DayNight.MODE_FIXED, 22.0)
 	other.sky.set_weather_mode(Weather.MODE_FIXED, Weather.RAIN)
 	other.save_game.record_best_time(RideConfig.TRACK_GRAYBOX, LapTiming.DIRECTION_CW, 1.0)

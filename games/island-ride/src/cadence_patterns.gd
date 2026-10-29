@@ -19,7 +19,7 @@
 ##
 ## Auswertung wie im Spiel: der letzte Wert gilt bis zum nächsten (der Bus meldet mit 250 ms bis 1 s, die Bilder sind
 ## schneller). Die Schwellen sind Daten an einer Stelle (`THRESHOLDS`), mit Überschreibung im Konstruktor; endgültig
-## werden sie mit dem echten Gerät (JC312, #1) und aus Simulator/Replay kalibriert.
+## werden sie mit dem echten Gerät (Trainer, #1) und aus Simulator/Replay kalibriert.
 class_name CadencePatterns
 extends RefCounted
 

@@ -455,7 +455,8 @@ def test_login_state_is_in_status_and_a_change_goes_out_exactly_once(
     ride_bridge(uploader)
     sender, other = BusReader(bus_client()), BusReader(bus_client())
     assert sender.first["garmin"] == other.first["garmin"] == {"login": "not_logged_in"}
-    assert list(sender.first)[-2:] == ["heart_rate", "garmin"]  # hinter dem Pulsblock
+    # als letzter Block, hinter dem Pulsblock und den Blöcken aus Spec #75
+    assert list(sender.first)[-5:] == ["heart_rate", "trainer", "controller", "signal", "garmin"]
 
     uploader.login = LoginState.LOGGED_IN  # im Terminal angemeldet, während die Bridge läuft
     assert other.next("status")["garmin"] == {"login": "logged_in"}

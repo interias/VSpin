@@ -7,6 +7,9 @@
 ## das Steigungsprofil der Strecke; Runden- und Segmentzeiten misst dabei dieselbe Rundenwertung wie in der Fahrt
 ## (LapTiming, SegmentTiming). Ändern sich Strecke, Segmente oder Fahrmodell, ändern sich die Schwellen mit.
 ## Wie jede Wertung außerhalb von Arcade hängen sie nur an Kadenz und Steigung (ADR-0010).
+##
+## Je Geräteart (Spec #75, ADR-0010 Nachtrag): im Leistungsmodell (RideModel.KIND_POWER) fährt dieselbe Simulation mit
+## konstanter Leistung statt Kadenz – Bronze 150 W, Silber 200 W, Gold 250 W (POWER_W).
 class_name Medals
 extends RefCounted
 
@@ -19,6 +22,10 @@ const NONE := ""
 const ORDER := [GOLD, SILVER, BRONZE]
 ## Konstante Kadenz (rpm), deren Zeit die Schwelle einer Medaille ist.
 const CADENCE_RPM := {GOLD: 95.0, SILVER: 85.0, BRONZE: 70.0}
+## Konstante Leistung (W) im Leistungsmodell, deren Zeit die Schwelle ist. Für einen Hobbyfahrer mit rund 75 kg: 150 W
+## ist lockere Grundlage (2 W/kg), 200 W zügiges Tempo (2,7 W/kg), 250 W eine Runde nahe der Dauerleistungsgrenze eines
+## gut trainierten Hobbyfahrers (3,3 W/kg).
+const POWER_W := {GOLD: 250.0, SILVER: 200.0, BRONZE: 150.0}
 ## Anzeigenamen.
 const NAMES := {GOLD: "Gold", SILVER: "Silber", BRONZE: "Bronze"}
 ## Schlüssel der Runde neben den Segment-IDs (Schwellen, Spielstand).
@@ -39,14 +46,15 @@ const MAX_SIM_S := 36000.0
 static var _cache := {}
 
 
-## Schwellen auf `track` (Kurve, `segments`) mit dem Fahrmodell aus `config`:
+## Schwellen auf `track` (Kurve, `segments`) mit dem Fahrmodell aus `config` in der Geräteart `kind`:
 ## {LAP: {GOLD: s, SILVER: s, BRONZE: s}, "<segment-id>": {…}}. Einmal berechnet, danach aus dem Zwischenspeicher.
-static func thresholds(track: Track, config: RideConfig) -> Dictionary:
-	var key := _key(track, config)
+static func thresholds(track: Track, config: RideConfig, kind: String = RideModel.KIND_CADENCE) -> Dictionary:
+	var key := _key(track, config, kind)
 	if not _cache.has(key):
 		var limits := {}
+		var references: Dictionary = POWER_W if kind == RideModel.KIND_POWER else CADENCE_RPM
 		for medal in ORDER:
-			var times := simulate_lap(track, config, CADENCE_RPM[medal])
+			var times := simulate_lap(track, config, references[medal], kind)
 			for id in times:
 				if not limits.has(id):
 					limits[id] = {}
@@ -55,14 +63,16 @@ static func thresholds(track: Track, config: RideConfig) -> Dictionary:
 	return _cache[key]
 
 
-## Eine Runde ab der Start/Ziel-Linie aus dem Stand mit konstanter Kadenz `cadence_rpm`: {LAP: s, "<segment-id>": s}.
-static func simulate_lap(track: Track, config: RideConfig, cadence_rpm: float) -> Dictionary:
+## Eine Runde ab der Start/Ziel-Linie aus dem Stand mit konstanter Kadenz `cadence_rpm` – im Leistungsmodell (`kind`)
+## ist der Wert die konstante Leistung in W: {LAP: s, "<segment-id>": s}.
+static func simulate_lap(track: Track, config: RideConfig, cadence_rpm: float,
+		kind: String = RideModel.KIND_CADENCE) -> Dictionary:
 	var model := RideModel.new(config)
 	var timing := LapTiming.new(track.length_m(), 0.0, 1, INF, track.segments)
 	var t := 0.0
 	while not timing.finished() and t < MAX_SIM_S:
 		var dt := minf(STEP_S, STEP_M / maxf(model.speed_mps, 1.0))
-		model.step(cadence_rpm, track.grade_at(model.distance_m), dt)
+		model.step_kind(kind, cadence_rpm, cadence_rpm, track.grade_at(model.distance_m), dt)
 		timing.advance(model.distance_m, dt)
 		t += dt
 	var times := {}
@@ -107,11 +117,12 @@ static func summary(medals: Array) -> String:
 
 
 ## Schlüssel des Zwischenspeichers: alles, wovon die Schwellen abhängen – Kurve (Länge und Höhenprofil über die
-## Steigung in festen Abständen), Segmente und die Parameter des Fahrmodells.
-static func _key(track: Track, config: RideConfig) -> String:
+## Steigung in festen Abständen), Segmente, Geräteart und die Parameter des Fahrmodells.
+static func _key(track: Track, config: RideConfig, kind: String) -> String:
 	var length := track.length_m()
 	var profile := []
 	for i in range(16):
 		profile.append(snappedf(track.grade_at(length * i / 16.0), 0.0001))
 	return str([length, profile, track.segments, config.k_kmh_per_rpm, config.uphill_damping, config.downhill_boost,
-			config.inertia_s])
+			config.inertia_s, kind, config.power_mass_kg, config.power_cda_m2, config.power_crr, config.power_air_density,
+			config.power_max_kmh])

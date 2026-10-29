@@ -79,7 +79,7 @@ func test_menu_offers_the_three_units() -> void:
 	var texts := []
 	for i in range(units.item_count):
 		texts.append(units.get_item_text(i))
-	assert_eq(texts, ["Intervalle kurz", "Pyramide", "Tempo-Blöcke"])
+	assert_eq(texts, ["Intervalle kurz", "Pyramide", "Tempo-Blöcke", "Sweet Spot (ERG)"])  # ERG-Einheit seit Spec #75
 	var info: Label = menu.find_child("TrainingInfo", true, false)
 	assert_eq(info.text, "10 × 30 s hart / 30 s locker · 23 min", "Beschreibung und Dauer")
 	units.select(2)

@@ -122,17 +122,54 @@ static func ack(for_type: String, ok: bool, reason = null) -> Dictionary:
 
 
 ## Baustein: `status`-Nachricht wie von der Bridge (docs/bus-protocol.md). Mit `heart_rate` (Baustein
-## `heart_rate_block`) steht der Pulsblock als letzter Schlüssel dabei; ohne ist es eine ältere Bridge. Mit `garmin`
-## (z. B. `{"login": "logged_in"}`) steht der Block `garmin` dahinter.
+## `heart_rate_block`) steht der Pulsblock als letzter Schlüssel dabei; ohne ist es eine ältere Bridge. Mit
+## `trainer_control` (Spec #75) kommt dahinter der Block `trainer`, z. B. `"lost"`. Verbindungsfenster (Spec #75):
+## `trainer_device` ({address, name}) ergänzt den Trainerblock, `controller` (Baustein `controller_block`) und
+## `signal_dbm` (Rolle → dBm) kommen als Blöcke `controller` und `signal` dazu. Mit `garmin` (z. B.
+## `{"login": "logged_in"}`, Spec #84) steht der Block `garmin` als letzter dahinter.
 static func status(state: String = "connected", source: String = "sim",
-		capabilities: Array = ["CADENCE"], at: float = 0.0, heart_rate: Dictionary = {}, garmin: Dictionary = {}) -> Dictionary:
+		capabilities: Array = ["CADENCE"], at: float = 0.0, heart_rate: Dictionary = {},
+		trainer_control: String = "", trainer_device: Dictionary = {}, controller: Dictionary = {},
+		signal_dbm: Dictionary = {}, garmin: Dictionary = {}) -> Dictionary:
 	var message := {"v": 0, "type": "status", "t_ms": int(at * 1000.0),
 			"state": state, "source": source, "capabilities": capabilities}
 	if not heart_rate.is_empty():
 		message["heart_rate"] = heart_rate
+	if not trainer_control.is_empty() or not trainer_device.is_empty():
+		message["trainer"] = {"control": trainer_control if not trainer_control.is_empty() else "none"}
+		if not trainer_device.is_empty():
+			message["trainer"]["device"] = trainer_device
+	if not controller.is_empty():
+		message["controller"] = controller
+	if not signal_dbm.is_empty():
+		var block := {"trainer": null, "heart_rate": null, "controller": null}
+		block.merge(signal_dbm, true)
+		message["signal"] = block
 	if not garmin.is_empty():
-		message["garmin"] = garmin  # hinter dem Pulsblock (Spec #84); ohne = ältere Bridge
+		message["garmin"] = garmin  # als letzter Block (Spec #84); ohne = ältere Bridge
 	return {"at": at, "send": message}
+
+
+## Baustein: Block `controller` einer `status`-Nachricht (Spec #75). `device` = {address, name, side}; `battery` in
+## Prozent, null = unbekannt.
+static func controller_block(state: String = "off", device = null, battery = null) -> Dictionary:
+	return {"state": state, "device": device, "battery": battery}
+
+
+## Baustein: Suchergebnis `device_found` einer Rolle (nur an den Anfrager); `side` nur beim Controller.
+static func device_found(kind: String, address: String, device_name, rssi: int = -58, at: float = 0.0,
+		side = null) -> Dictionary:
+	var message := {"v": 0, "type": "device_found", "t_ms": int(at * 1000.0), "kind": kind,
+			"address": address, "name": device_name, "rssi": rssi}
+	if kind == "controller":
+		message["side"] = side
+	return {"at": at, "send": message}
+
+
+## Baustein: Suchende `device_search_ended` einer Rolle (reason: timeout | taken_over).
+static func device_search_ended(kind: String, reason: String = "timeout", at: float = 0.0) -> Dictionary:
+	return {"at": at, "send": {"v": 0, "type": "device_search_ended", "t_ms": int(at * 1000.0), "kind": kind,
+			"reason": reason}}
 
 
 ## Baustein: Block `heart_rate` einer `status`-Nachricht. `device` = {address, name, role}, nur bei connected/stale.

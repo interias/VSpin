@@ -52,7 +52,19 @@
 ## (ADR-0008). Das Spiel führt dafür die Streckenspur (RideTrace, Bridge-Zeit); der Spielstand ist davon unberührt.
 ##
 ## Virtuelle Steigung (ADR-0007): das Spiel meldet die Steigung an der Fahrerposition per `set_grade`
-## (Drosselung siehe GradeReporter), nicht in der Verbindungspause; danach wird sie neu gemeldet.
+## (Drosselung siehe GradeReporter), nur beim Fahren (`riding`). Am Trainer wird sie zum Widerstand (Spec #75).
+## Sichere Grundlast: Verlässt die Fahrt `riding` – Pause per Taste, Verbindungspause, Ziel, zurück ins Menü –, geht
+## einmal `set_grade 0` raus (nie gedrosselt), damit der Fahrer nie gegen einen festen Berg tritt; beim Weiterfahren
+## meldet `grade_reporter.reset()` die echte Steigung neu. Spielabsturz und Beenden deckt die Bridge ab.
+## Steuert eine andere App den Trainer (`status.trainer.control` `lost`) oder läuft die Bridge im Nur-lesen-Modus
+## (`read_only`, `config.cfg [bridge] trainer_read_only`), zeigt das HUD einen Hinweis (`resistance_text()`).
+##
+## ERG (Spec #75): In einer ERG-Einheit (Training.erg) meldet das Spiel statt der Steigung je Phase die Zielleistung per
+## `set_target_power` – nur in `riding` und nur, solange VSpin den Trainer steuert (`gears_active`). Ohne Steuerung
+## (Simulator, nur lesen, `lost`) läuft die Einheit ohne ERG weiter: Die Zielleistung wird angesagt und bewertet, der
+## Fahrer hält sie selbst. In einer ERG-Einheit geht nie `set_grade` raus, die Gänge sind gesperrt und ausgeblendet.
+## Verlässt die Fahrt `riding`, geht zuerst `set_target_power null` und dann wie bisher `set_grade 0` raus; beim
+## Weiterfahren die Zielleistung der laufenden Phase neu. Das Tempo kommt aus der gemessenen Leistung (Leistungsmodell).
 ##
 ## Runden (#31): Start an `start_distance_m`, jede Runde endet beim Überfahren der Start/Ziel-Linie (Streckenposition
 ## = Vielfaches der Rundenlänge), das Ziel nach `laps` Runden (0 = endlos). Rundenzeiten und Bestzeit führt die
@@ -93,6 +105,12 @@
 ##
 ## Geräte (Spec #64, `scenes/devices_menu.gd`): aus dem Startmenü; Brustgurt und Uhr suchen, merken (dann
 ## `apply_heart_rate_devices()`), vergessen, Live-Puls sehen, LTHR und Maximalpuls des Profils eintragen (Spielstand).
+## Verbindungsfenster (Spec #75): Dieselbe Seite ist das Fenster mit einer Kachel je Rolle (Trainer, Puls, Controller).
+## Gemerkte Geräte verbinden sich beim Start im Hintergrund: Das Spiel schickt seine Listen nach jedem Verbinden mit dem
+## Bus (Trainer und Controller: `trainer_device`/`controller_device`, RoleDevice in `settings_path`). Das Fenster öffnet
+## beim Start von selbst nur, wenn die Bridge mit `config.cfg [bridge] source="ble"` läuft und noch kein Trainer gemerkt
+## ist (`connections_needed`); sonst über „Verbindungen“ im Startmenü, den Knopf im HUD oder die Taste V während der
+## Fahrt (KEY_BINDINGS `ride_devices`). Wie bei den Einstellungen läuft die Fahrt weiter, solange es offen ist.
 ##
 ## Training (#37): „Fahren → Training“ startet eine Einheit (Training, aus `res://trainings`) als eigenen Modus
 ## (SaveGame.MODE_TRAINING). Die Insel läuft endlos (Rundenwertung mit 0 Runden); das HUD zeigt Phase, Zielkadenz,
@@ -157,6 +175,9 @@ const KEY_BINDINGS := {
 	"ride_fullscreen": [KEY_F11],
 	"ride_menu": [KEY_ENTER, KEY_KP_ENTER],
 	"ride_camera": [KEY_C],
+	"ride_devices": [KEY_V],  # Verbindungsfenster (Spec #75); die Leertaste bleibt frei für den Begleiter (#76)
+	"ride_shift_up": [KEY_UP, KEY_KP_ADD],  # virtuelle Gänge (Spec #75): schwerer …
+	"ride_shift_down": [KEY_DOWN, KEY_KP_SUBTRACT],  # … und leichter
 }
 ## Menü „Grafik und Fenster“ (Esc/F2, F11, Beenden; siehe `scenes/settings_menu.gd`).
 const SETTINGS_MENU := preload("res://scenes/settings_menu.tscn")
@@ -166,7 +187,7 @@ const START_MENU := preload("res://scenes/start_menu.tscn")
 const LOGBOOK := preload("res://scenes/logbook.gd")
 ## Garderobe (Trikot, Radfarbe, Helm mit Vorschau; #36).
 const WARDROBE := preload("res://scenes/wardrobe.gd")
-## Geräteseite (Brustgurt, Uhr, LTHR und Maximalpuls; Spec #64).
+## Verbindungsfenster (Trainer, Puls mit Brustgurt, Uhr, LTHR und Maximalpuls, Controller; Spec #64, #75).
 const DEVICES_MENU := preload("res://scenes/devices_menu.gd")
 ## Dialog „Fahrt speichern“ am Fahrtende (Spec #84).
 const RIDE_SAVE_DIALOG := preload("res://scenes/ride_save_dialog.gd")
@@ -224,6 +245,8 @@ const COMPANION_HOARSE_NOTICE := "Toni ist heiser"
 
 const BRIDGE_START_HINT := "Bridge starten: vspin-bridge --source sim"
 const RESISTANCE_NOT_SUPPORTED := "Widerstand: nicht unterstützt"
+const RESISTANCE_CONTROL_LOST := "Trainer wird von einer anderen App gesteuert – Widerstand aus VSpin pausiert"
+const RESISTANCE_READ_ONLY := "Trainer im Nur-lesen-Modus – Widerstand aus VSpin aus"
 
 ## Konfiguration; wenn vor `_ready` nicht gesetzt, wird `res://config.cfg` geladen.
 var config: RideConfig = null
@@ -237,6 +260,10 @@ var config: RideConfig = null
 var settings_path := GraphicsSettings.DEFAULT_PATH
 ## Gemerkte Pulsgeräte (Abschnitt `[heart_rate]` in `settings_path`); nach einer Änderung `apply_heart_rate_devices()`.
 var heart_rate_devices: HeartRateDevices
+## Gemerkter Trainer und Controller (Abschnitte `[trainer]`, `[controller]` in `settings_path`, Spec #75); nach einer
+## Änderung `apply_role_device(kind)`.
+var trainer_device: RoleDevice
+var controller_device: RoleDevice
 var settings_menu: CanvasLayer
 var start_menu: CanvasLayer
 var logbook: CanvasLayer
@@ -305,11 +332,26 @@ var bus: BusClient
 ## Start der Bridge aus dem Spiel; startet nur, wenn `config.bus_url` die Bridge-Adresse ist (Tests: Fake-Bus-Port).
 var bridge_launcher: BridgeLauncher
 var model: RideModel
+## Geräteart der laufenden Fahrt (RideModel.KIND_*, Spec #75): Leistungsmodell bei gemessener Leistung, sonst
+## Kadenzmodell. Steht mit der ersten Telemetrie der Fahrt fest (`_fix_ride_kind`) und wechselt dann bis zur nächsten
+## Fahrt nicht; Bestzeit, Segmente, Medaillen und Ghost gelten je Geräteart.
+var ride_kind := RideModel.KIND_CADENCE
+var _ride_kind_open := true
+## Ghost-Wahl der laufenden Fahrt (Ghost.BEST/LAST, "" = aus), für `_fix_ride_kind`.
+var _ghost_choice := ""
+## 3-s-Mittel der gemessenen Leistung fürs HUD.
+var power_average := PowerAverage.new()
 ## Aktueller Spielzustand (STATE_*).
 var state := STATE_PAUSED_CONNECTION
 ## Hinweis aus der letzten `ack` auf `set_grade` ("" = umgesetzt oder noch keine Antwort).
 var resistance_hint := ""
 var grade_reporter := GradeReporter.new()
+## Virtuelle Gänge (Spec #75): verschieben die gemeldete Steigung; wirken nur bei steuerbarem Trainer (`gears_active`).
+var gears: Gears
+## In `riding` schon eine Steigung gemeldet: beim Verlassen von `riding` geht dann die Grundlast raus.
+var _grade_reported := false
+## ERG: zuletzt per `set_target_power` gemeldete Zielleistung (W, -1 = keine; beim Verlassen von `riding` geht `null`).
+var _target_power_sent := -1
 ## Fahrzeit, Strecke und Durchschnitte der laufenden Fahrt (ohne Pausen).
 var stats := RideStats.new()
 ## Ø-Puls, Max-Puls und Zeit je Zone der laufenden Fahrt (mit den Zonen des Profils beim Start; nur Fahrzeit, #64).
@@ -395,6 +437,7 @@ func _ready() -> void:
 	if config == null:
 		config = RideConfig.load_file()
 	_register_key_bindings()
+	gears = Gears.new(config.gears_count, config.gears_neutral, config.gears_step_pp)
 	settings_menu = SETTINGS_MENU.instantiate()
 	settings_menu.settings_path = settings_path
 	settings_menu.quit_requested.connect(_on_quit_requested)
@@ -426,6 +469,7 @@ func _ready() -> void:
 	devices_menu.name = "DevicesMenu"
 	devices_menu.closed.connect(_on_devices_closed)
 	devices_menu.devices_changed.connect(apply_heart_rate_devices)
+	devices_menu.role_device_changed.connect(apply_role_device)
 	devices_menu.profile_changed.connect(_on_pulse_profile_changed)
 	add_child(devices_menu)
 	ride_save_dialog = RIDE_SAVE_DIALOG.new()
@@ -482,6 +526,13 @@ func _ready() -> void:
 	heart_rate_devices = HeartRateDevices.load_file(settings_path) if not settings_path.is_empty() \
 			else HeartRateDevices.new()
 	bus.set_heart_rate_devices(heart_rate_devices.bridge_list())  # geht bei jedem (Neu-)Verbinden raus
+	trainer_device = RoleDevice.load_file(BusClient.KIND_TRAINER, settings_path) if not settings_path.is_empty() \
+			else RoleDevice.new(BusClient.KIND_TRAINER)
+	controller_device = RoleDevice.load_file(BusClient.KIND_CONTROLLER, settings_path) \
+			if not settings_path.is_empty() else RoleDevice.new(BusClient.KIND_CONTROLLER)
+	bus.set_devices(BusClient.KIND_TRAINER, trainer_device.bridge_list())  # Background Pairing: ebenso
+	bus.set_devices(BusClient.KIND_CONTROLLER, controller_device.bridge_list())
+	hud.connections_requested.connect(open_devices)
 	bridge_launcher = BridgeLauncher.new(config, BridgeLauncher.game_dir())
 	bridge_launcher.begin()
 	model = RideModel.new(config, start_distance_m)
@@ -493,6 +544,8 @@ func _ready() -> void:
 	_update_camera(0.0, true)
 	if start_in_menu:
 		_enter_menu()
+		if connections_needed():
+			open_devices()  # erster Start mit Trainer: erst einrichten
 	else:
 		start_menu.close()
 		settings_menu.set_ride_active(true)
@@ -503,6 +556,7 @@ func _process(delta: float) -> void:
 	bus.poll(delta)
 	bridge_launcher.poll(delta)
 	_update_state()
+	_report_rest_load()
 	_update_companion(delta)
 	if state == STATE_MENU:
 		_fly_title(delta)
@@ -513,6 +567,8 @@ func _process(delta: float) -> void:
 	if state == STATE_RIDING:
 		_ride(delta)
 	_report_grade(delta)
+	_report_target_power()
+	power_average.add(bus.power_w() if not bus.power_estimated() else NAN, delta)
 	_update_view()
 	_update_rider(delta)
 	_update_camera(delta)
@@ -772,7 +828,7 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 		training_unit: Dictionary = {}, direction: String = Track.DIRECTION_CW,
 		tier: int = ArcadeTiers.DEFAULT) -> void:
 	ride_mode = mode
-	training = Training.new(training_unit) if not training_unit.is_empty() else null
+	training = Training.new(training_unit, save_game.ftp()) if not training_unit.is_empty() else null
 	if training != null or mode == SaveGame.MODE_ARCADE:
 		lap_count = 0
 		ghost_kind = ""
@@ -781,8 +837,15 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 	_set_direction(direction)
 	arcade_stage.begin(mode == SaveGame.MODE_ARCADE and training == null, tier, save_game, start_distance_m)
 	_apply_wardrobe()
-	ghost = save_game.ghost(config.track, track.direction, ghost_kind) if not ghost_kind.is_empty() else null
+	_ghost_choice = ghost_kind
+	_ride_kind_open = not (bus.bus_connected and bus.status == BusClient.STATE_CONNECTED and _data_since_loss)
+	if not _ride_kind_open:
+		ride_kind = RideModel.kind_for(bus.power_w(), bus.power_estimated())
+	ghost = save_game.ghost(config.track, track.direction, ghost_kind, ride_kind) if not ghost_kind.is_empty() else null
 	model = RideModel.new(config, start_distance_m)
+	power_average.reset()
+	gears.reset()
+	gears.locked = erg_ride()  # in ERG wird nicht geschaltet (Gang neutral: kein Offset in `reported_grade`)
 	stats = RideStats.new()
 	pulse_zones = save_game.heart_rate_zones()
 	pulse_stats = HeartRateStats.new(pulse_zones)
@@ -812,11 +875,30 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 	_update_camera(0.0, true)
 
 
+## Geräteart der Fahrt aus der letzten Telemetrie festlegen (RideModel.kind_for). Ändert sie sich gegenüber der
+## Annahme beim Start (vor der ersten Telemetrie), kommen Ghost, Bestzeiten und Medaillen-Schwellen neu – gefahren
+## wurde da noch nicht (ohne Daten pausiert die Fahrt).
+func _fix_ride_kind() -> void:
+	_ride_kind_open = false
+	var kind := RideModel.kind_for(bus.power_w(), bus.power_estimated())
+	if kind == ride_kind:
+		return
+	ride_kind = kind
+	if state == STATE_MENU or model == null:
+		return
+	ghost = save_game.ghost(config.track, track.direction, _ghost_choice, ride_kind) \
+			if not _ghost_choice.is_empty() else null
+	ghost_rider.visible = ghost != null
+	_new_lap_timing()
+
+
 ## Rundfahrt aus dem Startmenü: gewählte Tageszeit wie im Einstellungsmenü setzen, dann mit der Rundenzahl und dem
 ## gewählten Ghost losfahren.
 func _on_ride_requested(mode: String) -> void:
 	settings_menu.select_time(start_menu.time_index())
 	if mode == SaveGame.MODE_TRAINING:
+		if not Training.startable(start_menu.training_unit(), save_game.ftp()):
+			return  # % FTP ohne FTP: das Menü sagt, wo sie hingehört
 		start_ride(mode, 0, "", start_menu.training_unit())
 		return
 	if mode == SaveGame.MODE_ARCADE:
@@ -847,10 +929,10 @@ func _new_lap_timing() -> void:
 		lap_timing = LapTiming.new(track.length_m(), start_distance_m, laps)
 	else:
 		lap_timing = LapTiming.new(track.length_m(), start_distance_m, laps,
-				save_game.best_time_s(config.track, track.direction), track.segments,
-				save_game.segment_best_times(config.track, track.direction))
+				save_game.best_time_s(config.track, track.direction, ride_kind), track.segments,
+				save_game.segment_best_times(config.track, track.direction, ride_kind))
 	finish_distance_m = lap_timing.finish_m()
-	medal_limits = Medals.thresholds(track, config)
+	medal_limits = Medals.thresholds(track, config, ride_kind)
 
 
 ## Erfolge und Fahrerlevel für eine neue Fahrt: Stand vor der Fahrt aus dem Spielstand (Kilometer und Runden aller
@@ -947,21 +1029,32 @@ func _on_wardrobe_closed() -> void:
 	start_menu.buttons["wardrobe"].grab_focus()
 
 
-## Geräteseite aus dem Startmenü öffnen (das Menü tritt so lange zurück).
+## Verbindungsfenster öffnen: aus dem Startmenü (das Menü tritt so lange zurück) oder während der Fahrt (HUD-Knopf,
+## Taste V; die Fahrt läuft weiter wie bei den Einstellungen).
 func open_devices() -> void:
-	start_menu.close()
-	devices_menu.open(bus, heart_rate_devices, save_game)
+	if state == STATE_MENU:
+		start_menu.close()
+	devices_menu.open(bus, heart_rate_devices, save_game, trainer_device, controller_device)
 
 
 func _on_devices_closed() -> void:
+	if state != STATE_MENU:
+		return  # zurück in die Fahrt
 	start_menu.open()
 	start_menu.buttons["devices"].grab_focus()
+
+
+## Soll das Verbindungsfenster beim Start von selbst öffnen? Nur mit Trainer-Bridge (`[bridge] source="ble"`) und ohne
+## gemerkten Trainer – mit dem Simulator braucht es keinen.
+func connections_needed() -> bool:
+	return config.bridge_source == "ble" and not trainer_device.has_device()
 
 
 ## LTHR/Maximalpuls auf der Geräteseite geändert: Spielstand speichern, Zonen für die nächste Fahrt gelten ab Fahrtbeginn.
 func _on_pulse_profile_changed() -> void:
 	if not save_path.is_empty():
 		save_game.save_file(save_path)
+	start_menu.set_ftp(save_game.ftp())  # FTP (ERG): %-FTP-Einheiten werden startbar
 
 
 ## Teil in der Garderobe gewählt: der Fahrer trägt es, der Spielstand wird gleich gespeichert.
@@ -1035,9 +1128,10 @@ func _update_round_trip_menu() -> void:
 	var times: Array = settings_menu.time_choices()
 	start_menu.set_time_choices(times[0], times[1])
 	var direction: String = start_menu.ride_direction()
-	start_menu.set_ghost_choices(save_game.ghost(config.track, direction, Ghost.BEST) != null,
-			save_game.ghost(config.track, direction, Ghost.LAST) != null)
-	var best := save_game.best_time_s(config.track, direction)
+	var kind := RideModel.kind_for(bus.power_w(), bus.power_estimated())
+	start_menu.set_ghost_choices(save_game.ghost(config.track, direction, Ghost.BEST, kind) != null,
+			save_game.ghost(config.track, direction, Ghost.LAST, kind) != null)
+	var best := save_game.best_time_s(config.track, direction, kind)
 	start_menu.show_best_time(format_time(best, true) if is_finite(best) else "")
 
 
@@ -1112,6 +1206,7 @@ func _enter_menu() -> void:
 	speed_effects.reset()
 	_update_round_trip_menu()
 	_update_arcade_menu()
+	start_menu.set_ftp(save_game.ftp())
 	start_menu.open()
 	state_changed.emit(state)
 	_fly_title(0.0, true)
@@ -1178,16 +1273,16 @@ func _save_ride() -> void:
 func _record_round_trip() -> void:
 	var best_ghost := lap_timing.best_ghost
 	var direction := track.direction
-	if save_game.record_best_time(config.track, direction, lap_timing.ride_best_s()) \
+	if save_game.record_best_time(config.track, direction, lap_timing.ride_best_s(), ride_kind) \
 			and best_ghost != null and is_equal_approx(best_ghost.time_s, lap_timing.ride_best_s()):
-		save_game.record_ghost(config.track, direction, Ghost.BEST, best_ghost)
+		save_game.record_ghost(config.track, direction, Ghost.BEST, best_ghost, ride_kind)
 	if lap_timing.last_ghost != null:
-		save_game.record_ghost(config.track, direction, Ghost.LAST, lap_timing.last_ghost)
+		save_game.record_ghost(config.track, direction, Ghost.LAST, lap_timing.last_ghost, ride_kind)
 	for i in range(lap_timing.lap_times.size()):
-		save_game.record_medal(config.track, direction, Medals.LAP, lap_medal(i))
+		save_game.record_medal(config.track, direction, Medals.LAP, lap_medal(i), ride_kind)
 	for result in lap_timing.segments.results:
-		save_game.record_segment_time(config.track, direction, result["id"], result["time_s"])
-		save_game.record_medal(config.track, direction, result["id"], segment_medal(result))
+		save_game.record_segment_time(config.track, direction, result["id"], result["time_s"], ride_kind)
+		save_game.record_medal(config.track, direction, result["id"], segment_medal(result), ride_kind)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -1198,8 +1293,21 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("ride_menu") and state == STATE_FINISHED:
 		return_to_menu()
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("ride_camera") and state != STATE_MENU and not settings_menu.visible:
+	elif event.is_action_pressed("ride_camera") and state != STATE_MENU and not settings_menu.visible \
+			and not devices_menu.visible:
 		cycle_camera_view()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("ride_devices") and state != STATE_MENU and not settings_menu.visible:
+		if devices_menu.visible:
+			devices_menu.close()
+		else:
+			open_devices()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("ride_shift_up") and _can_shift():
+		shift_up()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("ride_shift_down") and _can_shift():
+		shift_down()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("companion_ptt") and _can_talk():
 		_press_ptt()
@@ -1246,6 +1354,40 @@ func lap_time_s() -> float:
 	return stats.ride_time_s
 
 
+## Ist der Trainer steuerbar (`status.trainer.control == active`)? Nur dann gibt es Gänge: Die Fähigkeit allein genügt
+## nicht – im Nur-lesen-Modus oder bei verlorener Steuerung (andere App) käme der Widerstand nie am Trainer an.
+func gears_active() -> bool:
+	return bus.trainer_control == BusClient.TRAINER_CONTROL_ACTIVE
+
+
+## Gangtasten wirken nur bei steuerbarem Trainer, in der Fahrt (nicht im Menü oder Ergebnis) und ohne offene
+## Einstellungen oder Verbindungsfenster.
+func _can_shift() -> bool:
+	return gears_active() and state != STATE_MENU and state != STATE_FINISHED and not settings_menu.visible \
+			and not devices_menu.visible
+
+
+## Ein Gang schwerer. Öffentlich, damit später auch ein anderer Eingang (Lenkerknöpfe) schalten kann.
+func shift_up() -> bool:
+	return _shift(gears.shift_up())
+
+
+## Ein Gang leichter.
+func shift_down() -> bool:
+	return _shift(gears.shift_down())
+
+
+func _shift(changed: bool) -> bool:
+	if changed:
+		_update_view()
+	return changed
+
+
+## Steigung, die an den Trainer geht: Strecke plus Gangoffset (nur bei steuerbarem Trainer, sonst die Strecke).
+func reported_grade() -> float:
+	return gears.effective_grade(current_grade()) if gears_active() else current_grade()
+
+
 ## Aktuelle Steigung an der Position des Fahrers (Anteil).
 func current_grade() -> float:
 	return track.grade_at(model.distance_m)
@@ -1265,6 +1407,11 @@ func curvature_at(d: float) -> float:
 ## Fährt ein Ghost mit? (Dann keine Panorama-Momente, #43.)
 func ghost_active() -> bool:
 	return ghost != null and state != STATE_MENU
+
+
+## Fährt diese Fahrt eine ERG-Einheit (Watt-Ziele, Training.erg)?
+func erg_ride() -> bool:
+	return training != null and training.erg()
 
 
 ## Läuft ein Training? (Dann keine Panorama-Momente, #43.)
@@ -1307,11 +1454,15 @@ static func format_time(seconds: float, tenths: bool = false) -> String:
 	return "%d:%02d" % [whole / 60, whole % 60]
 
 
-## Leistung für die Anzeige: geschätzt immer mit „~“ (ADR-0004), z. B. "~142 W"; "" ohne Wert.
-static func format_power(watts: float, estimated: bool) -> String:
+## Leistung für die Anzeige: geschätzt immer mit „~“ (ADR-0004), z. B. "~142 W"; "" ohne Wert. Gemessen mit dem
+## 3-s-Mittel `average`, sofern eins da ist: "212 W · Ø3s 205 W".
+static func format_power(watts: float, estimated: bool, average: float = NAN) -> String:
 	if is_nan(watts):
 		return ""
-	return "%s%d W" % ["~" if estimated else "", roundi(watts)]
+	var text := "%s%d W" % ["~" if estimated else "", roundi(watts)]
+	if not estimated and not is_nan(average):
+		text += " · Ø3s %d W" % roundi(average)
+	return text
 
 
 ## Hinweistext zum Zustand (leer beim Fahren), wie er groß im HUD steht.
@@ -1378,9 +1529,10 @@ func lap_result() -> String:
 ## Aufwärmen 100 % · 70 rpm 80 % · …“. Abgebrochen: die Teilbewertung der gefahrenen Phasen.
 func training_result() -> String:
 	var rewards := rewards_result()
-	return "%s%s\n%s · Zeit: %s\nZielkadenz getroffen: %s\nJe Phase: %s\nØ Kadenz: %d rpm · Ø Tempo: %.1f km/h%s\n%s" % [
+	return "%s%s\n%s · Zeit: %s\n%s getroffen: %s\nJe Phase: %s\nØ Kadenz: %d rpm · Ø Tempo: %.1f km/h%s\n%s" % [
 			"Training beendet!" if training.finished() else "Training abgebrochen",
 			" · " + rewards if not rewards.is_empty() else "", training.unit["name"], format_time(lap_time_s(), true),
+			"Zielleistung" if training.erg() else "Zielkadenz",
 			Training.percent_text(training.total_score()), training.phase_summary(), roundi(stats.avg_cadence()),
 			stats.avg_speed_kmh(), _pulse_block(), "Enter: zurück ins Menü · Esc: Einstellungen"]
 
@@ -1460,7 +1612,7 @@ func _update_state() -> void:
 ## genau sind.
 func _ride(delta: float) -> void:
 	var before := model.distance_m
-	model.step(bus.cadence, current_grade(), delta)
+	model.step_kind(ride_kind, bus.cadence, bus.power_w(), current_grade(), delta)
 	var moved := model.distance_m - before
 	var used := delta
 	if model.distance_m >= finish_distance_m:
@@ -1472,7 +1624,7 @@ func _ride(delta: float) -> void:
 	stats.add(used, bus.cadence, model.distance_m - before)
 	pulse_stats.add(used, bus.heart_rate_bpm if bus.has_heart_rate() else null)
 	if training != null:
-		training.advance(bus.cadence, used)
+		training.advance(bus.cadence, used, bus.power_w())
 		_report_interval()
 	arcade_stage.advance(model.distance_m, used)
 	var segments_before := lap_timing.segments.results.size()
@@ -1496,14 +1648,41 @@ func _ride(delta: float) -> void:
 
 
 ## Meldet die Steigung per `set_grade`, wenn sie sich genug geändert hat (gedrosselt, siehe GradeReporter).
-## In der Verbindungspause nicht – Senden wäre sinnlos.
+## Nur beim Fahren – in jeder Pause gilt die Grundlast (`_report_rest_load`). In einer ERG-Einheit nie.
 func _report_grade(delta: float) -> void:
 	grade_reporter.tick(delta)
-	if state == STATE_PAUSED_CONNECTION:
+	if state != STATE_RIDING or erg_ride():
 		return
-	var grade := GradeReporter.quantize(current_grade())
+	var grade := GradeReporter.quantize(reported_grade())
 	if grade_reporter.wants_to_send(grade) and bus.send_message({"type": "set_grade", "grade": grade}) == OK:
 		grade_reporter.sent(grade)
+		_grade_reported = true
+
+
+## Sichere Grundlast (Spec #75): Hat die Fahrt `riding` verlassen, nachdem sie eine Steigung gemeldet hat, geht einmal
+## `set_grade 0` raus – ungedrosselt, am GradeReporter vorbei. Beim Weiterfahren meldet der zurückgesetzte Reporter die
+## echte Steigung sofort neu. Ist der Bus weg, scheitert das Senden; dann setzt die Bridge die Grundlast selbst.
+func _report_rest_load() -> void:
+	if state == STATE_RIDING or not (_grade_reported or _target_power_sent >= 0):
+		return
+	if _target_power_sent >= 0:  # ERG zuerst beenden: die Bridge lehnt `set_grade` in ERG ab
+		_target_power_sent = -1
+		bus.send_message({"type": "set_target_power", "watts": null})
+	_grade_reported = false
+	grade_reporter.reset()
+	bus.send_message({"type": "set_grade", "grade": 0.0})
+
+
+## ERG: meldet die Zielleistung der laufenden Phase per `set_target_power`, sobald sie sich ändert (je Phase einmal) –
+## nur in `riding` und nur, solange VSpin den Trainer steuert. Neuverbinden und „Steuerung zurückholen“ setzt die
+## Bridge selbst mit der letzten Zielleistung fort.
+func _report_target_power() -> void:
+	if state != STATE_RIDING or not erg_ride() or not gears_active():
+		return
+	var watts := training.target_power_w()
+	if watts >= 0 and watts != _target_power_sent \
+			and bus.send_message({"type": "set_target_power", "watts": watts}) == OK:
+		_target_power_sent = watts
 
 
 ## Ist der Begleiter eingeschaltet (Einstellungsmenü, Standard an)? Aus: das Spiel sendet nichts an ihn und zeigt nichts.
@@ -1753,19 +1932,45 @@ func apply_heart_rate_devices() -> void:
 	bus.set_heart_rate_devices(heart_rate_devices.bridge_list())
 
 
+## Speichert den gemerkten Trainer bzw. Controller (`kind`) und schickt ihn sofort an die Bridge (Verbindungsfenster).
+## Ein anderer Trainer: die Bridge gibt den alten frei und verbindet den neuen.
+func apply_role_device(kind: String) -> void:
+	var remembered: RoleDevice = trainer_device if kind == BusClient.KIND_TRAINER else controller_device
+	if not settings_path.is_empty():
+		remembered.save_file(settings_path)
+	bus.set_devices(kind, remembered.bridge_list())
+
+
 func _on_ack(message: Dictionary) -> void:
-	if message.get("for") != "set_grade":
+	if not (message.get("for") in ["set_grade", "set_target_power"]):
 		return
 	if message.get("ok") == true:
 		resistance_hint = ""
 	elif message.get("reason") == "not_supported":
 		resistance_hint = RESISTANCE_NOT_SUPPORTED
+	elif message.get("reason") == "control_lost":
+		resistance_hint = RESISTANCE_CONTROL_LOST
+	elif message.get("reason") == "read_only":
+		resistance_hint = RESISTANCE_READ_ONLY
 	else:
 		resistance_hint = "Widerstand: Fehler (%s)" % message.get("reason")
 
 
+## Hinweis zum Widerstand im HUD: Steuert eine andere App den Trainer oder läuft die Bridge im Nur-lesen-Modus
+## (`status.trainer.control`), steht das da – unabhängig von der letzten `ack`; sonst der Hinweis aus der `ack`.
+func resistance_text() -> String:
+	match bus.trainer_control:
+		BusClient.TRAINER_CONTROL_LOST:
+			return RESISTANCE_CONTROL_LOST
+		BusClient.TRAINER_CONTROL_READ_ONLY:
+			return RESISTANCE_READ_ONLY
+	return resistance_hint
+
+
 func _on_telemetry(_message: Dictionary) -> void:
 	_data_since_loss = true
+	if _ride_kind_open and state != STATE_MENU:
+		_fix_ride_kind()
 
 
 func _on_status_changed(new_state: String) -> void:
@@ -1830,9 +2035,14 @@ func _show_training() -> void:
 	var next := training.next_phase()
 	hud.show_training(phase["name"], Training.target_text(phase), format_time(ceilf(training.remaining_s())),
 			"%s · %s" % [next["name"], Training.target_text(next)] if not next.is_empty() else "Ende der Einheit")
-	hud.show_zone(phase["cadence_min"], phase["cadence_max"], bus.cadence,
-			Training.percent_text(training.phase_score(training.phase_index())))
-	var announcement := training.announcement()
+	var score := Training.percent_text(training.phase_score(training.phase_index()))
+	if training.erg():  # Zielband der Leistung und gemessene Leistung
+		var band := Training.power_range(phase)
+		hud.show_zone(band[0], band[1], bus.power_w() if not is_nan(bus.power_w()) else 0.0, score)
+	else:
+		hud.show_zone(phase["cadence_min"], phase["cadence_max"], bus.cadence, score)
+	# Story 14: Regelt VSpin den Widerstand selbst, entfällt die Ansage zum Widerstandsknopf.
+	var announcement := training.announcement(not gears_active())
 	hud.show_announcement(announcement)
 	sound.announce(announcement, training.phase_index())
 
@@ -1887,7 +2097,8 @@ func _update_view() -> void:
 	rider.progress = track.path_distance(model.distance_m)
 	var grade := current_grade()
 	hud.show_ride(bus.cadence, model.speed_kmh(), stats.distance_m, format_time(lap_time_s()), grade,
-			format_grade(grade), current_station(), format_power(bus.power_w(), bus.power_estimated()))
+			format_grade(grade), current_station(), format_power(bus.power_w(), bus.power_estimated(),
+			power_average.value()))
 	# Puls: ohne Gurt und ohne Wert (Bridge meldet `off`, kein Puls vom Simulator) bleibt die Anzeige weg; war sie in
 	# dieser Fahrt schon da und fällt der Bus weg (der Client meldet dann `off`), bleibt sie mit „--“ stehen.
 	_pulse_shown = (bus.heart_rate_state != BusClient.HEART_RATE_OFF or bus.has_heart_rate()
@@ -1908,7 +2119,8 @@ func _update_view() -> void:
 	hud.show_segment(segment.get("name", ""), format_time(segment["time_s"], true) if not segment.is_empty() else "")
 	if debug_label.visible:
 		debug_label.text = debug_text()
-	hint_label.text = resistance_hint
+	hint_label.text = resistance_text()
+	hud.show_gear(gears.text() if gears_active() and not gears.locked else "")
 	var message := status_message()
 	message_label.text = message
 	message_label.visible = not message.is_empty() and not ride_save_dialog.visible

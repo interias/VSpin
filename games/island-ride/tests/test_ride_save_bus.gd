@@ -5,7 +5,7 @@ extends "res://tests/support/bus_test.gd"
 
 
 func _status(login, at: float = 0.0) -> Dictionary:
-	return FakeBusServer.status("connected", "sim", ["CADENCE"], at, {}, {} if login == null else {"login": login})
+	return FakeBusServer.status("connected", "sim", ["CADENCE"], at, {}, "", {}, {}, {}, {} if login == null else {"login": login})
 
 
 func test_garmin_login_follows_the_status_block() -> void:

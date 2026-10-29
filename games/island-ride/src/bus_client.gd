@@ -17,6 +17,12 @@
 ## Die gemerkten Geräte gehören dem Spiel: `set_heart_rate_devices` schickt sie sofort und nach jedem (Neu-)Verbinden
 ## erneut, auch eine leere Liste (eine frisch gestartete Bridge kennt keine Geräte, eine geteilte die eines anderen).
 ##
+## Verbindungsfenster (Spec #75, docs/bus-protocol.md „Rollen“): Rollen `trainer | heart_rate | controller`. Für Trainer
+## und Controller schickt `set_devices` die gemerkten Geräte – wie beim Puls sofort und nach jedem (Neu-)Verbinden;
+## Suche auf Anfrage über `start_device_search`, Ergebnisse als `device_found`. Aus `status`: `trainer_device`,
+## `controller_state`/`controller_device`/`controller_battery` und die Signalstärke je Rolle (`signal_dbm`).
+## „Steuerung zurückholen“: `reclaim_trainer_control()` (Antwort als `ack_received`).
+##
 ## Begleiter (Spec #76, docs/bus-protocol.md „Spiel ↔ Begleiter“): `companion_status` des Begleiters Toni steht in
 ## `companion_state`/`companion_speaking`. Solange das Spiel keins gesehen hat (und nach jedem Abbruch des Busses), gilt:
 ## kein Begleiter am Bus (`companion_seen` false). Gesendet wird alles über `send_message`.
@@ -39,6 +45,10 @@ signal heart_rate_found(address: String, device_name: String, rssi: int)
 signal companion_status_received(state: String, speaking: bool)
 ## Die Suche endete ohne eigenes `stop` (`heart_rate_search_ended`); `reason`: timeout | taken_over.
 signal heart_rate_search_ended(reason: String)
+## Suchergebnis einer Rolle (`device_found`, Spec #75); `side` nur beim Controller: left | right | "" (unbekannt).
+signal device_found(kind: String, address: String, device_name: String, rssi: int, side: String)
+## Die Suche einer Rolle endete ohne eigenes `stop` (`device_search_ended`); `reason`: timeout | taken_over.
+signal device_search_ended(kind: String, reason: String)
 ## Antwort der Bridge auf `save_ride` (`ride_saved`, nur an den Absender; geparstes JSON, Spec #84).
 signal ride_saved(message: Dictionary)
 ## Die Bridge lehnt ein `save_ride` ab (`error` mit `reason: "invalid_ride"`); `detail` ist ihr Grund.
@@ -59,6 +69,23 @@ const HEART_RATE_OFF := "off"
 const HEART_RATE_DISCONNECTED := "disconnected"
 const HEART_RATE_CONNECTED := "connected"
 const HEART_RATE_STALE := "stale"
+## `status.trainer.control` (Spec #75), soweit das Spiel darauf reagiert: eine andere App steuert bzw. Nur-lesen-Modus.
+const TRAINER_CONTROL_LOST := "lost"
+const TRAINER_CONTROL_READ_ONLY := "read_only"
+## Weitere Stände für das Verbindungsfenster: Übernehmen gescheitert, VSpin steuert, Trainer ohne Steuerung.
+const TRAINER_CONTROL_ERROR := "error"
+const TRAINER_CONTROL_ACTIVE := "active"
+const TRAINER_CONTROL_REQUESTING := "requesting"
+const TRAINER_CONTROL_NOT_SUPPORTED := "not_supported"
+## Rollen im Verbindungsfenster (`kind`, Spec #75).
+const KIND_TRAINER := "trainer"
+const KIND_HEART_RATE := "heart_rate"
+const KIND_CONTROLLER := "controller"
+## Controllerzustände laut `status.controller.state`; `locked` = gesperrt, einmal in Zwift verbinden.
+const CONTROLLER_OFF := "off"
+const CONTROLLER_DISCONNECTED := "disconnected"
+const CONTROLLER_CONNECTED := "connected"
+const CONTROLLER_LOCKED := "locked"
 ## Anmeldezustände laut `status.garmin.login`; `unknown`, wenn die Bridge den Block nicht kennt oder der Bus fehlt.
 const GARMIN_UNKNOWN := "unknown"
 const GARMIN_LOGGED_IN := "logged_in"
@@ -111,6 +138,18 @@ var heart_rate_device := {}
 ## Aktueller Puls in bpm; NAN = kein Wert (`null` in der Telemetrie, keine Telemetrie). Auch ohne Pulsgerät kann ein
 ## Wert da sein: Rad oder Simulator liefern dann ihren eigenen.
 var heart_rate_bpm := NAN
+## Stand der Trainer-Steuerung laut `status.trainer.control` (Spec #75), z. B. `active`, `lost`, `read_only`. Eine
+## ältere Bridge ohne den Block und ein Abbruch des Busses ergeben "" (unbekannt).
+var trainer_control := ""
+## Verbundener Trainer ({address, name}) laut `status.trainer.device`, sonst leer (Spec #75).
+var trainer_device := {}
+## Controller laut `status.controller`: Zustand, Gerät ({address, name, side}, bei connected/locked) und Batterie in
+## Prozent (-1 = unbekannt). Ältere Bridge und Busabbruch: `off`.
+var controller_state := CONTROLLER_OFF
+var controller_device := {}
+var controller_battery := -1
+## Signalstärke in dBm je Rolle (`status.signal`), nur für Rollen mit Wert.
+var signal_dbm := {}
 ## Anmeldezustand bei Garmin Connect laut `status.garmin.login` (nur die Token-Datei der Bridge, nicht ob das Token noch
 ## gilt): logged_in | not_logged_in | unavailable, sonst unknown (ältere Bridge ohne den Block, kein Bus).
 var garmin_login := GARMIN_UNKNOWN
@@ -126,6 +165,8 @@ var _connecting_s := 0.0
 var _silent_s := 0.0
 ## Zuletzt gesetzte Geräteliste (null = noch nie gesetzt: dann schickt der Client beim Verbinden nichts).
 var _heart_rate_devices = null
+## Zuletzt gesetzte Listen für Trainer und Controller (Rolle → Array; fehlt die Rolle, wird nichts geschickt).
+var _role_devices := {}
 
 
 func _init(bus_url: String, reconnect_interval_s: float = 2.0, connect_timeout: float = 5.0) -> void:
@@ -185,6 +226,8 @@ func poll(delta_s: float) -> void:
 				bus_connected = true
 				bus_connection_changed.emit(true)
 				_send_heart_rate_devices()
+				for kind in _role_devices:
+					_send_role_devices(kind)
 			_silent_s += delta_s
 			while _peer.get_available_packet_count() > 0:
 				_handle(_peer.get_packet().get_string_from_utf8())
@@ -225,6 +268,40 @@ func stop_heart_rate_search() -> Error:
 	return send_message({"type": "stop_heart_rate_search"})
 
 
+## Setzt die gemerkten Geräte einer Rolle (`KIND_TRAINER`, `KIND_CONTROLLER`): Trainer [{address, name}], Controller
+## [{address, name, side}]. `[]` heißt: keins verbindet sich. Geht sofort raus und nach jedem (Neu-)Verbinden erneut.
+func set_devices(kind: String, devices: Array) -> Error:
+	_role_devices[kind] = devices.duplicate(true)
+	return _send_role_devices(kind)
+
+
+## Startet die Suche einer Rolle (Ergebnisse als `device_found`); ohne `duration_s` gilt die Dauer der Bridge.
+func start_device_search(kind: String, duration_s: float = 0.0) -> Error:
+	var message := {"type": "start_device_search", "kind": kind}
+	if duration_s > 0.0:
+		message["duration_s"] = duration_s
+	return send_message(message)
+
+
+## Beendet die eigene Suche der Rolle (danach kommt kein `device_search_ended`).
+func stop_device_search(kind: String) -> Error:
+	return send_message({"type": "stop_device_search", "kind": kind})
+
+
+## „Steuerung zurückholen“ (nach `lost` oder `error`, nur auf Klick des Fahrers): die Bridge fordert neu an.
+func reclaim_trainer_control() -> Error:
+	return send_message({"type": "reclaim_trainer_control"})
+
+
+## Signalstärke der Rolle in dBm; `has_rssi` sagt, ob es einen Wert gibt.
+func has_rssi(kind: String) -> bool:
+	return signal_dbm.has(kind)
+
+
+func rssi_for(kind: String) -> int:
+	return int(signal_dbm.get(kind, 0))
+
+
 ## Trennt die Verbindung und hört auf, neu zu verbinden.
 func close() -> void:
 	if _peer != null:
@@ -251,6 +328,10 @@ func _send_heart_rate_devices() -> Error:
 	return send_message({"type": "set_heart_rate_devices", "devices": _heart_rate_devices})
 
 
+func _send_role_devices(kind: String) -> Error:
+	return send_message({"type": "set_devices", "kind": kind, "devices": _role_devices[kind]})
+
+
 func _lost() -> void:
 	_peer = null
 	_retry_in_s = reconnect_s
@@ -266,6 +347,12 @@ func _set_bus_connected(connected: bool) -> void:
 		forget_companion()  # ein Begleiter meldet sich nach dem Neuverbinden selbst wieder
 		_set_status(STATE_DISCONNECTED)
 		_set_heart_rate(HEART_RATE_OFF, {})  # ohne Bus weiß das Spiel nichts über den Puls
+		trainer_control = ""  # … und nichts über die Steuerung des Trainers
+		trainer_device = {}
+		controller_state = CONTROLLER_OFF
+		controller_device = {}
+		controller_battery = -1
+		signal_dbm = {}
 		_set_garmin(GARMIN_UNKNOWN)
 
 
@@ -315,6 +402,38 @@ func _read_heart_rate_status(block) -> void:
 	_set_heart_rate(state, device)
 
 
+## `status.trainer.device`, `status.controller` und `status.signal` übernehmen (Spec #75); fehlt ein Block, gilt
+## „nichts verbunden“.
+func _read_roles(message: Dictionary) -> void:
+	var trainer = message.get("trainer")
+	var info = trainer.get("device") if trainer is Dictionary else null
+	trainer_device = {"address": str(info.get("address", "")), "name": str(info.get("name", ""))} \
+			if info is Dictionary else {}
+	var block = message.get("controller")
+	controller_state = CONTROLLER_OFF
+	controller_device = {}
+	controller_battery = -1
+	if block is Dictionary:
+		var reported = block.get("state")
+		if reported in [CONTROLLER_DISCONNECTED, CONTROLLER_CONNECTED, CONTROLLER_LOCKED]:
+			controller_state = reported
+		var device = block.get("device")
+		if device is Dictionary and controller_state in [CONTROLLER_CONNECTED, CONTROLLER_LOCKED]:
+			var side = device.get("side")
+			controller_device = {"address": str(device.get("address", "")), "name": str(device.get("name", "")),
+					"side": side if side is String else ""}
+		var battery = block.get("battery")
+		if battery is float or battery is int:
+			controller_battery = int(battery)
+	signal_dbm = {}
+	var signal_block = message.get("signal")
+	if signal_block is Dictionary:
+		for kind in [KIND_TRAINER, KIND_HEART_RATE, KIND_CONTROLLER]:
+			var dbm = signal_block.get(kind)
+			if dbm is float or dbm is int:
+				signal_dbm[kind] = int(dbm)
+
+
 ## Den Begleiter vergessen: wieder „kein Begleiter am Bus“ (nach einem Abbruch des Busses und wenn das Spiel ihn ausschaltet –
 ## ein beendeter Begleiter meldet sich nicht ab, sein letzter Zustand bliebe sonst stehen, auch ein `speaking`).
 func forget_companion() -> void:
@@ -351,6 +470,10 @@ func _handle(text: String) -> void:
 			capabilities = PackedStringArray(caps) if caps is Array else PackedStringArray()
 			_set_status(str(message.get("state", STATE_DISCONNECTED)))
 			_read_heart_rate_status(message.get("heart_rate"))
+			var trainer = message.get("trainer")
+			var control = trainer.get("control") if trainer is Dictionary else null
+			trainer_control = control if control is String else ""
+			_read_roles(message)
 			_read_garmin_status(message.get("garmin"))
 		"telemetry":
 			_silent_s = 0.0
@@ -381,6 +504,15 @@ func _handle(text: String) -> void:
 			_read_companion_status(message)
 		"heart_rate_search_ended":
 			heart_rate_search_ended.emit(str(message.get("reason", "")))
+		"device_found":
+			var found_name = message.get("name")
+			var rssi = message.get("rssi")
+			var side = message.get("side")
+			device_found.emit(str(message.get("kind", "")), str(message.get("address", "")),
+					found_name if found_name is String else "", int(rssi) if rssi is float or rssi is int else 0,
+					side if side is String else "")
+		"device_search_ended":
+			device_search_ended.emit(str(message.get("kind", "")), str(message.get("reason", "")))
 		"ride_saved":
 			ride_saved.emit(message)
 		"error":

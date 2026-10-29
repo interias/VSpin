@@ -21,7 +21,7 @@ func after_each() -> void:
 
 ## Bus mit Status (und Anmeldezustand) und 30 s gleichmäßiger Kadenz.
 func _bus(garmin: Dictionary = LOGGED_IN, cadence: float = 90.0) -> FakeBusServer:
-	return start_fake_bus([FakeBusServer.status("connected", "sim", ["CADENCE"], 0.0, {}, garmin)]
+	return start_fake_bus([FakeBusServer.status("connected", "sim", ["CADENCE"], 0.0, {}, "", {}, {}, {}, garmin)]
 			+ FakeBusServer.steady_cadence(cadence, 0.0, 30.0))
 
 
@@ -106,7 +106,7 @@ func test_no_dialog_without_a_bus() -> void:
 
 
 func test_no_dialog_without_telemetry_time_of_the_ride() -> void:
-	var bus := start_fake_bus([FakeBusServer.status("connected", "sim", ["CADENCE"], 0.0, {}, LOGGED_IN)])
+	var bus := start_fake_bus([FakeBusServer.status("connected", "sim", ["CADENCE"], 0.0, {}, "", {}, {}, {}, LOGGED_IN)])
 	var game := _spawn_game(bus)
 	assert_true(await run_until(func(): return game.bus.bus_connected, 3.0))
 	assert_eq(game.bus.last_telemetry_t_ms, -1, "keine Telemetrie")
@@ -479,8 +479,8 @@ func test_login_texts_per_state() -> void:
 
 
 func test_dialog_shows_the_login_state_and_follows_a_login_in_the_terminal() -> void:
-	var bus := start_fake_bus([FakeBusServer.status("connected", "sim", ["CADENCE"], 0.0, {}, NOT_LOGGED_IN),
-			FakeBusServer.status("connected", "sim", ["CADENCE"], 2.5, {}, LOGGED_IN)]
+	var bus := start_fake_bus([FakeBusServer.status("connected", "sim", ["CADENCE"], 0.0, {}, "", {}, {}, {}, NOT_LOGGED_IN),
+			FakeBusServer.status("connected", "sim", ["CADENCE"], 2.5, {}, "", {}, {}, {}, LOGGED_IN)]
 			+ FakeBusServer.steady_cadence(90.0, 0.0, 30.0))
 	var game := _spawn_game(bus)
 	await _end_ride(game, 1.2)

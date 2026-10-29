@@ -12,7 +12,7 @@
 ##                                 "achievements": {"<erfolg>": "…Z"},
 ##                                 "wardrobe": {"trikot"|"radfarbe"|"helm": "<teil-id>"},
 ##                                 "camera": {"view": "nah"|"verfolger"|"weit"},
-##                                 "pulse": {"lthr_bpm": 168, "max_hr_bpm": 190},
+##                                 "pulse": {"lthr_bpm": 168, "max_hr_bpm": 190, "ftp": 250},
 ##                                 "arcade": {"cadence_range": {"min": 60, "max": 120}, "tier": 1,
 ##                                            "best_points": {"<stufe>": <punkte>}, "unlocked": 3,
 ##                                            "defeated": {"<stufe>": ["<boss-id>", …]}}}}}
@@ -34,6 +34,16 @@
 ## 0); daraus bilden sich die Zonen (HeartRateZones). Eine Fahrt mit Puls trägt zusätzlich `avg_hr_bpm`, `peak_hr_bpm` und,
 ## wenn Zonen galten, `hr_zone_s` (Sekunden in Z1–Z5, mit den zur Fahrt gültigen Zonen gerechnet und so gespeichert).
 ## Fahrten ohne Puls und ältere Stände tragen diese Felder nicht – additiv, die Formatversion bleibt 1.
+## FTP (Spec #75, ERG): im selben Bereich `pulse` als `ftp` (W, FTP_MIN–FTP_MAX; fehlt sie, gilt sie als nicht gesetzt = 0)
+## – für Trainingseinheiten in % FTP. Additiv wie der Puls; der Schlüssel nennt bewusst keine Einheit (keine
+## Rohtelemetrie-Wörter im Spielstand).
+##
+## Wertung je Geräteart (Spec #75, ADR-0010 Nachtrag): Bestzeiten, Segment-Bestzeiten, Medaillen und Ghosts gibt es je
+## Geräteart (RideModel.KIND_*). Das Kadenzmodell steht in den bisherigen Bereichen, das Leistungsmodell (gemessene
+## Leistung) in eigenen mit der Vorsilbe `measured_` (`measured_best_times`, `measured_segment_best_times`,
+## `measured_medals`, `measured_ghosts`, gleich aufgebaut, siehe `scoring_area`; die Namen enthalten bewusst keine
+## Telemetrie-Begriffe). Ältere Stände gelten damit unverändert als Kadenzmodell; die neuen Bereiche kommen
+## leer dazu – additiv, die Formatversion bleibt 1.
 ##
 ## Training (#37): eine Fahrt im Modus MODE_TRAINING trägt zusätzlich den Namen der Einheit (`training`) und die
 ## Gesamtbewertung (`training_score`, Treffer der Zielkadenz 0..1); `finished` heißt dort: Einheit zu Ende gefahren.
@@ -64,7 +74,13 @@ const MODE_TRAINING := "training"
 const MODE_ARCADE := "arcade"
 ## Bereiche je Fahrerprofil mit Standardwert (fehlende werden beim Laden ergänzt).
 const PROFILE_DEFAULTS := {"rides": [], "best_times": {}, "segment_best_times": {}, "medals": {}, "ghosts": {},
-		"achievements": {}, "wardrobe": {}, "camera": {}, "pulse": {}, "arcade": {}}
+		"achievements": {}, "wardrobe": {}, "camera": {}, "pulse": {}, "arcade": {}, "measured_best_times": {},
+		"measured_segment_best_times": {}, "measured_medals": {}, "measured_ghosts": {}}
+## Plausible FTP in W (Spec #75); andere Werte weist `set_ftp` ab.
+const FTP_MIN := 50
+const FTP_MAX := 600
+## Vorsilbe der Wertungsbereiche des Leistungsmodells (`scoring_area`).
+const POWER_PREFIX := "measured_"
 ## Endung, unter der eine unlesbare Datei beiseitegelegt wird.
 const BROKEN_SUFFIX := ".defekt"
 
@@ -127,18 +143,25 @@ func add_ride(entry: Dictionary) -> void:
 	rides().append(entry)
 
 
-## Bestzeit auf `track` in Richtung `direction` in Sekunden (INF = noch keine).
-func best_time_s(track: String, direction: String) -> float:
-	var tracks: Dictionary = profile()["best_times"]
+## Name des Wertungsbereichs `area` ("best_times", "segment_best_times", "medals", "ghosts") für die Geräteart `kind`:
+## Kadenzmodell der bisherige, Leistungsmodell mit POWER_PREFIX.
+static func scoring_area(area: String, kind: String) -> String:
+	return POWER_PREFIX + area if kind == RideModel.KIND_POWER else area
+
+
+## Bestzeit auf `track` in Richtung `direction` in Sekunden (INF = noch keine), je Geräteart `kind`.
+func best_time_s(track: String, direction: String, kind: String = RideModel.KIND_CADENCE) -> float:
+	var tracks: Dictionary = profile()[scoring_area("best_times", kind)]
 	var value = tracks.get(track, {}).get(direction) if tracks.get(track) is Dictionary else null
 	return float(value) if (value is float or value is int) and value > 0.0 else INF
 
 
 ## Trägt `seconds` als Bestzeit ein, wenn sie schneller ist als die bisherige. Gibt zurück, ob sie eingetragen wurde.
-func record_best_time(track: String, direction: String, seconds: float) -> bool:
-	if not is_finite(seconds) or seconds <= 0.0 or seconds >= best_time_s(track, direction):
+func record_best_time(track: String, direction: String, seconds: float,
+		kind: String = RideModel.KIND_CADENCE) -> bool:
+	if not is_finite(seconds) or seconds <= 0.0 or seconds >= best_time_s(track, direction, kind):
 		return false
-	var tracks: Dictionary = profile()["best_times"]
+	var tracks: Dictionary = profile()[scoring_area("best_times", kind)]
 	if not (tracks.get(track) is Dictionary):
 		tracks[track] = {}
 	tracks[track][direction] = snappedf(seconds, 0.001)
@@ -146,14 +169,15 @@ func record_best_time(track: String, direction: String, seconds: float) -> bool:
 
 
 ## Segment-Bestzeit von `segment_id` auf `track` in Richtung `direction` in Sekunden (INF = noch keine).
-func segment_best_s(track: String, direction: String, segment_id: String) -> float:
-	return segment_best_times(track, direction).get(segment_id, INF)
+func segment_best_s(track: String, direction: String, segment_id: String,
+		kind: String = RideModel.KIND_CADENCE) -> float:
+	return segment_best_times(track, direction, kind).get(segment_id, INF)
 
 
 ## Alle gültigen Segment-Bestzeiten auf `track` in Richtung `direction`: Segment-ID → Sekunden.
-func segment_best_times(track: String, direction: String) -> Dictionary:
+func segment_best_times(track: String, direction: String, kind: String = RideModel.KIND_CADENCE) -> Dictionary:
 	var result := {}
-	var times := _area("segment_best_times", track, direction)
+	var times := _area(scoring_area("segment_best_times", kind), track, direction)
 	for id in times:
 		if (times[id] is float or times[id] is int) and times[id] > 0.0:
 			result[id] = float(times[id])
@@ -162,35 +186,39 @@ func segment_best_times(track: String, direction: String) -> Dictionary:
 
 ## Trägt `seconds` als Segment-Bestzeit ein, wenn sie schneller ist als die bisherige. Gibt zurück, ob sie eingetragen
 ## wurde. Schreibt nicht auf die Platte (das macht `save_file`).
-func record_segment_time(track: String, direction: String, segment_id: String, seconds: float) -> bool:
-	if not is_finite(seconds) or seconds <= 0.0 or seconds >= segment_best_s(track, direction, segment_id):
+func record_segment_time(track: String, direction: String, segment_id: String, seconds: float,
+		kind: String = RideModel.KIND_CADENCE) -> bool:
+	if not is_finite(seconds) or seconds <= 0.0 or seconds >= segment_best_s(track, direction, segment_id, kind):
 		return false
-	_area("segment_best_times", track, direction, true)[segment_id] = snappedf(seconds, 0.001)
+	_area(scoring_area("segment_best_times", kind), track, direction, true)[segment_id] = snappedf(seconds, 0.001)
 	return true
 
 
 ## Beste Medaille für `key` (Medals.LAP oder Segment-ID) auf `track` in Richtung `direction` (Medals.NONE = keine).
-func best_medal(track: String, direction: String, key: String) -> String:
-	var medal = _area("medals", track, direction).get(key)
+func best_medal(track: String, direction: String, key: String, kind: String = RideModel.KIND_CADENCE) -> String:
+	var medal = _area(scoring_area("medals", kind), track, direction).get(key)
 	return medal if medal is String and Medals.rank(medal) > 0 else Medals.NONE
 
 
 ## Trägt `medal` für `key` ein, wenn sie besser ist als die bisherige. Gibt zurück, ob sie eingetragen wurde.
-func record_medal(track: String, direction: String, key: String, medal: String) -> bool:
-	if Medals.rank(medal) <= Medals.rank(best_medal(track, direction, key)):
+func record_medal(track: String, direction: String, key: String, medal: String,
+		kind: String = RideModel.KIND_CADENCE) -> bool:
+	if Medals.rank(medal) <= Medals.rank(best_medal(track, direction, key, kind)):
 		return false
-	_area("medals", track, direction, true)[key] = medal
+	_area(scoring_area("medals", kind), track, direction, true)[key] = medal
 	return true
 
 
 ## Gespeicherter Ghost `kind` (Ghost.BEST/LAST) auf `track` in Richtung `direction` (null = keiner oder ungültig).
-func ghost(track: String, direction: String, kind: String) -> Ghost:
-	return Ghost.from_dict(_area("ghosts", track, direction).get(kind))
+## `device_kind`: Geräteart (RideModel.KIND_*) – Ghosts fahren nur gegen dieselbe.
+func ghost(track: String, direction: String, kind: String, device_kind: String = RideModel.KIND_CADENCE) -> Ghost:
+	return Ghost.from_dict(_area(scoring_area("ghosts", device_kind), track, direction).get(kind))
 
 
 ## Speichert `recording` als Ghost `kind`; ersetzt den bisherigen. Schreibt nicht auf die Platte.
-func record_ghost(track: String, direction: String, kind: String, recording: Ghost) -> void:
-	_area("ghosts", track, direction, true)[kind] = recording.to_dict()
+func record_ghost(track: String, direction: String, kind: String, recording: Ghost,
+		device_kind: String = RideModel.KIND_CADENCE) -> void:
+	_area(scoring_area("ghosts", device_kind), track, direction, true)[kind] = recording.to_dict()
 
 
 ## Freigeschaltete Erfolge: ID → Datum (UTC); ungültige Einträge fehlen.
@@ -235,7 +263,24 @@ func max_hr_bpm() -> int:
 ## Setzt LTHR und Maximalpuls des Profils (0 = nicht gesetzt). Ob die Werte plausibel sind, prüft HeartRateZones.
 ## Schreibt nicht auf die Platte.
 func set_heart_rate_profile(lthr: int, max_hr: int) -> void:
-	profile()["pulse"] = {"lthr_bpm": maxi(lthr, 0), "max_hr_bpm": maxi(max_hr, 0)}
+	var pulse: Dictionary = profile()["pulse"]
+	pulse["lthr_bpm"] = maxi(lthr, 0)
+	pulse["max_hr_bpm"] = maxi(max_hr, 0)
+
+
+## FTP des Profils in W (0 = nicht gesetzt).
+func ftp() -> int:
+	var value = profile()["pulse"].get("ftp")
+	return int(value) if (value is float or value is int) and value >= FTP_MIN and value <= FTP_MAX else 0
+
+
+## Setzt die FTP (0 = nicht gesetzt); außerhalb FTP_MIN–FTP_MAX abgewiesen (`false`, unverändert). Schreibt nicht auf
+## die Platte.
+func set_ftp(watts: int) -> bool:
+	if watts != 0 and (watts < FTP_MIN or watts > FTP_MAX):
+		return false
+	profile()["pulse"]["ftp"] = watts
+	return true
 
 
 ## Die Zonen des Profils aus LTHR und Maximalpuls (ohne gültige Werte: `has_zones() == false`).

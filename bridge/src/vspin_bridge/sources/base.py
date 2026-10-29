@@ -41,7 +41,7 @@ class TelemetrySample:
 class RawNotification:
     """Rohe BLE-Notification, wie sie im Replay-Format steht (ADR-0003, ADR-0008):
     `t_ms` Zeitstempel der Aufnahme, `char` volle 128-Bit-UUID der Characteristic,
-    `data` die Nutzdaten. Byte-Quellen (Replay, später BLE) liefern diese statt fertiger
+    `data` die Nutzdaten. Byte-Quellen (Replay, Trainer per BLE) liefern diese statt fertiger
     Samples; die Bridge schreibt sie in die Session-Rohdatei und schickt sie durch die Parser."""
 
     t_ms: int
@@ -51,6 +51,16 @@ class RawNotification:
 
 class NotSupportedError(Exception):
     """Die Quelle hat die nötige Capability nicht (z. B. `RESISTANCE_CONTROL`)."""
+
+
+class ControlRefusedError(Exception):
+    """Die Quelle könnte steuern, darf es gerade aber nicht (Spec #75). `reason` geht als `ack`-Grund auf den Bus:
+    `read_only` (Bridge mit `--read-only`), `control_lost` (eine andere App steuert den Trainer) oder `erg_active`
+    (`set_grade`, solange ERG läuft)."""
+
+    def __init__(self, reason: str, detail: str) -> None:
+        super().__init__(detail)
+        self.reason = reason
 
 
 class SourceDisconnectedError(Exception):

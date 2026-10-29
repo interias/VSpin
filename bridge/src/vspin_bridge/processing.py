@@ -8,7 +8,7 @@ Aufnahme, daher unabhängig von `--speed`):
 - **Glättung:** EMA mit Zeitkonstante 0,3 s, zeitbasiert:
   `ema += (1 − exp(−Δt / 0,3 s)) · (wert − ema)`, Δt = Abstand zum vorigen Wert.
   Der erste Wert (und der erste nach ≥ 2,5 s ohne Wert) startet die Glättung neu.
-- **Kadenz 0:** kommt 2,5 s lang kein neuer Kadenzwert (CSC: kein neues Kurbel-Event;
+- **Kadenz 0:** kommt 2,5 s lang kein neuer Kadenzwert (CSC und Cycling Power: kein neues Kurbel-Event;
   FTMS: Notifications ohne Kadenzfeld), obwohl Samples kommen, ist die Kadenz 0. Kommen gar keine Samples, greift stattdessen
   `stale` (ADR-0004) – die Bridge erfindet keine Samples.
   Meldet die Quelle ausdrücklich 0, ist die Kadenz 0, sobald der geglättete Wert unter

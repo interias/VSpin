@@ -13,7 +13,7 @@
 ##                   das Inventar der Beute (#49) – aus demselben Grund hier und nicht auf der Hauptseite.
 ##   Fahrtenbuch   öffnet das Fahrtenbuch (Statistik, Bestzeiten, Erfolge, letzte Fahrten; #35)
 ##   Garderobe     öffnet die Garderobe (Trikot, Radfarbe, Helm mit Vorschau; #36)
-##   Geräte        öffnet die Geräteseite (Brustgurt und Uhr einrichten, LTHR und Maximalpuls; Spec #64)
+##   Verbindungen  öffnet das Verbindungsfenster (Trainer, Puls mit LTHR und Maximalpuls, Controller; Spec #64, #75)
 ##   Einstellungen öffnet das Menü „Grafik und Fenster“ (wie F2)
 ##   Beenden       beendet das Spiel (nicht im Browser; nur Enter oder Klick, nie die Leertaste – #19)
 ## Bedienung mit Maus und Tastatur (Pfeiltasten/Tab, Enter/Leertaste); beim Öffnen liegt der Fokus auf dem ersten
@@ -34,7 +34,7 @@ signal direction_changed(direction: String)
 signal logbook_requested
 ## „Garderobe“ gewählt (#36).
 signal wardrobe_requested
-## „Geräte“ gewählt (Spec #64).
+## „Verbindungen“ gewählt (Spec #64, #75).
 signal devices_requested
 ## „Fahren → Arcade → Ausrüstung“ gewählt (#49).
 signal gear_requested
@@ -51,6 +51,8 @@ const SUBTITLE := "Radfahren auf einer Mittelmeerinsel"
 const COLOR_OK := Color(0.45, 0.85, 0.5)
 const COLOR_WARN := Color(1.0, 0.78, 0.35)
 const COLOR_ERROR := Color(1.0, 0.45, 0.4)
+## Hinweis auf der Seite „Training“, wenn eine Einheit in % FTP ohne FTP gewählt ist.
+const NO_FTP_HINT := "Diese Einheit rechnet in % FTP: Trag deine FTP unter „Verbindungen“ bei den Pulswerten ein."
 ## Hinweis im Radstatus ohne Bus: Bridge von Hand starten.
 const BRIDGE_START_HINT := "Bridge starten: vspin-bridge --source sim"
 ## Schrift der Pulszeile: etwas kleiner als der Radstatus, damit beide Zeilen im Fenster 1152×648 noch passen.
@@ -77,6 +79,8 @@ var buttons := {}
 var options := {}
 ## Einheiten zur Auswahl auf der Seite „Training“ (wie Training.load_file).
 var training_units: Array = []
+## FTP des Profils (W, 0 = nicht gesetzt): ohne sie ist eine Einheit in % FTP nicht startbar (Spec #75, ERG).
+var ftp_w := 0
 ## Ghost selbst gewählt? Dann bleibt die Wahl, solange sie verfügbar ist; sonst gilt der Standard.
 var _ghost_picked := false
 var _main_page: VBoxContainer
@@ -226,9 +230,12 @@ func set_training_units(units: Array) -> void:
 		option.add_item(unit["name"])
 	if not units.is_empty():
 		option.select(0)
-	var button: Button = buttons["training_start"]
-	button.disabled = units.is_empty()
-	button.focus_mode = Control.FOCUS_NONE if button.disabled else Control.FOCUS_ALL
+	_show_training_info()
+
+
+## FTP des Profils (W, 0 = nicht gesetzt) für die Seite „Training“.
+func set_ftp(watts: int) -> void:
+	ftp_w = watts
 	_show_training_info()
 
 
@@ -238,15 +245,21 @@ func training_unit() -> Dictionary:
 	return training_units[index] if index >= 0 and index < training_units.size() else {}
 
 
-## Beschreibung und Dauer der gewählten Einheit, z. B. „10 × 30 s hart / 30 s locker · 23 min“.
+## Beschreibung und Dauer der gewählten Einheit, z. B. „10 × 30 s hart / 30 s locker · 23 min“. Eine Einheit in % FTP
+## ohne FTP ist nicht startbar („Losfahren“ ausgegraut) und sagt, wo die FTP hingehört.
 func _show_training_info() -> void:
 	var unit := training_unit()
+	var button: Button = buttons["training_start"]
+	button.disabled = unit.is_empty() or not Training.startable(unit, ftp_w)
+	button.focus_mode = Control.FOCUS_NONE if button.disabled else Control.FOCUS_ALL
 	if unit.is_empty():
 		_training_info.text = "Keine Einheit gefunden"
 		return
 	var text: String = unit["description"]
 	_training_info.text = "%s%d min" % [text + " · " if not text.is_empty() else "",
 			roundi(Training.new(unit).duration_s() / 60.0)]
+	if not Training.startable(unit, ftp_w):
+		_training_info.text += "\n" + NO_FTP_HINT
 
 
 ## Seite „Arcade“: Stufe `tier` (ArcadeTiers) und Kadenzbereich `range_` auswählen. Grenzen, die nicht in der Auswahl
@@ -465,12 +478,12 @@ func _build() -> void:
 	_add_button(_main_page, "drive", "Fahren", show_page.bind(true))
 	_add_button(_main_page, "logbook", "Fahrtenbuch", logbook_requested.emit)
 	_add_button(_main_page, "wardrobe", "Garderobe", wardrobe_requested.emit)
-	_add_button(_main_page, "devices", "Geräte", devices_requested.emit)
+	_add_button(_main_page, "devices", "Verbindungen", devices_requested.emit)  # Verbindungsfenster (Spec #75)
 	_add_button(_main_page, "settings", "Einstellungen", settings_requested.emit)
 	var quit := _add_button(_main_page, "quit", "Beenden", quit_requested.emit)
 	quit.visible = not web  # im Browser nicht
 	quit.gui_input.connect(_swallow_space.bind(quit))  # nur Enter oder Klick: Leertaste beendet nie (#19)
-	# Mit „Geräte“ hat die Hauptseite fünf Punkte: flacher und enger, damit sie samt Radstatus in 1152×648 passt.
+	# Mit „Verbindungen“ hat die Hauptseite fünf Punkte: flacher und enger, damit sie samt Radstatus in 1152×648 passt.
 	_main_page.add_theme_constant_override("separation", MAIN_PAGE_SEPARATION)
 	for key in ["drive", "logbook", "wardrobe", "devices", "settings", "quit"]:
 		(buttons[key] as Button).custom_minimum_size.y = MAIN_BUTTON_HEIGHT

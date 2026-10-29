@@ -2,11 +2,15 @@
 sessions/
 *.fit
 
+# Ergebnisse der Geräteprüfung (tools/geraete-pruefen.cmd)
+pruefung/
+
 # Python
 __pycache__/
 *.py[cod]
 .venv/
 venv/
+.venv-*/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/

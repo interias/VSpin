@@ -42,7 +42,7 @@ Menü „Bridge nicht erreichbar – Bridge-Programm fehlt“. Wer Kadenz per Pf
 die Bridge wie in Schritt 2 von Hand; das Spiel nutzt sie dann nur mit und beendet sie nicht. Stürzt das Spiel ab,
 beendet sich die selbst gestartete Bridge mit ihm.
 
-**4. Protokoll des Rads herausfinden** (sobald das JC312 da ist): siehe [`tools/README.md`](../tools/README.md).
+**4. Protokoll des Rads herausfinden** (sobald das Rad da ist): siehe [`tools/README.md`](../tools/README.md).
 
 **Tests:**
 

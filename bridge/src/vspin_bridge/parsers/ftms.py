@@ -82,6 +82,39 @@ def parse_indoor_bike_data(data: bytes) -> IndoorBikeData:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class FitnessMachineFeatures:
+    """Was der Trainer in `0x2AD2` liefern kann (Characteristic Fitness Machine Feature `0x2ACC`) und ob er die
+    Steigung annimmt (Target Setting Indoor Bike Simulation, Spec #75) bzw. eine Zielleistung (Power Target, ERG)."""
+
+    cadence: bool
+    power: bool
+    simulation: bool = False
+    power_target: bool = False
+
+
+CADENCE_SUPPORTED = 1 << 1
+POWER_MEASUREMENT_SUPPORTED = 1 << 14
+INDOOR_BIKE_SIMULATION_SUPPORTED = 1 << 13  # im zweiten uint32 (Target Setting Features)
+POWER_TARGET_SUPPORTED = 1 << 3  # ebenso: Power Target Setting (ERG, `0x05`)
+
+
+def parse_fitness_machine_features(data: bytes) -> FitnessMachineFeatures:
+    """Fitness Machine Feature `0x2ACC`: `uint32` Fitness Machine Features (Bit 1 = Cadence, Bit 14 = Power
+    Measurement), danach `uint32` Target Setting Features (Bit 3 = Power Target, Bit 13 = Indoor Bike Simulation;
+    fehlt das Feld, gilt beides als nicht unterstützt). Wirft `ParseError`, wenn die Features fehlen."""
+    if len(data) < 4:
+        raise ParseError(f"Fitness Machine Feature zu kurz ({len(data)} Bytes)")
+    features = int.from_bytes(data[:4], "little")
+    targets = int.from_bytes(data[4:8], "little") if len(data) >= 8 else 0
+    return FitnessMachineFeatures(
+        cadence=bool(features & CADENCE_SUPPORTED),
+        power=bool(features & POWER_MEASUREMENT_SUPPORTED),
+        simulation=bool(targets & INDOOR_BIKE_SIMULATION_SUPPORTED),
+        power_target=bool(targets & POWER_TARGET_SUPPORTED),
+    )
+
+
 def _read(fmt: str, data: bytes, offset: int, name: str) -> tuple[tuple, int]:
     size = 3 if fmt == "uint24" else struct.calcsize(fmt)
     if len(data) < offset + size:

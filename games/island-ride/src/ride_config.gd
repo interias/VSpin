@@ -47,6 +47,28 @@ var bridge_source := "sim"
 ## Start-Kadenz des Simulators beim Start aus dem Spiel (rpm, nur bei Quelle sim).
 var bridge_sim_cadence := 80.0
 var bridge_sessions_dir := "../../bridge/sessions"
+## Trainer nur lesen (Spec #75, nur bei Quelle ble): die Bridge startet mit `--read-only`, fordert keine Steuerung an
+## und schreibt nichts auf den Trainer – z. B. wenn Zwift ihn steuert.
+var bridge_trainer_read_only := false
+
+## Virtuelle Gänge (Spec #75, `Gears`): Anzahl, neutraler Gang und Schritt in Prozentpunkten Steigung je Gang. 24 Gänge mit
+## neutralem 12 und 0,5 Prozentpunkten ergeben −5,5 … +6 Prozentpunkte; ein Schritt entspricht der Meldeschwelle des
+## GradeReporter, jeder Gangwechsel geht also zeitnah raus.
+var gears_count := 24
+var gears_neutral := 12
+var gears_step_pp := 0.5
+
+## Leistungsmodell (Spec #75, `RideModel.target_speed_power_mps`): Gesamtmasse Fahrer + Rad (kg), Luftwiderstandsfläche
+## CdA (m²), Rollwiderstandsbeiwert Crr, Luftdichte (kg/m³) und Höchsttempo (km/h). Standard: ein 75-kg-Fahrer auf einem
+## 10-kg-Rennrad, aufrecht am Oberlenker (CdA 0,32), auf guten Straßenreifen (Crr 0,004), Luft auf Meereshöhe bei 15 °C –
+## 200 W ergeben in der Ebene gut 34 km/h. Das Höchsttempo begrenzt nur steile Abfahrten (ohne Treten rollt man bei −10 %
+## sonst über 70 km/h) auf ein Tempo, bei dem Kurven, Kamera und Tore noch mitkommen.
+var power_mass_kg := 85.0
+var power_cda_m2 := 0.32
+var power_crr := 0.004
+var power_air_density := 1.225
+var power_max_kmh := 70.0
+
 ## Begleiter Toni (#76): Programm (`pythonw.exe` des eigenen venv `bridge/.venv-companion`, nicht das der Bridge). Relative
 ## Pfade gelten wie bei `bridge_program` ab dem Spielordner.
 var companion_program := "../../bridge/.venv-companion/Scripts/pythonw.exe"
@@ -85,6 +107,16 @@ static func load_file(path: String = DEFAULT_PATH) -> RideConfig:
 	config.bridge_source = str(file.get_value("bridge", "source", config.bridge_source))
 	config.bridge_sim_cadence = float(file.get_value("bridge", "sim_cadence", config.bridge_sim_cadence))
 	config.bridge_sessions_dir = str(file.get_value("bridge", "sessions_dir", config.bridge_sessions_dir))
+	config.bridge_trainer_read_only = bool(file.get_value("bridge", "trainer_read_only",
+			config.bridge_trainer_read_only))
+	config.gears_count = int(file.get_value("gears", "count", config.gears_count))
+	config.gears_neutral = int(file.get_value("gears", "neutral", config.gears_neutral))
+	config.gears_step_pp = float(file.get_value("gears", "step_pp", config.gears_step_pp))
+	config.power_mass_kg = float(file.get_value("power", "mass_kg", config.power_mass_kg))
+	config.power_cda_m2 = float(file.get_value("power", "cda_m2", config.power_cda_m2))
+	config.power_crr = float(file.get_value("power", "crr", config.power_crr))
+	config.power_air_density = float(file.get_value("power", "air_density", config.power_air_density))
+	config.power_max_kmh = float(file.get_value("power", "max_kmh", config.power_max_kmh))
 	config.companion_program = str(file.get_value("companion", "program", config.companion_program))
 	return config
 
