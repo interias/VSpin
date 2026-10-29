@@ -1,5 +1,6 @@
 ## Grafik- und Fenstereinstellungen der Inselfahrt (Menü `F2`, G4): Kantenglättung, Render-Auflösung, VSync,
 ## fps-Limit, Schatten, Tempo-Effekte (#42), Panorama-Momente (#43), Ton an/aus und Lautstärke (#44, Abschnitt `[sound]`),
+## Begleiter an/aus und seine Lautstärke (Spec #76, Abschnitt `[companion]`),
 ## Leuchten der Ausrüstungssymbole (#83, wirkt über `apply_engine` auf ItemIcons), Fenstermodus und -geometrie; dazu
 ## Tageszeit, Wetter und Jahreszeit (G8, #39; Abschnitt `[sky]`, nur geschrieben, sobald im Menü gewählt – sonst gilt
 ## `config.cfg [sky]`). Gespeichert in `user://settings.cfg` (ConfigFile), getrennt von der Spiel-Konfiguration
@@ -62,6 +63,10 @@ const DEFAULT_SOUND_VOLUME := 0.3
 ## Regler „Fahrtwind“ (#69): Anteil am Pegel des Fahrtwinds, 0 = aus; Standard voll (der Wind ist von sich aus leise).
 const WIND_VOLUMES := [0.0, 0.25, 0.5, 0.75, 1.0]
 const DEFAULT_WIND_VOLUME := 1.0
+## Begleiter Toni (Spec #76, Abschnitt `[companion]`): an/aus und Lautstärke seiner Stimme 0..1. Das Spiel schickt den Wert
+## als `companion_volume` an den Begleiter, der über das Windows-Standardgerät spricht (kein Godot-Audiobus).
+const COMPANION_VOLUMES := [0.2, 0.4, 0.6, 0.8, 1.0]
+const DEFAULT_COMPANION_VOLUME := 0.8
 
 ## Tageszeit im Menü: feste Ortszeiten (Stunden) und Zeitraffer (Minuten je Tag).
 const FIXED_HOURS := [6.0, 9.0, 12.0, 15.0, 18.0, 20.5, 22.0, 0.0]
@@ -83,6 +88,9 @@ var item_glow := true
 var sound_enabled := true
 var sound_volume := DEFAULT_SOUND_VOLUME
 var wind_volume := DEFAULT_WIND_VOLUME
+## Begleiter (Spec #76): Standard an; das Spiel startet ihn aber nur dort, wo es auch die Bridge startet (BridgeLauncher).
+var companion_enabled := true
+var companion_volume := DEFAULT_COMPANION_VOLUME
 var window_mode := WINDOW_WINDOWED
 var window_size := Vector2i(1600, 900)
 ## Position der Client-Fläche (ohne Rahmen); POSITION_CENTERED = mittig.
@@ -97,6 +105,9 @@ var weather := Weather.CLEAR
 ## Jahreszeit (#39, Season): nach dem Datum oder fest.
 var season_mode := Season.MODE_REAL
 var season := Season.SPRING
+## Schalter „Nach Garmin Connect hochladen“ im Dialog „Fahrt speichern“ (Spec #84, Abschnitt `[garmin]`): die letzte Wahl
+## des Fahrers; null = noch nie gewählt, dann gilt der Anmeldezustand (angemeldet = an).
+var garmin_upload = null
 
 
 ## Liest `path`; fehlende/kaputte Datei oder Schlüssel und ungültige Werte ergeben die Standardwerte.
@@ -122,6 +133,9 @@ static func load_file(path: String = DEFAULT_PATH) -> GraphicsSettings:
 	settings.sound_enabled = bool(file.get_value("sound", "enabled", settings.sound_enabled))
 	settings.sound_volume = clampf(_number(file.get_value("sound", "volume", settings.sound_volume), settings.sound_volume), 0.0, 1.0)
 	settings.wind_volume = clampf(_number(file.get_value("sound", "wind_volume", settings.wind_volume), settings.wind_volume), 0.0, 1.0)
+	settings.companion_enabled = bool(file.get_value("companion", "enabled", settings.companion_enabled))
+	settings.companion_volume = clampf(_number(file.get_value("companion", "volume", settings.companion_volume),
+			settings.companion_volume), 0.0, 1.0)
 	settings.window_mode = _choice(file.get_value("window", "mode", settings.window_mode), WINDOW_MODES,
 			settings.window_mode)
 	var size = file.get_value("window", "size", settings.window_size)
@@ -144,6 +158,10 @@ static func load_file(path: String = DEFAULT_PATH) -> GraphicsSettings:
 		settings.season_mode = _choice(file.get_value("sky", "season_mode", settings.season_mode), Season.MODES,
 				settings.season_mode)
 		settings.season = _choice(file.get_value("sky", "season", settings.season), Season.PHASES, settings.season)
+	if file.has_section_key("garmin", "upload"):
+		var upload = file.get_value("garmin", "upload")
+		if upload is bool:
+			settings.garmin_upload = upload
 	return settings
 
 
@@ -166,6 +184,8 @@ func save_file(path: String = DEFAULT_PATH) -> Error:
 	file.set_value("sound", "enabled", sound_enabled)
 	file.set_value("sound", "volume", sound_volume)
 	file.set_value("sound", "wind_volume", wind_volume)
+	file.set_value("companion", "enabled", companion_enabled)
+	file.set_value("companion", "volume", companion_volume)
 	file.set_value("window", "mode", window_mode)
 	file.set_value("window", "size", window_size)
 	file.set_value("window", "position", window_position)
@@ -177,6 +197,8 @@ func save_file(path: String = DEFAULT_PATH) -> Error:
 		file.set_value("sky", "weather", weather)
 		file.set_value("sky", "season_mode", season_mode)
 		file.set_value("sky", "season", season)
+	if garmin_upload is bool:
+		file.set_value("garmin", "upload", garmin_upload)
 	var err := file.save(path)
 	if err != OK:
 		push_warning("GraphicsSettings: %s nicht schreibbar (Fehler %d)" % [path, err])

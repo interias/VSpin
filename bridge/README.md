@@ -14,8 +14,12 @@ Python 3.12, im Ordner `bridge/`:
 
 ```
 python -m venv .venv
-.venv/bin/pip install -e ".[test]"        # Windows: .venv\Scripts\pip install -e ".[test]"
+.venv/bin/pip install -e ".[test,fit]"    # Windows: .venv\Scripts\pip install -e ".[test,fit]"
 ```
+
+`fit` (fit-tool) schreibt die FIT-Datei einer Fahrt und wird von den Tests gebraucht; ohne das Extra läuft die Bridge,
+nur „Fahrt speichern“ meldet dann den fehlenden Baustein. Den Upload zu Garmin Connect gibt es nur mit dem
+zusätzlichen Extra `garmin` (siehe „Fahrt speichern / Garmin“).
 
 ## Starten
 
@@ -64,6 +68,10 @@ Scheitert die Quelle mit einem anderen Fehler, lautet die Antwort `reason: "sour
 Der Simulator senkt bergauf die Kadenz (um 2 × Steigung, höchstens auf die Hälfte);
 bei Steigung 0 oder bergab gilt wieder die per Tastatur eingestellte Kadenz.
 Kaputte oder unbekannte Nachrichten werden mit `error` beantwortet (docs/bus-protocol.md).
+
+Nachrichten zwischen Spiel und Begleiter (`ride_state`, `ride_event`, `companion_ptt`, `companion_status`, #77)
+leitet die Bridge unverändert an alle anderen Clients weiter, nie an den Absender, und antwortet nicht darauf.
+Sie prüft nur den Umschlag (JSON-Objekt, `type`, `v`); die Felder stehen in docs/bus-protocol.md.
 
 ## Trainer
 
@@ -215,6 +223,86 @@ Rolle ein eigener Fake, der Controller über `InProcessBridge(..., controller=�
 **Nur am Gerät prüfbar:** die Suche nach Herstellerdaten unter WinRT, die Sperre des Controllers und ihr Ende nach
 dem Verbinden in Zwift, drei gleichzeitige Verbindungen (Trainer, Puls, Controller) an einem Adapter, Background
 Pairing mit dem echten Trainer.
+
+## Begleiter (vspin-companion)
+
+Toni, der sprechende Begleiter (Spec #76, ADR-0011), ist ein eigener Prozess im selben Projekt, ein Bus-Client wie
+das Spiel:
+
+```
+python -m vspin_companion                  # im Ordner bridge/, mit PYTHONPATH=src; wartet auf den Bus, falls er fehlt
+```
+
+`--port PORT` und `--host` wie bei der Bridge, `--data-dir ORDNER` für die Ablage (sonst `VSPIN_COMPANION_DIR`,
+sonst `%APPDATA%\VSpin\companion\`), `--stop-file DATEI` zum sauberen Beenden. In der Ablage liegt
+`companion.json` (`brain` = `oauth` | `api_key`, Wecker-Takt, Stimme). Fehlt sie, gelten die Standardwerte. Toni
+schreibt nur den Wecker-Takt hinein, wenn der Fahrer ihn per Stimme ändert.
+
+**Denken (#78, ADR-0011):** Claude Haiku 5.5 über das Claude Agent SDK, eine Sitzung je Fahrt, eingebaute
+Werkzeuge aus, keine Claude-Code-Einstellungen. Anmeldung mit `brain: oauth` (Standard) über `CLAUDE_CODE_OAUTH_TOKEN`
+aus `claude setup-token`, mit `brain: api_key` über `ANTHROPIC_API_KEY`. Das Geheimnis kommt aus der Umgebung, sonst
+aus `.env` **in der Ablage** (`%APPDATA%\VSpin\companion\.env`). Eine `.env` im Repo oder im Arbeitsverzeichnis wird nie
+gelesen. Die jeweils andere Anmeldung wird für den SDK-Prozess geleert. Ohne Token, bei abgelaufenem Token oder
+erreichtem Abo-Limit wird Toni heiser und weicht nie still auf den API-Schlüssel aus. Achtung: Startet man den
+Begleiter aus VS Code im Repo, kann die Python-Erweiterung die Repo-`.env` in die Umgebung laden.
+
+**Wecker und Gedächtnis:**
+- Während einer Fahrt weckt der Wecker Toni in zufälligen Abständen im Takt aus `companion.json` (Standard 3–8 min).
+- Sofort weckt ihn jedes `ride_event`, außerdem jeder 5. km, „noch 5 km“, ein Wechsel der Pulszone oder des
+  Abschnitts und das Überholen des Ghosts bzw. das Überholtwerden.
+- Toni entscheidet selbst, ob er etwas sagt.
+- Zwischen zwei ungefragten Sätzen liegt mindestens eine Minute, Fragen beantwortet er immer.
+- In harten Intervallen und Bosskämpfen spricht er höchstens einen Satz.
+- Seine Werkzeuge: `remember` (in `memory.md`, ≤ 3 000 Zeichen), `update_soul` (`soul.md`, ≤ 1 500 Zeichen; die
+  Vorgabe „Toni“ wird beim ersten Start in die Ablage kopiert), `set_wake_interval` (1–30 min) und `stay_silent`
+  (bis zum Fahrtende nur noch Antworten).
+- Wird eine Grenze überschritten, fasst Toni zuerst zusammen. Abgeschnitten wird nie.
+- Nach `ride_end` räumt er geänderte oder zu große Dateien auf.
+- Vor dem ersten Schreiben je Fahrt sichert er die Datei als `.bak`.
+- Beide Dateien darf man von Hand bearbeiten; sie werden bei jeder Sitzung frisch gelesen.
+
+**Hören (#79):**
+- Das Mikrofon läuft nur, solange die Sprechtaste gedrückt ist, höchstens 15 s.
+- faster-whisper `large-v3-turbo` erkennt lokal auf der GPU (CUDA, `int8_float16`, Deutsch, VAD). Ohne brauchbares
+  CUDA fällt die Erkennung auf `small` auf der CPU zurück.
+- Das Modell lädt beim Start im Hintergrund. Beim ersten Mal kommt es aus dem Hugging-Face-Hub in den Cache des
+  Nutzers: rund 1,6 GB, `small` 0,5 GB. Scheitert das Laden, versucht es das nächste Drücken neu.
+- Kein Audio landet auf der Platte, die Stimme des Fahrers verlässt den PC nie.
+
+**Sprechen (#79):**
+- Die Stimme kommt von OpenRouter `/api/v1/audio/speech`: Modell und Stimme aus `companion.json`, Standard
+  `elevenlabs/eleven-v4-turbo`, `charlie`, als `mp3`.
+- Der Schlüssel `OPENROUTER_API_KEY` kommt aus der Umgebung oder aus der `.env` in der Ablage.
+- Toni spricht Satz für Satz, während Haiku noch schreibt, über das Windows-Standardgerät, mit der Lautstärke
+  `companion_volume` aus dem Spiel.
+- Drückt der Fahrer die Sprechtaste, bricht Toni Wiedergabe und offene Synthese ab und hört sofort zu.
+- Ohne Netz, ohne Schlüssel oder bei einem Fehler von OpenRouter wird er heiser; eine lokale Ersatzstimme gibt es nicht.
+- Gibt es die Umgebungsvariable `VSPIN_COMPANION_PARENT_PID` (setzt das Spiel) und lebt dieser Prozess nicht mehr,
+  beendet sich der Begleiter.
+
+**Protokoll:** `protocol.jsonl` in der Ablage.
+- Je Antwort: die Zeit vom Loslassen bis zum ersten Ton (`latency_s`, Ziel ≤ 2,5 s).
+- Je Fahrt bei `ride_end`: Antworten, Zeichen und Anfragen.
+- Danach die Kosten `total_cost_usd` aus der Generation-API von OpenRouter (`X-Generation-Id`). Was die API nicht
+  liefert, zählt als `unknown_generations`; geschätzt wird nie. Bei abgebrochenen Synthesen ist der Betrag eine
+  Untergrenze.
+
+**Installation (eigenes venv, nie das venv der Tests):**
+
+```
+cd bridge
+py -3.12 -m venv .venv-companion
+.venv-companion\Scripts\python -m pip install -e ".[companion]"
+.venv-companion\Scripts\python -m pip install nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"   # nur mit NVIDIA-GPU, rund 1,3 GB
+```
+
+- Der Begleiter fügt die DLL-Ordner der beiden NVIDIA-Pakete selbst hinzu. Ob das unter Windows reicht, ist ungeprüft;
+  die Alternative laut faster-whisper sind die Standalone-Bibliotheken im `PATH`.
+- Claude Code braucht man nur für `claude setup-token`, das Agent SDK bringt seine CLI mit.
+- Der Launcher des Spiels startet den Begleiter mit dem Programm aus `config.cfg [companion] program`. Standard ist
+  `../../bridge/.venv-companion/Scripts/pythonw.exe`, also genau das venv oben. Fehlt es, startet das Spiel keinen
+  Begleiter; Fahrt und Bridge laufen weiter.
+- Die Tests brauchen das Extra nicht.
 
 ## Profile
 
@@ -418,6 +506,50 @@ sofort geflusht, auch nach Strg+C oder Absturz bleiben lesbare Dateien. Scheiter
 mitten im Lauf (z. B. Platte voll), meldet die Bridge das im Terminal, schreibt für diese Session
 nichts mehr und läuft weiter. `sessions/` ist in `.gitignore`.
 
+## Fahrt speichern / Garmin
+
+Am Ende einer Fahrt schickt das Spiel `save_ride` (Start, Ende, Rundenenden, Streckenspur des Spiels, `upload` ja/nein;
+docs/bus-protocol.md). Die Bridge liest die Samples der Fahrt aus der Session-CSV dieses Laufs und schreibt
+`sessions/rides/<zeit>_<ride_id>.fit` (`<zeit>` = Start der Fahrt; Inhalt und Grenzen: `src/vspin_bridge/export/`,
+ADR-0008 Nachtrag #84). Geschätzte Watt fehlen in der Datei, beim JC312 also jede Leistung. Die Datei entsteht immer,
+auch ohne Upload, und lässt sich in Garmin Connect von Hand importieren. Erneutes Speichern
+derselben Fahrt schreibt dieselbe Datei neu – nur im selben Bridge-Lauf; nach einem Neustart der Bridge nimmt sie die
+vorhandene Datei unverändert (auch für den Upload) und meldet, falls sie fehlt. Antwort `ride_saved` nur an das Spiel, das gespeichert hat; im Terminal
+z. B. `Fahrt a1b2c3 gespeichert: …` und `Fahrt a1b2c3: Garmin uploaded`.
+
+**Upload zu Garmin Connect** (optional, inoffiziell über die Bibliothek `garminconnect`, ADR-0008 Nachtrag #84):
+
+```
+.venv/bin/pip install -e ".[garmin]"       # Windows: .venv\Scripts\pip install -e ".[garmin]"
+python -m vspin_bridge.garmin login         # einmal: E-Mail, Passwort, MFA-Code nur wenn Garmin ihn verlangt
+python -m vspin_bridge.garmin status        # angemeldet?
+```
+
+`login` meldet genau einmal an und speichert **nur das Token** als `~/.garminconnect/garmin_tokens.json` (außerhalb
+des Repos, anderes Verzeichnis mit `--token-dir PFAD`); Passwort und MFA-Code werden nirgends gespeichert oder
+ausgegeben. Liegt schon ein gültiges Token da, lädt die Bibliothek es und meldet nicht neu an: `Schon bei Garmin
+angemeldet – …`. Exit-Codes von `login`: 0 angemeldet oder schon angemeldet, 1 Bibliothek fehlt oder Anmeldung
+gescheitert, 2 abgebrochen (auch Strg+C an der MFA-Abfrage) oder ohne Eingabe, 3 angemeldet, aber das Token wurde
+nicht gespeichert (nicht erneut anmelden – ein Fehler in VSpin). `status`: 0 angemeldet, sonst 1. „Angemeldet“ heißt
+hier und in der Bridge nur: Die Token-Datei existiert (ob das Token noch gilt, zeigt erst ein Upload); ein leeres
+Token-Verzeichnis zählt nicht. Die
+Bridge selbst meldet sich nie mit Passwort an; sie setzt das Token fort, und ihr Anmeldezustand steht in
+`status.garmin.login` (geprüft beim Start, nach jedem Speichern und alle 5 s).
+
+**Nach einer gescheiterten Anmeldung nicht sofort wiederholen:** Nach Fehlversuchen sperrt Garmin das Konto für mehr als
+48 h. Deshalb versucht die Bridge je Speichern höchstens einen Upload und wiederholt nichts von selbst; die Meldung im
+Dialog sagt, was zu tun ist (z. B. `Anmeldung abgelaufen – bitte neu anmelden (python -m vspin_bridge.garmin login).`),
+und die FIT-Datei bleibt für den manuellen Import liegen. Hochgeladene Fahrten merkt sich die Bridge in
+`sessions/rides/rides.json`: Erneutes Speichern lädt sie nicht noch einmal hoch; nach einem gescheiterten Upload darf
+erneutes Speichern es noch einmal versuchen. Meldet Garmin die Fahrt als schon vorhanden, zählt das als Erfolg.
+
+**Warum Garmin keine Trainingsbelastung berechnet:** Garmin Connect berechnet Trainingsbelastung und Training Effect nur
+für Dateien von Garmin- und Partnergeräten. Die FIT-Datei von VSpin nennt ehrlich VSpin als Hersteller (FIT-Hersteller
+`development`) und täuscht kein Garmin-Gerät vor; die Fahrt erscheint mit Dauer, Strecke, Kadenz und Puls, aber ohne
+Belastung. Wer sie haben will, zeichnet die Fahrt parallel auf der Uhr auf (z. B. Forerunner 970, Aktivität
+„Indoor-Radfahren“) und schaltet im Spiel den Upload für diese Fahrt ab – sonst stehen zwei Aktivitäten derselben Fahrt in
+Garmin Connect. Die FIT-Datei entsteht trotzdem.
+
 ## Testen
 
 ```
@@ -428,6 +560,8 @@ Testmuster: Tests starten die Bridge als echten Prozess (`python -m vspin_bridge
 `PYTHONPATH=src`) und prüfen nur das am Bus beobachtbare Verhalten über Test-Clients
 (`tests/bridge_harness.py`, Fixtures `bridge_process`/`bus_client` in `tests/conftest.py`).
 Port 8765 (mit `VSPIN_PORT_BASE` 8765 + Platz, siehe unten) muss frei sein. Kein Rad, kein Windows nötig.
+Den Begleiter prüfen die Tests nur mit Fakes für Denken, Hören, Sprechen und Uhr (`vspin_companion/fakes.py`,
+`tests/companion_harness.py`) an einer echten Bridge. Kein Test ruft Claude, OpenRouter, das Mikrofon oder die GPU.
 
 **Parallele Testläufe (#62):** `VSPIN_PORT_BASE=n` (jede ganze Zahl ≥ 0, etwa die Paketnummer; ohne Variable 0) gibt
 einem Lauf – etwa je Worktree – den eigenen Bus-Port 8765 + p mit dem Platz p = 0 für n = 0, sonst 1 + (n − 1) mod 300
@@ -468,6 +602,8 @@ src/vspin_bridge/
   processing.py Datenaufbereitung (ADR-0004)
   bus/          WebSocket-Server (docs/bus-protocol.md)
   session/      Session-CSV und Rohdaten (ADR-0008)
+  export/       FIT-Datei einer Fahrt (Spec #84); ride_saver.py: `save_ride` am Bus
+  garmin/       Upload zu Garmin Connect, `python -m vspin_bridge.garmin login|status`
 tests/fixtures/  Replay-Fixtures (handgebaut; später echte Trainer-Dumps)
 tests/cadence_latency.py  Messung Erkennungsverzögerung der Kadenzmuster (#45)
 ```

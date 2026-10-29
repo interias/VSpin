@@ -26,6 +26,9 @@
 ##                steigen über der Bildmitte auf und blenden aus (`popup`), mehrere zugleich übereinander
 ##   Landmark     Panorama-Moment (#43): Name der Sehenswürdigkeit oben im freien Feld, blendet weich ein und aus
 ##   CameraView   Kameraperspektive (#59): nach dem Wechsel mit `C` kurz ihr Name („Kamera: Nah“) unter dem Landmark
+##   Companion  (Spec #76) Symbol des Begleiters Toni (HudCompanion) rechts oben im freien Feld unter der Minikarte: bereit,
+##                hört zu, denkt nach, spricht, heiser – nur solange ein Begleiter am Bus ist; daneben einmal der Hinweis
+##                „Toni ist heiser“ (`show_companion_notice`), der nach COMPANION_NOTICE_S ausblendet
 ##   Message/Hint/Debug  Zustandsmeldung (mittig zwischen oben und unten), `set_grade`-Hinweis (über dem unteren
 ##                Panel), Debug-Anzeige F3 (unter dem Werte-Panel) – Inhalte setzt die Hauptszene.
 ##   Verbindungen (Spec #75) Knopf am Ende der Rundenzeile: öffnet das Verbindungsfenster (`connections_requested`, wie
@@ -63,6 +66,10 @@ const CELEBRATION_S := 4.0
 const LANDMARK_FADE_S := 0.6
 ## Einblendung der Kameraperspektive (s, #59), davon die letzten LANDMARK_FADE_S Ausblenden.
 const CAMERA_VIEW_S := 1.5
+## Hinweis zum Begleiter („Toni ist heiser“): Anzeigedauer (s), davon die letzte Sekunde Ausblenden; Abstand des Symbols
+## zum Rand des freien Feldes (px).
+const COMPANION_NOTICE_S := 5.0
+const COMPANION_MARGIN_PX := 12.0
 ## Farbe des Ghost-Abstands: hinter dem Ghost bzw. vor ihm (#32).
 const COLOR_BEHIND := Color(1.0, 0.55, 0.45)
 const COLOR_AHEAD := Color(0.5, 0.92, 0.55)
@@ -169,6 +176,10 @@ var _segment_line := ""
 var _celebration_tween: Tween
 var _landmark_tween: Tween
 var _camera_view_tween: Tween
+## Symbol des Begleiters und sein Hinweis (im freien Feld, in `_ready` angelegt).
+var _companion: HudCompanion
+var _companion_notice: Label
+var _companion_notice_tween: Tween
 ## Eingereihte Einblendungen, die nach der laufenden folgen (#35).
 var _celebration_queue: Array = []
 ## Ebene der Zahlen-Popups (#49).
@@ -196,7 +207,37 @@ func _ready() -> void:
 	connections_button.add_theme_font_size_override("font_size", CONNECTIONS_FONT_PX)
 	connections_button.pressed.connect(connections_requested.emit)
 	_lap_caption.get_parent().add_child(connections_button)
+	_build_companion()
 	_place_overlays()
+
+
+## Symbol des Begleiters und sein Hinweis rechts oben im freien Feld (beide zunächst unsichtbar).
+func _build_companion() -> void:
+	var fill: Control = _celebration.get_parent()
+	_companion = HudCompanion.new()
+	_companion.name = "Companion"
+	_companion.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_companion.offset_left = -COMPANION_MARGIN_PX - HudCompanion.SIZE_PX
+	_companion.offset_right = -COMPANION_MARGIN_PX
+	_companion.offset_top = COMPANION_MARGIN_PX
+	_companion.offset_bottom = COMPANION_MARGIN_PX + HudCompanion.SIZE_PX
+	fill.add_child(_companion)
+	_companion_notice = Label.new()
+	_companion_notice.name = "CompanionNotice"
+	_companion_notice.visible = false
+	_companion_notice.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_companion_notice.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_companion_notice.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_companion_notice.offset_right = _companion.offset_left - 8.0
+	_companion_notice.offset_left = _companion_notice.offset_right
+	_companion_notice.offset_top = COMPANION_MARGIN_PX
+	_companion_notice.offset_bottom = COMPANION_MARGIN_PX + HudCompanion.SIZE_PX
+	_companion_notice.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_companion_notice.add_theme_font_size_override("font_size", 22)
+	_companion_notice.add_theme_color_override("font_color", HudCompanion.COLORS[BusClient.COMPANION_HOARSE])
+	_companion_notice.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
+	_companion_notice.add_theme_constant_override("outline_size", 5)
+	fill.add_child(_companion_notice)
 
 
 ## Strecke (und Insel-Welt, sonst null) für Höhenprofil und Minikarte – einmal nach dem Aufbau der Strecke.
@@ -382,6 +423,37 @@ func show_camera_view(perspective: String) -> void:
 ## Eingeblendete Kameraperspektive („Kamera: Nah“, "" = keine).
 func camera_view() -> String:
 	return _camera_view.text if _camera_view.visible else ""
+
+
+## Symbol des Begleiters (Spec #76) für `state` (BusClient.COMPANION_*); "" blendet es aus (kein Begleiter am Bus).
+func show_companion(state: String) -> void:
+	_companion.state = state
+
+
+## Gezeigter Zustand des Begleiters ("" = kein Symbol).
+func companion_state() -> String:
+	return _companion.state if _companion.visible else ""
+
+
+## Hinweis neben dem Symbol (z. B. „Toni ist heiser“): steht `seconds` und blendet in der letzten Sekunde aus; ein neuer
+## ersetzt den alten. "" blendet sofort aus.
+func show_companion_notice(text: String, seconds: float = COMPANION_NOTICE_S) -> void:
+	if _companion_notice_tween != null:
+		_companion_notice_tween.kill()
+	_companion_notice.text = text
+	_companion_notice.visible = not text.is_empty()
+	if text.is_empty():
+		return
+	_companion_notice.modulate.a = 1.0
+	_companion_notice_tween = create_tween()
+	_companion_notice_tween.tween_interval(maxf(seconds - 1.0, 0.0))
+	_companion_notice_tween.tween_property(_companion_notice, "modulate:a", 0.0, 1.0)
+	_companion_notice_tween.tween_callback(_companion_notice.hide)
+
+
+## Eingeblendeter Hinweis zum Begleiter ("" = keiner).
+func companion_notice() -> String:
+	return _companion_notice.text if _companion_notice.visible else ""
 
 
 ## Hat `bpm` einen Pulswert? NAN, 0 und negative Werte sind kein Puls.
@@ -574,6 +646,8 @@ func readout() -> String:
 		lines.append("%s: %s" % [(_zone.get_node("ScoreCaption") as Label).text, _zone_score.text])
 	if _announcement.is_visible_in_tree():
 		lines.append("Ansage: %s" % _announcement.text)
+	if _companion.is_visible_in_tree():
+		lines.append("Toni: %s" % HudCompanion.WORDS[_companion.state])
 	lines.append("%s: %s (%s)" % [_lap_caption.text, _lap_percent.text, _lap_remaining.text])
 	return "\n".join(lines)
 

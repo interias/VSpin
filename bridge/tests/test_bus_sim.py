@@ -5,8 +5,8 @@ from sim_pulse import is_window, simulator_pulse
 from vspin_bridge.cli import build_parser
 
 TELEMETRY_FIELDS = {"v", "type", "t_ms", "cadence", "cadence_raw", "speed_kmh", "power_w", "power_estimated", "heart_rate"}
-STATUS_FIELDS = {  # trainer, controller, signal: Spec #75
-    "v", "type", "t_ms", "state", "source", "capabilities", "heart_rate", "trainer", "controller", "signal"
+STATUS_FIELDS = {  # trainer, controller, signal: Spec #75; garmin: #84
+    "v", "type", "t_ms", "state", "source", "capabilities", "heart_rate", "trainer", "controller", "signal", "garmin"
 }
 
 

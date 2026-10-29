@@ -64,3 +64,45 @@ Die `HeartRateSource` ist umgesetzt und läuft in der Bridge **neben** der Radqu
 - **Die gemerkten Geräte gehören dem Spiel** (`user://settings.cfg`), nicht der Bridge: Das Spiel schickt sie nach
   jedem (Neu-)Verbinden mit dem Bus. Die Bridge speichert nichts dauerhaft und startet mit dem Puls `off`; der
   Launcher braucht keine neuen Startparameter.
+
+## Nachtrag (2026-10-28, #84): Fahrt speichern – FIT-Export und Garmin-Connect-Upload
+
+Der Punkt „Nach v1: Skript `csv → .fit`; Strava/Garmin Connect per manuellem Upload“ ist umgesetzt, als Teil der
+Bridge statt als Skript:
+
+- **Die Bridge exportiert**, weil nur sie loggt. Am Ende einer Fahrt schickt das Spiel `save_ride` mit Start, Ende,
+  Rundenenden und der Streckenspur; die Bridge liest die Samples der Fahrt aus der Session-CSV des laufenden
+  Bridge-Laufs (Zeitfenster der Fahrt, Bridge-Zeit) und schreibt `<sessions_dir>/rides/<zeit>_<ride_id>.fit`,
+  git-ignoriert wie `sessions/`. Antwort `ride_saved` nur an den anfragenden Client (docs/bus-protocol.md).
+- **Die Streckenspur kommt vom Spiel** (etwa 1 Hz), weil der JC312 keine Geschwindigkeit sendet. Sie ist eine Angabe
+  über die Fahrt wie Start und Ende, kein Telemetrie-Logging durch das Spiel: „Nur die Bridge loggt“ bleibt.
+  Arcade-Fahrten werden wie gefahren exportiert.
+- **FIT-Inhalt** nach dem FIT-Cookbook (Activity): Records im Sekundentakt mit Kadenz, Puls, gemessener Leistung,
+  Strecke und Geschwindigkeit aus der Spur, je Runde ein Lap, Sport Radfahren/virtuell, Hersteller `development`.
+  **Geschätzte Watt werden weggelassen**, wie oben vorgesehen; beim JC312 hat die Datei damit keine Leistung.
+  fit-tool ist das optionale Extra `fit`; fehlt es, meldet `ride_saved` das, und die Bridge läuft weiter.
+- **Auto-Upload zu Garmin Connect, inoffiziell** über die Bibliothek `garminconnect` (optionales Extra `garmin`),
+  höchstens ein Versuch je Speichern, nie automatisch wiederholt; hochgeladene Fahrten merkt sich die Fahrtablage
+  (`rides/rides.json`), damit erneutes Speichern nicht doppelt hochlädt. Angemeldet wird einmal von Hand im Terminal
+  (`python -m vspin_bridge.garmin login`), gespeichert wird nur das Token in `~/.garminconnect`, außerhalb des Repos.
+  Gründe für den inoffiziellen Weg: Die Personal API von Garmin ist nur lesend, das Developer Program richtet sich an
+  Firmen und nimmt derzeit niemanden auf.
+- **Risiken:** Die Anmeldung der Bibliothek brach 2026 mehrfach, wenn Garmin sein Login änderte; nach Fehlversuchen
+  sperrt Garmin Konten für mehr als 48 h; die Nutzung liegt in einer Grauzone der Nutzungsbedingungen. Deshalb bleibt
+  **die FIT-Datei der Anker**: Sie entsteht immer, auch ohne Upload, und lässt sich jederzeit von Hand in Garmin
+  Connect importieren. Der Upload ist eine Bequemlichkeit obendrauf.
+- **Keine Trainingsbelastung:** Garmin berechnet sie nur für Dateien von Garmin- und Partnergeräten. VSpin gibt sich
+  nicht als ein solcher Hersteller aus; wer die Belastung will, zeichnet parallel auf der Uhr auf und schaltet den
+  Upload für diese Fahrt ab (bridge/README.md).
+
+## Nachtrag (2026-10-28, #76): Daten des Begleiters
+
+- **Ablage außerhalb des Repos:** `%APPDATA%\VSpin\companion\` mit `soul.md` (Seele), `memory.md` (Gedächtnis),
+  `companion.json` (Einstellungen, z. B. Wecker-Takt, Stimme), `.bak`-Sicherungen vor jedem Aufräumen und dem
+  Protokoll des Begleiters (Antwortzeiten, Sprachkosten). Tests lenken die Ablage um (`--data-dir` oder
+  `VSPIN_COMPANION_DIR`) und schreiben nie in das echte `%APPDATA%`.
+- **Kein Audio wird gespeichert** – weder die Stimme des Fahrers noch Tonis Sprachausgabe.
+- **Der Gesprächsverlauf lebt nur im Speicher**, eine Sitzung je Fahrt; was bleiben soll, steht danach in
+  `memory.md`.
+- **Geheimnisse** (`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`) stehen nur in einer lokalen
+  `.env`, nie im Repo.

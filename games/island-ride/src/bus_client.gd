@@ -12,6 +12,8 @@
 ## Puls (ADR-0008, docs/bus-protocol.md „Puls“): `heart_rate_state`/`heart_rate_device` aus `status.heart_rate`, der Wert
 ## `heart_rate_bpm` aus `telemetry.heart_rate`. Anders als die Kadenz bleibt der Wert nicht stehen: ohne laufende
 ## Telemetrie (Bus weg, Quelle `stale`/`disconnected`, Schweigen) ist er NAN – ein alter Puls wäre eine falsche Angabe.
+## Fahrt speichern (Spec #84, docs/bus-protocol.md): `save_ride` geht über `send_message`, die Antwort kommt als
+## `ride_saved` (oder `ride_rejected`); der Anmeldezustand bei Garmin steht in `garmin_login`.
 ## Die gemerkten Geräte gehören dem Spiel: `set_heart_rate_devices` schickt sie sofort und nach jedem (Neu-)Verbinden
 ## erneut, auch eine leere Liste (eine frisch gestartete Bridge kennt keine Geräte, eine geteilte die eines anderen).
 ##
@@ -20,6 +22,10 @@
 ## Suche auf Anfrage über `start_device_search`, Ergebnisse als `device_found`. Aus `status`: `trainer_device`,
 ## `controller_state`/`controller_device`/`controller_battery` und die Signalstärke je Rolle (`signal_dbm`).
 ## „Steuerung zurückholen“: `reclaim_trainer_control()` (Antwort als `ack_received`).
+##
+## Begleiter (Spec #76, docs/bus-protocol.md „Spiel ↔ Begleiter“): `companion_status` des Begleiters Toni steht in
+## `companion_state`/`companion_speaking`. Solange das Spiel keins gesehen hat (und nach jedem Abbruch des Busses), gilt:
+## kein Begleiter am Bus (`companion_seen` false). Gesendet wird alles über `send_message`.
 class_name BusClient
 extends RefCounted
 
@@ -35,12 +41,20 @@ signal ack_received(message: Dictionary)
 signal heart_rate_changed(state: String)
 ## Suchergebnis (`heart_rate_found`) nach `start_heart_rate_search`; `device_name` ist "" ohne Namen.
 signal heart_rate_found(address: String, device_name: String, rssi: int)
+## Der Begleiter hat seinen Zustand gemeldet (`companion_status`, jede gültige Nachricht, auch ohne Änderung).
+signal companion_status_received(state: String, speaking: bool)
 ## Die Suche endete ohne eigenes `stop` (`heart_rate_search_ended`); `reason`: timeout | taken_over.
 signal heart_rate_search_ended(reason: String)
 ## Suchergebnis einer Rolle (`device_found`, Spec #75); `side` nur beim Controller: left | right | "" (unbekannt).
 signal device_found(kind: String, address: String, device_name: String, rssi: int, side: String)
 ## Die Suche einer Rolle endete ohne eigenes `stop` (`device_search_ended`); `reason`: timeout | taken_over.
 signal device_search_ended(kind: String, reason: String)
+## Antwort der Bridge auf `save_ride` (`ride_saved`, nur an den Absender; geparstes JSON, Spec #84).
+signal ride_saved(message: Dictionary)
+## Die Bridge lehnt ein `save_ride` ab (`error` mit `reason: "invalid_ride"`); `detail` ist ihr Grund.
+signal ride_rejected(detail: String)
+## Anmeldezustand bei Garmin Connect hat sich geändert (`status.garmin.login`, auch wenn der Bus abbricht).
+signal garmin_changed(login: String)
 
 const PROTOCOL_VERSION := 0
 const STATE_CONNECTED := "connected"
@@ -72,6 +86,19 @@ const CONTROLLER_OFF := "off"
 const CONTROLLER_DISCONNECTED := "disconnected"
 const CONTROLLER_CONNECTED := "connected"
 const CONTROLLER_LOCKED := "locked"
+## Anmeldezustände laut `status.garmin.login`; `unknown`, wenn die Bridge den Block nicht kennt oder der Bus fehlt.
+const GARMIN_UNKNOWN := "unknown"
+const GARMIN_LOGGED_IN := "logged_in"
+const GARMIN_NOT_LOGGED_IN := "not_logged_in"
+const GARMIN_UNAVAILABLE := "unavailable"
+## Zustände des Begleiters laut `companion_status.state`.
+const COMPANION_IDLE := "idle"
+const COMPANION_LISTENING := "listening"
+const COMPANION_THINKING := "thinking"
+const COMPANION_SPEAKING := "speaking"
+const COMPANION_HOARSE := "hoarse"
+const COMPANION_STATES := [COMPANION_IDLE, COMPANION_LISTENING, COMPANION_THINKING, COMPANION_SPEAKING,
+		COMPANION_HOARSE]
 
 var url: String
 var reconnect_s: float
@@ -123,6 +150,14 @@ var controller_device := {}
 var controller_battery := -1
 ## Signalstärke in dBm je Rolle (`status.signal`), nur für Rollen mit Wert.
 var signal_dbm := {}
+## Anmeldezustand bei Garmin Connect laut `status.garmin.login` (nur die Token-Datei der Bridge, nicht ob das Token noch
+## gilt): logged_in | not_logged_in | unavailable, sonst unknown (ältere Bridge ohne den Block, kein Bus).
+var garmin_login := GARMIN_UNKNOWN
+## Hat das Spiel seit dem Verbinden ein `companion_status` gesehen? Sonst ist kein Begleiter am Bus.
+var companion_seen := false
+## Zustand des Begleiters laut letztem `companion_status` (COMPANION_*; `idle` ohne Begleiter) und ob er gerade spricht.
+var companion_state := COMPANION_IDLE
+var companion_speaking := false
 
 var _peer: WebSocketPeer = null
 var _retry_in_s := 0.0
@@ -309,6 +344,7 @@ func _set_bus_connected(connected: bool) -> void:
 		bus_connection_changed.emit(connected)
 	if not connected:
 		silent = false
+		forget_companion()  # ein Begleiter meldet sich nach dem Neuverbinden selbst wieder
 		_set_status(STATE_DISCONNECTED)
 		_set_heart_rate(HEART_RATE_OFF, {})  # ohne Bus weiß das Spiel nichts über den Puls
 		trainer_control = ""  # … und nichts über die Steuerung des Trainers
@@ -317,6 +353,7 @@ func _set_bus_connected(connected: bool) -> void:
 		controller_device = {}
 		controller_battery = -1
 		signal_dbm = {}
+		_set_garmin(GARMIN_UNKNOWN)
 
 
 func _set_status(state: String) -> void:
@@ -332,6 +369,22 @@ func _set_heart_rate(state: String, device: Dictionary) -> void:
 		heart_rate_state = state
 		heart_rate_device = device
 		heart_rate_changed.emit(state)
+
+
+func _set_garmin(login: String) -> void:
+	if garmin_login != login:
+		garmin_login = login
+		garmin_changed.emit(login)
+
+
+## `status.garmin` übernehmen; fehlt der Block (ältere Bridge) oder ist er kaputt, gilt `unknown`.
+func _read_garmin_status(block) -> void:
+	var login := GARMIN_UNKNOWN
+	if block is Dictionary:
+		var reported = block.get("login")
+		if reported in [GARMIN_LOGGED_IN, GARMIN_NOT_LOGGED_IN, GARMIN_UNAVAILABLE]:
+			login = reported
+	_set_garmin(login)
 
 
 ## `status.heart_rate` übernehmen; fehlt der Block (ältere Bridge) oder ist er kaputt, gilt `off`.
@@ -381,6 +434,27 @@ func _read_roles(message: Dictionary) -> void:
 				signal_dbm[kind] = int(dbm)
 
 
+## Den Begleiter vergessen: wieder „kein Begleiter am Bus“ (nach einem Abbruch des Busses und wenn das Spiel ihn ausschaltet –
+## ein beendeter Begleiter meldet sich nicht ab, sein letzter Zustand bliebe sonst stehen, auch ein `speaking`).
+func forget_companion() -> void:
+	companion_seen = false
+	companion_state = COMPANION_IDLE
+	companion_speaking = false
+
+
+## `companion_status` übernehmen; ein unbekannter `state` wird ignoriert (Vorwärtskompatibilität). Fehlt `speaking`
+## (oder ist kein Wahrheitswert), gilt `state == speaking`.
+func _read_companion_status(message: Dictionary) -> void:
+	var reported = message.get("state")
+	if not (reported is String) or reported not in COMPANION_STATES:
+		return
+	var speaking = message.get("speaking")
+	companion_seen = true
+	companion_state = reported
+	companion_speaking = speaking if speaking is bool else reported == COMPANION_SPEAKING
+	companion_status_received.emit(companion_state, companion_speaking)
+
+
 func _handle(text: String) -> void:
 	var message = JSON.parse_string(text)
 	if not (message is Dictionary) or message.get("v") != float(PROTOCOL_VERSION):
@@ -400,6 +474,7 @@ func _handle(text: String) -> void:
 			var control = trainer.get("control") if trainer is Dictionary else null
 			trainer_control = control if control is String else ""
 			_read_roles(message)
+			_read_garmin_status(message.get("garmin"))
 		"telemetry":
 			_silent_s = 0.0
 			if silent:  # Telemetrie gibt es nur bei `connected` (docs/bus-protocol.md)
@@ -425,6 +500,8 @@ func _handle(text: String) -> void:
 			var rssi = message.get("rssi")
 			heart_rate_found.emit(str(message.get("address", "")), found_name if found_name is String else "",
 					int(rssi) if rssi is float or rssi is int else 0)
+		"companion_status":
+			_read_companion_status(message)
 		"heart_rate_search_ended":
 			heart_rate_search_ended.emit(str(message.get("reason", "")))
 		"device_found":
@@ -436,7 +513,11 @@ func _handle(text: String) -> void:
 					side if side is String else "")
 		"device_search_ended":
 			device_search_ended.emit(str(message.get("kind", "")), str(message.get("reason", "")))
+		"ride_saved":
+			ride_saved.emit(message)
 		"error":
+			if message.get("reason") == "invalid_ride":
+				ride_rejected.emit(str(message.get("detail", "")))
 			push_warning("BusClient: Bridge meldet Fehler %s: %s" % [message.get("reason"), message.get("detail")])
 		_:
 			pass  # unbekannte Typen ignorieren (Vorwärtskompatibilität)

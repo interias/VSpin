@@ -69,6 +69,10 @@ var power_crr := 0.004
 var power_air_density := 1.225
 var power_max_kmh := 70.0
 
+## Begleiter Toni (#76): Programm (`pythonw.exe` des eigenen venv `bridge/.venv-companion`, nicht das der Bridge). Relative
+## Pfade gelten wie bei `bridge_program` ab dem Spielordner.
+var companion_program := "../../bridge/.venv-companion/Scripts/pythonw.exe"
+
 
 ## Liest `path`; fehlende Datei oder fehlende Schlüssel ergeben die Standardwerte.
 static func load_file(path: String = DEFAULT_PATH) -> RideConfig:
@@ -113,6 +117,7 @@ static func load_file(path: String = DEFAULT_PATH) -> RideConfig:
 	config.power_crr = float(file.get_value("power", "crr", config.power_crr))
 	config.power_air_density = float(file.get_value("power", "air_density", config.power_air_density))
 	config.power_max_kmh = float(file.get_value("power", "max_kmh", config.power_max_kmh))
+	config.companion_program = str(file.get_value("companion", "program", config.companion_program))
 	return config
 
 

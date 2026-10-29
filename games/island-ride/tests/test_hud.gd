@@ -228,6 +228,8 @@ func _layout_in(viewport_size: Vector2i, canvas_size: Vector2i = Vector2i.ZERO) 
 	hud.show_ghost("+123.4", true)
 	hud.show_gear("24/24")
 	hud.celebrate("Neue Bestzeit!  1:02:33.4")
+	hud.show_companion("hoarse")
+	hud.show_companion_notice("Toni ist heiser")
 	(hud.get_node("Hint") as Label).text = "Widerstand: nicht unterstützt"
 	(hud.get_node("Debug") as Label).text = \
 			"DEBUG\nKadenz roh: 72.5\nt_ms: 123456\nLetzte Telemetrie vor: 120 ms\nBus: verbunden · Quelle: connected (sim)"
@@ -261,6 +263,11 @@ func _assert_inside(hud: RideHud, label: String) -> void:
 	var message: Control = hud.get_node("Message")
 	if message.is_visible_in_tree():
 		_assert_free_of_panels(hud, message.get_global_rect(), "%s: Meldung" % label)
+	for node_name in ["Companion", "CompanionNotice"]:  # Symbol des Begleiters und sein Hinweis (Spec #76)
+		var companion: Control = hud.find_child(node_name, true, false)
+		assert_true(companion.is_visible_in_tree(), "%s: %s sichtbar" % [label, node_name])
+		_assert_free_of_panels(hud, companion.get_global_rect(), "%s: %s" % [label, node_name])
+		assert_false(companion.get_global_rect().intersects(celebration.get_global_rect()), "%s: %s frei von der Einblendung" % [label, node_name])
 	assert_eq(hud.compact, hud.get_viewport().get_visible_rect().size.y < RideHud.COMPACT_BELOW_PX, "%s: Leisten" % label)
 
 

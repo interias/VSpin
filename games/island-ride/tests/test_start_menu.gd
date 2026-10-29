@@ -157,10 +157,12 @@ func test_keyboard_drives_menu_into_ride() -> void:
 	assert_false(game.start_menu.visible, "Menü weg")
 	assert_true(game.hud.visible, "HUD da")
 	assert_true(game.rider.visible)
-	assert_null(_focused(game), "kein verborgener Knopf behält den Fokus (Leertaste = Pause)")
+	assert_null(_focused(game), "kein verborgener Knopf behält den Fokus (Leertaste = Sprechtaste)")
 	assert_true(await run_until(func(): return game.state == "riding", 3.0), "Rundfahrt fährt los")
 	await _press(KEY_SPACE)
-	assert_eq(game.state, "paused_manual", "Leertaste pausiert wie bisher")
+	assert_eq(game.state, "riding", "Leertaste ist in der Fahrt die Sprechtaste, keine Pause mehr (Spec #76)")
+	await _press(KEY_P)
+	assert_eq(game.state, "paused_manual", "P pausiert")
 
 
 func test_mouse_selects_menu_items() -> void:
@@ -238,6 +240,8 @@ func test_flow_title_ride_finish_menu_and_saved_ride_survives_restart() -> void:
 	assert_string_contains(game.status_message(), "Enter: zurück ins Menü")
 	assert_eq(game.save_game.rides().size(), 1, "Fahrt gleich im Ziel gespeichert")
 	await _press(KEY_ENTER)
+	assert_true(game.ride_save_dialog.visible, "Ergebnis → Dialog „Fahrt speichern“ (Spec #84)")
+	game.ride_save_dialog.discard()
 	assert_eq(game.state, "menu", "Ergebnis → Menü")
 	assert_true(game.start_menu.visible)
 	assert_false(game.hud.visible)
@@ -270,6 +274,8 @@ func test_end_ride_from_settings_returns_to_menu_without_quitting() -> void:
 	var end_ride: Button = game.settings_menu.find_child("EndRide", true, false)
 	assert_true(end_ride.is_visible_in_tree(), "„Fahrt beenden“ in der Fahrt")
 	end_ride.pressed.emit()
+	assert_true(game.ride_save_dialog.visible, "dazwischen der Dialog „Fahrt speichern“ (Spec #84)")
+	game.ride_save_dialog.discard()
 	assert_eq(game.state, "menu", "zurück im Menü")
 	assert_false(game.settings_menu.is_open(), "Einstellungen zu")
 	assert_true(game.start_menu.visible)

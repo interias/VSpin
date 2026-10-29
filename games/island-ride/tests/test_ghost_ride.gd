@@ -101,6 +101,8 @@ func test_best_time_ghost_after_restart_and_last_ride() -> void:
 
 	# Fahrt 3 gegen „letzte Fahrt“ (Fahrt 2), diesmal schneller übersetzt: vor dem Ghost, Abstand negativ.
 	await press_key(KEY_ENTER)
+	assert_true(second.ride_save_dialog.visible, "Enter → Dialog „Fahrt speichern“ (Spec #84)")
+	second.ride_save_dialog.discard()
 	assert_eq(second.state, "menu")
 	assert_false(second.ghost_active(), "im Menü kein Ghost")
 	assert_false(second.ghost_rider.visible)

@@ -23,7 +23,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
-from .bus import HOST, PORT, BusServer
+from .bus import HOST, PORT, BusServer, ToOthers
 from .bus.messages import (
     RECLAIM_TRAINER_CONTROL,
     SET_GRADE,
@@ -31,6 +31,8 @@ from .bus.messages import (
     ClientMessageError,
     DeviceKind,
     ReclaimTrainerControl,
+    Relay,
+    SaveRide,
     SetGrade,
     SetTargetPower,
     ack_message,
@@ -42,10 +44,12 @@ from .bus.messages import (
 from .clock import bridge_time_ms
 from .console import Console
 from .device_relay import ControllerFactory, DeviceRelay, Role, bleak_controller
+from .garmin import GarminConnectUploader, LoginState, Uploader
 from .heart_rate_relay import HeartRateFactory, HeartRateRelay, bleak_heart_rate
 from .keyboard import HELP, Key, Keyboard, keyboard_available
 from .parsers import Decoder, ParseError
 from .processing import CADENCE_MAX, CADENCE_MIN, CadenceProcessor
+from .ride_saver import RideSaver
 from .session import Session, open_session
 from .sources.base import (
     Capability,
@@ -93,6 +97,7 @@ class Bridge:
         port: int = PORT,
         heart_rate: HeartRateFactory = bleak_heart_rate,
         controller: ControllerFactory = bleak_controller,
+        uploader: Uploader | None = None,
     ) -> None:
         self._source = source
         self._sessions_dir = sessions_dir
@@ -127,6 +132,10 @@ class Bridge:
         if isinstance(source, TrainerSource):  # Simulator und Replay haben keinen Trainer
             roles[DeviceKind.TRAINER] = source
         self._devices = DeviceRelay(roles, self._bus.send_to, console)
+        # Fahrt speichern (Spec #84): FIT-Datei in die Fahrtablage, auf Wunsch Upload zu Garmin Connect.
+        self._rides = RideSaver(
+            sessions_dir, uploader or GarminConnectUploader(), self._bus.send_to, self._on_garmin_login, console
+        )
         self._stop: asyncio.Event | None = None
         self._stale_timer: asyncio.TimerHandle | None = None
         self._stale_since_ms = 0  # Bridge-Zeit des letzten Samples (bzw. der Verbindung)
@@ -152,6 +161,8 @@ class Bridge:
                 raise SessionStartError(f"{self._sessions_dir}: {exc.strerror or exc}") from exc
             self._console.info(f"Session: {self._session.csv.path}")
             self._console.info(f"Rohdaten: {self._session.raw.path}")
+            self._rides.session_csv = self._session.csv.path
+            self._rides.start()
             await self._heart_rate.start()  # aus bis zum ersten Befehl, fasst bis dahin BLE nicht an
             await self._controller.start()  # ebenso
             if isinstance(self._source, SimulatorSource) and keyboard_available():
@@ -184,6 +195,7 @@ class Bridge:
             if keyboard is not None:
                 keyboard.stop()
             self._devices.stop()  # Suchen auf Anfrage enden
+            await self._rides.stop()  # laufendes Speichern samt Upload zu Ende, `ride_saved` geht noch raus
             await self._heart_rate.stop()  # danach keine Pulsmeldung mehr
             await self._controller.stop()
             await self._bus.stop()
@@ -310,8 +322,10 @@ class Bridge:
         """Zuletzt per `set_grade` gesetzte virtuelle Steigung (Anteil) – für das Session-Logging."""
         return self._grade
 
-    async def _on_client_message(self, raw: str | bytes) -> str:
-        """Antwort (`ack`/`error`) für genau den Client, der `raw` gesendet hat."""
+    async def _on_client_message(self, raw: str | bytes) -> str | ToOthers | None:
+        """Antwort (`ack`/`error`) für genau den Client, der `raw` gesendet hat; `save_ride` antwortet später
+        mit `ride_saved` – oder `ToOthers`: Nachrichten zwischen Spiel und Begleiter gehen unverändert an alle
+        anderen, ohne Antwort."""
         try:
             message = parse_client_message(raw)
         except ClientMessageError as exc:
@@ -320,6 +334,10 @@ class Bridge:
             return await self._reclaim_trainer_control()
         if isinstance(message, SetTargetPower):
             return await self._set_target_power(message)
+        if isinstance(message, Relay):
+            return ToOthers(message.raw)
+        if isinstance(message, SaveRide):
+            return self._rides.handle(message, self._bus.sender())
         if not isinstance(message, SetGrade):
             return await self._devices.handle(message, self._bus.sender())
         return await self._set_grade(message)
@@ -402,6 +420,7 @@ class Bridge:
             },
             trainer_mode="sim" if trainer is None else trainer.mode,
             target_power=None if trainer is None else trainer.target_power,
+            garmin_login=str(self._rides.login),
         )
 
     def _trainer_control(self) -> ControlState:
@@ -446,6 +465,11 @@ class Bridge:
             await asyncio.wait_for(self._source.release(), RELEASE_TIMEOUT_S)
         except Exception as exc:
             self._console.info(f"Trainer beim Beenden nicht freigegeben: {exc}")
+
+    def _on_garmin_login(self, state: LoginState) -> None:
+        """Änderung des Anmeldezustands ist eine Statusänderung: genau ein `status` an alle."""
+        self._bus.publish(self._status_message())
+        self._console.info(f"Garmin: {state}")
 
     def _on_heart_rate_status(self, status: HeartRateStatus) -> None:
         """Änderung des Pulszustands ist eine Statusänderung: genau ein `status` an alle."""

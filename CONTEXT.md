@@ -31,7 +31,7 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **virtuelle Steigung** | Steigung der Strecke an der Fahrerposition. Sie wirkt auf die Spielgeschwindigkeit und – per `set_grade` – am Trainer als Widerstand (Spec #75); ohne Trainer mit Steuerung (Simulator, Replay, Nur-lesen-Modus) nur im Spiel. |
 | **Bridge** (`vspin-bridge`) | Python-Prozess, der als einziger BLE spricht und Telemetrie auf den Bus publiziert. |
 | **Bus** | Lokaler WebSocket (`ws://127.0.0.1:8765`, JSON), über den Bridge und Clients kommunizieren. |
-| **Client** | Alles, was am Bus hängt: Games, Logger, Dashboard. |
+| **Client** | Alles, was am Bus hängt: Games, Begleiter, Logger, Dashboard. |
 | **measured / estimated** | Herkunft eines Werts: gemessen vom Gerät bzw. hochgerechnet. Geschätzte Watt werden als „~142 W“ angezeigt. Die Herkunft hängt am Gerät: der Trainer (FTMS) misst, Replay und Simulator schätzen. |
 | **stale** | Verbindungsstatus: verbunden, aber > 3 s keine Daten. Games pausieren. |
 | **set_grade** | Bus-Nachricht vom Game an die Bridge mit der aktuellen virtuellen Steigung (Anteil, 0.07 = 7 %). Die Bridge antwortet dem Absender mit einem **ack**: `ok: true`, wenn die Steigung angenommen ist (am Trainer gedrosselt umgesetzt), sonst mit Grund – `not_supported` (Quelle ohne `RESISTANCE_CONTROL`), `read_only`, `control_lost`, `source_error`. |
@@ -41,6 +41,8 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **Grundlast** | Sichere Last am Trainer: Steigung 0. Das Spiel sendet sie beim Verlassen der Fahrt (Pause, Verbindungspause, Ziel, Menü), die Bridge setzt sie, wenn alle Clients weg sind oder der Client der letzten Steigung geht, und beim Beenden (dann zusätzlich Reset). Nie gedrosselt. |
 | **Control Point** | FTMS-Characteristic `0x2AD9` zum Steuern des Geräts (Write + Indicate); wir nutzen `0x00` Request Control, `0x07` Start, `0x11` Indoor Bike Simulation, `0x05` Set Target Power (ERG) und beim Beenden `0x01` Reset. Machine Status `0x2ADA` meldet u. a. den Verlust der Steuerung (`0xFF`). |
 | **Session** | Ein Bridge-Lauf; erzeugt `sessions/<zeit>.csv` und `sessions/<zeit>.raw.jsonl`. |
+| **FIT-Datei** | Eine **Fahrt** als FIT-Aktivität (Garmins Dateiformat) in der **Fahrtablage** `sessions/rides/<zeit>_<ride_id>.fit`; die Bridge schreibt sie aus der Session-CSV, ohne geschätzte Watt (ADR-0008, Nachtrag #84). Lässt sich von Hand in Garmin Connect importieren. |
+| **Fahrtablage** | Ordner `sessions/rides/` der Bridge: die **FIT-Datei** jeder gespeicherten **Fahrt** und `rides.json` mit Wanduhr-Anker, Session-CSV und Upload-Marke je `ride_id` – die Merkliste, damit keine Fahrt zweimal hochgeladen wird. Eine Fahrt aus einer früheren **Session** wird nie neu geschrieben (#84). |
 | **HeartRateSource** | Zweite Quelle der Bridge neben der Radquelle: Puls per BLE Heart Rate Service `0x180D`. Gemerkte Geräte haben die Rolle Gurt (Brustgurt) oder Uhr (Garmin-Uhr mit „Herzfrequenz übertragen“); ihre Reihenfolge ist der Vorrang, ein verbundenes Gerät mit geringerem Vorrang wird gegen eines mit höherem getauscht. |
 | **Rolle** | Wofür ein BLE-Gerät im Verbindungsfenster steht: `trainer`, `heart_rate` (Puls) oder `controller` (Bus-Feld `kind`). Je Rolle gemerkte Geräte (`set_devices`) und eine Suche auf Anfrage zur Zeit. Nicht zu verwechseln mit der Pulsrolle Gurt/Uhr eines Pulsgeräts. |
 | **Verbindungsfenster** | Fenster im Spiel mit einer **Kachel** je Rolle (Zustand, Gerätename, Live-Wert, Signalstärke) und darunter der Einrichtung (suchen, merken, vergessen). Öffnet beim Start von selbst nur bei `config.cfg [bridge] source="ble"` ohne gemerkten Trainer, sonst über „Verbindungen“ im Startmenü, den Knopf im HUD oder die Taste V. Vorgänger ist die Geräteseite aus #64. |
@@ -55,6 +57,7 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 |---|---|
 | **Runde** | Einmal den Rundkurs abfahren, in einer **Richtung** (im oder gegen den Uhrzeigersinn). |
 | **Fahrt** | Alles von Start bis Ende im Spiel: eine oder mehrere Runden, oder endlos. Nicht zu verwechseln mit der **Session** (ein Bridge-Lauf). |
+| **Fahrt speichern** | Am Ende einer **Fahrt**: das Spiel schickt `save_ride`, die Bridge schreibt die **FIT-Datei** und lädt sie auf Wunsch einmal zu Garmin Connect hoch (#84). Erneutes Speichern schreibt dieselbe Datei (in einer späteren **Session** bleibt sie unverändert) und lädt nicht noch einmal hoch. |
 | **Bestzeit** | Schnellste Runde je Strecke und Richtung. |
 | **Ghost** | Halbtransparenter Mitfahrer, der eine frühere Runde nachfährt – standardmäßig die Bestzeit, wahlweise die letzte Fahrt. |
 | **Segment** | Fester Abschnitt des Rundkurses mit eigener Zeit, z. B. die Bergwertung in den Serpentinen. |
@@ -86,6 +89,17 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **Arcade-Level** | Arcade: eigenes Level aus den Punkten aller Arcade-Läufe; gibt Talentpunkte. Getrennt vom **Fahrerlevel**, das nur Kosmetik freischaltet (ADR-0010). |
 | **Talent** | Arcade: Knoten im Talentbaum (Äste Sprinter, Kletterer, Ausdauer), gelernt mit Talentpunkten aus dem Arcade-Level; verändert Fähigkeiten und Ausrüstungswerte nur im Arcade. |
 
+### Begleiter
+
+| Begriff | Bedeutung |
+|---|---|
+| **Begleiter** (Toni, `vspin-companion`) | Sprechender Radkumpel: eigener Python-Prozess am Bus, hört über die Sprechtaste zu, antwortet mit Stimme und meldet sich von selbst. Liest nur, wirkt nie auf Tempo, Wertung oder Beute (ADR-0010, ADR-0011). _Vermeiden:_ Bot, Assistent, Sprachassistent. |
+| **Wecker** | Weckt den Begleiter in zufälligen Abständen (Start 3–8 min, per Stimme einstellbar) und sofort bei Ereignissen; Toni entscheidet dann selbst, ob er etwas sagt. _Vermeiden:_ Wake-Word – Toni hört nie dauernd mit. |
+| **Seele** (`soul.md`) | Tonis Charakter als Textdatei, höchstens 1 500 Zeichen; per Stimme änderbar („sei mal ernster“). |
+| **Gedächtnis** (`memory.md`) | Was Toni über den Fahrer weiß (Ziele, Vorlieben, Running Gags), höchstens 3 000 Zeichen; nach jeder Fahrt aufgeräumt. Nicht der Gesprächsverlauf – der lebt nur im Speicher, eine Sitzung je Fahrt. |
+| **Sprechtaste** | Leertaste in der Fahrt halten: Toni hört nur, solange sie gedrückt ist (`companion_ptt`). Pause bleibt `P`, im Startmenü startet die Leertaste wie bisher. _Vermeiden:_ Wake-Word, Dauer-Mithören. |
+| **heiser** | Status des Begleiters (`companion_status: hoarse`): Toni schweigt wegen eines Fehlers, ohne Netz oder bei erreichtem Abo-Limit; die Fahrt läuft weiter, kein stilles Ausweichen auf etwas Kostenpflichtiges. |
+
 ## Scope v1
 
 Siehe [ADR-0001](docs/adr/0001-scope-v1.md). Telemetrie + Simulator + genau ein Prototyp-Game.
@@ -104,10 +118,12 @@ Prototyp-Game: [ADR-0005](docs/adr/0005-prototyp-game-radsimulator.md) – 3D-Ra
 
 Widerstandssteuerung: [ADR-0007](docs/adr/0007-widerstandssteuerung-esp32.md) – Steigung über FTMS am Trainer.
 
-Datenspeicherung: [ADR-0008](docs/adr/0008-datenspeicherung-und-export.md) – CSV + Roh-JSONL pro Bridge-Start, FIT/Strava später.
+Datenspeicherung: [ADR-0008](docs/adr/0008-datenspeicherung-und-export.md) – CSV + Roh-JSONL pro Bridge-Start, FIT-Datei je Fahrt, optional Garmin-Upload (#84).
 
 Repo & Lizenz: [ADR-0009](docs/adr/0009-repo-organisation-und-lizenz.md) – Monorepo, privat, MIT.
 
 Ehrliche Bestzeiten: [ADR-0010](docs/adr/0010-ehrliche-bestzeiten-arcade-getrennt.md) – Arcade-Werte wirken nur im Arcade-Modus.
+
+Begleiter: [ADR-0011](docs/adr/0011-begleiter-claude-abo-oauth-stimme-openrouter.md) – Claude über Abo-OAuth, Stimme über OpenRouter, Erkennung lokal.
 
 Bus-Vertrag: [docs/bus-protocol.md](docs/bus-protocol.md).

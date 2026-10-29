@@ -36,3 +36,10 @@ Widerstandssteuerung.
 „Widerstandssteuerung“ steht nicht mehr unter „nicht in v1“: Mit Spec #75 (Zwift Ride und KICKR CORE 2) setzt die
 Bridge die virtuelle Steigung am FTMS-Trainer als Widerstand um (ADR-0007, Nachtrag Spec #75). Simulator und Replay
 bleiben gleichwertige Quellen ohne Widerstand (`not_supported`).
+
+## Nachtrag (2026-10-28, #84): Garmin-Upload als optionales Online-Feature
+
+„Online-Features“ waren für v1 ausgeschlossen. Mit #84 ist eines im Umfang: der Upload einer gespeicherten Fahrt zu
+Garmin Connect – **nur optional**. Er braucht das Extra `garmin` und eine Anmeldung im Terminal, lässt sich je Fahrt
+abschalten, und ohne ihn läuft alles wie bisher; die FIT-Datei entsteht lokal immer (ADR-0008, Nachtrag #84).
+Strava und andere Dienste bleiben draußen.

@@ -301,10 +301,13 @@ func test_hud_button_and_key_open_the_window_while_the_ride_goes_on() -> void:
 	assert_eq(game.camera_view, view, "Kamera wechselt nicht, solange das Fenster offen ist")
 
 
-func test_space_stays_the_pause_key_and_v_is_free() -> void:
+func test_space_stays_the_companion_talk_key_and_v_is_free() -> void:
 	var bindings: Dictionary = MAIN_SCENE.instantiate().get_script().get_script_constant_map()["KEY_BINDINGS"]
 	assert_eq(bindings["ride_devices"], [KEY_V])
-	assert_true(bindings["ride_pause"].has(KEY_SPACE), "Leertaste unverändert (Sprechtaste des Begleiters, #76)")
+	assert_eq(bindings["companion_ptt"], [KEY_SPACE], "Leertaste unverändert: Sprechtaste des Begleiters (#76)")
+	for action in bindings:
+		if action != "companion_ptt":
+			assert_false(bindings[action].has(KEY_SPACE), "Leertaste nur für die Sprechtaste (%s)" % action)
 	for action in bindings:
 		if action != "ride_devices":
 			assert_false(bindings[action].has(KEY_V), "V nur für das Verbindungsfenster (%s)" % action)

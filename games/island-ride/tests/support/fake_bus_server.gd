@@ -125,11 +125,12 @@ static func ack(for_type: String, ok: bool, reason = null) -> Dictionary:
 ## `heart_rate_block`) steht der Pulsblock als letzter Schlüssel dabei; ohne ist es eine ältere Bridge. Mit
 ## `trainer_control` (Spec #75) kommt dahinter der Block `trainer`, z. B. `"lost"`. Verbindungsfenster (Spec #75):
 ## `trainer_device` ({address, name}) ergänzt den Trainerblock, `controller` (Baustein `controller_block`) und
-## `signal_dbm` (Rolle → dBm) kommen als Blöcke `controller` und `signal` dazu.
+## `signal_dbm` (Rolle → dBm) kommen als Blöcke `controller` und `signal` dazu. Mit `garmin` (z. B.
+## `{"login": "logged_in"}`, Spec #84) steht der Block `garmin` als letzter dahinter.
 static func status(state: String = "connected", source: String = "sim",
 		capabilities: Array = ["CADENCE"], at: float = 0.0, heart_rate: Dictionary = {},
 		trainer_control: String = "", trainer_device: Dictionary = {}, controller: Dictionary = {},
-		signal_dbm: Dictionary = {}) -> Dictionary:
+		signal_dbm: Dictionary = {}, garmin: Dictionary = {}) -> Dictionary:
 	var message := {"v": 0, "type": "status", "t_ms": int(at * 1000.0),
 			"state": state, "source": source, "capabilities": capabilities}
 	if not heart_rate.is_empty():
@@ -144,6 +145,8 @@ static func status(state: String = "connected", source: String = "sim",
 		var block := {"trainer": null, "heart_rate": null, "controller": null}
 		block.merge(signal_dbm, true)
 		message["signal"] = block
+	if not garmin.is_empty():
+		message["garmin"] = garmin  # als letzter Block (Spec #84); ohne = ältere Bridge
 	return {"at": at, "send": message}
 
 

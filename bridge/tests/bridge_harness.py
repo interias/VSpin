@@ -153,8 +153,12 @@ def wait_until(predicate, timeout_s: float, what: str) -> None:
     raise TimeoutError(f"Zeitüberschreitung: {what}")
 
 
-def bridge_env() -> dict[str, str]:
+def bridge_env(home: Path | None = None) -> dict[str, str]:
+    """`home`: Heimatverzeichnis der Bridge (Testverzeichnis) – ihr Garmin-Token-Verzeichnis `~/.garminconnect` liegt
+    dann dort, nie beim Nutzer (Spec #84)."""
     env = dict(os.environ)
+    if home is not None:
+        env["HOME"] = env["USERPROFILE"] = str(home)
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(SRC_DIR), env.get("PYTHONPATH")]))
     env["PYTHONUNBUFFERED"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"  # Ausgabe in UTF-8, wie der Harness sie liest (Windows: sonst cp1252)
@@ -170,7 +174,7 @@ def run_bridge(args: list[str], cwd: Path, timeout_s: float = START_TIMEOUT_S) -
         capture_output=True,
         text=True,
         encoding="utf-8",
-        env=bridge_env(),
+        env=bridge_env(home=cwd),
         cwd=cwd,
         timeout=timeout_s,
         check=False,
@@ -197,7 +201,7 @@ class BridgeProcess:
     def start(self) -> None:
         # Port muss frei sein, sonst würde der Test gegen eine fremde Bridge laufen.
         wait_until(lambda: not port_open(self.host), STOP_TIMEOUT_S, f"Port {PORT} wird frei")
-        env = bridge_env()
+        env = bridge_env(home=self.log_path.parent)
         self._log = open(self.log_path, "w", encoding="utf-8")
         self.proc = subprocess.Popen(
             [sys.executable, "-m", "vspin_bridge", *self.args, "--stop-file", str(self.stop_file), "--port", str(PORT)],
@@ -260,12 +264,16 @@ class InProcessBridge:
     z. B. einer, die bei `set_grade` einen Fehler wirft. Terminal-Ausgabe in `log()`; `stop()`
     liefert die Ausnahme, mit der `Bridge.run` endete (`None` = sauber beendet)."""
 
-    def __init__(self, source, sessions_dir: Path, host: str = HOST, heart_rate=None, controller=None) -> None:
+    def __init__(
+        self, source, sessions_dir: Path, host: str = HOST, heart_rate=None, controller=None, uploader=None
+    ) -> None:
         self.source = source
         self.sessions_dir = sessions_dir
         self.host = host
         self.heart_rate = heart_rate  # Fabrik der Pulsquelle (`HeartRateFactory`); None = Standard der Bridge
         self.controller = controller  # Fabrik der Controller-Quelle (`ControllerFactory`, Spec #75); None = Standard
+        # Garmin-Upload (`Uploader`); None = Standard der Bridge, aber mit Token-Verzeichnis im Testverzeichnis.
+        self.uploader = uploader
         self.error: BaseException | None = None
         self._output = io.StringIO()
         self._thread: threading.Thread | None = None
@@ -287,12 +295,14 @@ class InProcessBridge:
     def _main(self) -> None:
         from vspin_bridge.app import Bridge
         from vspin_bridge.console import Console
+        from vspin_bridge.garmin import GarminConnectUploader
 
         async def main() -> None:
             self._loop, self._stop = asyncio.get_running_loop(), asyncio.Event()
             options = {} if self.heart_rate is None else {"heart_rate": self.heart_rate}
             if self.controller is not None:
                 options["controller"] = self.controller
+            options["uploader"] = self.uploader or GarminConnectUploader(self.sessions_dir.parent / "garminconnect")
             await Bridge(self.source, Console(self._output), self.sessions_dir, host=self.host, port=PORT, **options).run(
                 self._stop
             )
