@@ -61,6 +61,9 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | **Ghost** | Halbtransparenter Mitfahrer, der eine frühere Runde nachfährt – standardmäßig die Bestzeit, wahlweise die letzte Fahrt. |
 | **Segment** | Fester Abschnitt des Rundkurses mit eigener Zeit, z. B. die Bergwertung in den Serpentinen. |
 | **Medaille** | Bronze/Silber/Gold für eine Runden- oder Segmentzeit nach festen Schwellen. _Vermeiden:_ Medaille für Meilensteine. |
+| **Geräteart** | Womit eine Fahrt gewertet wird: `power` (Trainer mit gemessener Leistung → **Leistungsmodell**) oder `cadence` (Simulator, Rad ohne gemessene Watt → Kadenzmodell). Steht mit der ersten Telemetrie der Fahrt fest; Bestzeit, Segmentzeiten, Medaillen und Ghosts gibt es je Geräteart getrennt (ADR-0010 Nachtrag). |
+| **Leistungsmodell** | Fahrmodell bei gemessener Leistung: Tempo aus Watt und Streckensteigung mit Masse, Roll- und Luftwiderstand (`config.cfg [power]`), Trägheit wie im Kadenzmodell; die Gänge wirken nur am Trainer. Arcade-Herausforderungen hängen trotzdem an der Kadenz. |
+| **3-s-Mittel** | Mittel der gemessenen Leistung über die letzten drei Sekunden; steht im HUD klein hinter dem Wattwert („212 W · Ø3s 205 W“). |
 | **Erfolg** | Einmaliger Meilenstein, z. B. „100 km gesamt“, „Nachtfahrt“, „im Regen gefahren“. _Vermeiden:_ Achievement, Abzeichen. |
 | **Fahrerprofil** | Der eine lokale Spieler mit Fahrtenbuch, Bestzeiten, Erfolgen und Fahrerlevel. |
 | **Fahrerlevel** | Wächst mit jedem gefahrenen Kilometer in jedem Modus; schaltet nur Kosmetik frei (Trikots, Radfarben, Helme). |

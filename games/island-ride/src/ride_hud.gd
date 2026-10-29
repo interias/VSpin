@@ -123,6 +123,7 @@ const CONNECTIONS_FONT_PX := 16
 @onready var _ghost: Control = %Ghost
 @onready var _ghost_value: Label = %GhostValue
 @onready var _power_value: Label = %PowerValue
+@onready var _power_average: Label = %Power.get_node("Line/Unit")
 @onready var _lap_caption: Label = %LapCaption
 @onready var _celebration: Label = %Celebration
 @onready var _training: Control = %Training
@@ -223,7 +224,10 @@ func show_ride(cadence_rpm: float, speed_kmh: float, distance_m: float, time_tex
 	_section.visible = not station.is_empty()
 	_section_value.text = station
 	_power.visible = not power_text.is_empty()
-	_power_value.text = power_text
+	# Das 3-s-Mittel („212 W · Ø3s 205 W“, Spec #75) steht klein dahinter, damit die Zelle schmal bleibt.
+	var power := power_text.split(" · ", true, 1)
+	_power_value.text = power[0]
+	_power_average.text = "· " + power[1] if power.size() > 1 else ""
 
 
 ## Virtueller Gang (Spec #75) als Anzeigetext („12/24“); "" = ausblenden (Trainer nicht steuerbar).

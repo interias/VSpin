@@ -289,6 +289,15 @@ var bus: BusClient
 ## Start der Bridge aus dem Spiel; startet nur, wenn `config.bus_url` die Bridge-Adresse ist (Tests: Fake-Bus-Port).
 var bridge_launcher: BridgeLauncher
 var model: RideModel
+## Geräteart der laufenden Fahrt (RideModel.KIND_*, Spec #75): Leistungsmodell bei gemessener Leistung, sonst
+## Kadenzmodell. Steht mit der ersten Telemetrie der Fahrt fest (`_fix_ride_kind`) und wechselt dann bis zur nächsten
+## Fahrt nicht; Bestzeit, Segmente, Medaillen und Ghost gelten je Geräteart.
+var ride_kind := RideModel.KIND_CADENCE
+var _ride_kind_open := true
+## Ghost-Wahl der laufenden Fahrt (Ghost.BEST/LAST, "" = aus), für `_fix_ride_kind`.
+var _ghost_choice := ""
+## 3-s-Mittel der gemessenen Leistung fürs HUD.
+var power_average := PowerAverage.new()
 ## Aktueller Spielzustand (STATE_*).
 var state := STATE_PAUSED_CONNECTION
 ## Hinweis aus der letzten `ack` auf `set_grade` ("" = umgesetzt oder noch keine Antwort).
@@ -483,6 +492,7 @@ func _process(delta: float) -> void:
 	if state == STATE_RIDING:
 		_ride(delta)
 	_report_grade(delta)
+	power_average.add(bus.power_w() if not bus.power_estimated() else NAN, delta)
 	_update_view()
 	_update_rider(delta)
 	_update_camera(delta)
@@ -751,8 +761,13 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 	_set_direction(direction)
 	arcade_stage.begin(mode == SaveGame.MODE_ARCADE and training == null, tier, save_game, start_distance_m)
 	_apply_wardrobe()
-	ghost = save_game.ghost(config.track, track.direction, ghost_kind) if not ghost_kind.is_empty() else null
+	_ghost_choice = ghost_kind
+	_ride_kind_open = not (bus.bus_connected and bus.status == BusClient.STATE_CONNECTED and _data_since_loss)
+	if not _ride_kind_open:
+		ride_kind = RideModel.kind_for(bus.power_w(), bus.power_estimated())
+	ghost = save_game.ghost(config.track, track.direction, ghost_kind, ride_kind) if not ghost_kind.is_empty() else null
 	model = RideModel.new(config, start_distance_m)
+	power_average.reset()
 	gears.reset()
 	stats = RideStats.new()
 	pulse_zones = save_game.heart_rate_zones()
@@ -778,6 +793,23 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 	hud.show_landmark("")
 	_set_camera_mode(CAMERA_INTRO)
 	_update_camera(0.0, true)
+
+
+## Geräteart der Fahrt aus der letzten Telemetrie festlegen (RideModel.kind_for). Ändert sie sich gegenüber der
+## Annahme beim Start (vor der ersten Telemetrie), kommen Ghost, Bestzeiten und Medaillen-Schwellen neu – gefahren
+## wurde da noch nicht (ohne Daten pausiert die Fahrt).
+func _fix_ride_kind() -> void:
+	_ride_kind_open = false
+	var kind := RideModel.kind_for(bus.power_w(), bus.power_estimated())
+	if kind == ride_kind:
+		return
+	ride_kind = kind
+	if state == STATE_MENU or model == null:
+		return
+	ghost = save_game.ghost(config.track, track.direction, _ghost_choice, ride_kind) \
+			if not _ghost_choice.is_empty() else null
+	ghost_rider.visible = ghost != null
+	_new_lap_timing()
 
 
 ## Rundfahrt aus dem Startmenü: gewählte Tageszeit wie im Einstellungsmenü setzen, dann mit der Rundenzahl und dem
@@ -815,10 +847,10 @@ func _new_lap_timing() -> void:
 		lap_timing = LapTiming.new(track.length_m(), start_distance_m, laps)
 	else:
 		lap_timing = LapTiming.new(track.length_m(), start_distance_m, laps,
-				save_game.best_time_s(config.track, track.direction), track.segments,
-				save_game.segment_best_times(config.track, track.direction))
+				save_game.best_time_s(config.track, track.direction, ride_kind), track.segments,
+				save_game.segment_best_times(config.track, track.direction, ride_kind))
 	finish_distance_m = lap_timing.finish_m()
-	medal_limits = Medals.thresholds(track, config)
+	medal_limits = Medals.thresholds(track, config, ride_kind)
 
 
 ## Erfolge und Fahrerlevel für eine neue Fahrt: Stand vor der Fahrt aus dem Spielstand (Kilometer und Runden aller
@@ -1011,9 +1043,10 @@ func _update_round_trip_menu() -> void:
 	var times: Array = settings_menu.time_choices()
 	start_menu.set_time_choices(times[0], times[1])
 	var direction: String = start_menu.ride_direction()
-	start_menu.set_ghost_choices(save_game.ghost(config.track, direction, Ghost.BEST) != null,
-			save_game.ghost(config.track, direction, Ghost.LAST) != null)
-	var best := save_game.best_time_s(config.track, direction)
+	var kind := RideModel.kind_for(bus.power_w(), bus.power_estimated())
+	start_menu.set_ghost_choices(save_game.ghost(config.track, direction, Ghost.BEST, kind) != null,
+			save_game.ghost(config.track, direction, Ghost.LAST, kind) != null)
+	var best := save_game.best_time_s(config.track, direction, kind)
 	start_menu.show_best_time(format_time(best, true) if is_finite(best) else "")
 
 
@@ -1119,16 +1152,16 @@ func _save_ride() -> void:
 func _record_round_trip() -> void:
 	var best_ghost := lap_timing.best_ghost
 	var direction := track.direction
-	if save_game.record_best_time(config.track, direction, lap_timing.ride_best_s()) \
+	if save_game.record_best_time(config.track, direction, lap_timing.ride_best_s(), ride_kind) \
 			and best_ghost != null and is_equal_approx(best_ghost.time_s, lap_timing.ride_best_s()):
-		save_game.record_ghost(config.track, direction, Ghost.BEST, best_ghost)
+		save_game.record_ghost(config.track, direction, Ghost.BEST, best_ghost, ride_kind)
 	if lap_timing.last_ghost != null:
-		save_game.record_ghost(config.track, direction, Ghost.LAST, lap_timing.last_ghost)
+		save_game.record_ghost(config.track, direction, Ghost.LAST, lap_timing.last_ghost, ride_kind)
 	for i in range(lap_timing.lap_times.size()):
-		save_game.record_medal(config.track, direction, Medals.LAP, lap_medal(i))
+		save_game.record_medal(config.track, direction, Medals.LAP, lap_medal(i), ride_kind)
 	for result in lap_timing.segments.results:
-		save_game.record_segment_time(config.track, direction, result["id"], result["time_s"])
-		save_game.record_medal(config.track, direction, result["id"], segment_medal(result))
+		save_game.record_segment_time(config.track, direction, result["id"], result["time_s"], ride_kind)
+		save_game.record_medal(config.track, direction, result["id"], segment_medal(result), ride_kind)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -1283,11 +1316,15 @@ static func format_time(seconds: float, tenths: bool = false) -> String:
 	return "%d:%02d" % [whole / 60, whole % 60]
 
 
-## Leistung für die Anzeige: geschätzt immer mit „~“ (ADR-0004), z. B. "~142 W"; "" ohne Wert.
-static func format_power(watts: float, estimated: bool) -> String:
+## Leistung für die Anzeige: geschätzt immer mit „~“ (ADR-0004), z. B. "~142 W"; "" ohne Wert. Gemessen mit dem
+## 3-s-Mittel `average`, sofern eins da ist: "212 W · Ø3s 205 W".
+static func format_power(watts: float, estimated: bool, average: float = NAN) -> String:
 	if is_nan(watts):
 		return ""
-	return "%s%d W" % ["~" if estimated else "", roundi(watts)]
+	var text := "%s%d W" % ["~" if estimated else "", roundi(watts)]
+	if not estimated and not is_nan(average):
+		text += " · Ø3s %d W" % roundi(average)
+	return text
 
 
 ## Hinweistext zum Zustand (leer beim Fahren), wie er groß im HUD steht.
@@ -1436,7 +1473,7 @@ func _update_state() -> void:
 ## genau sind.
 func _ride(delta: float) -> void:
 	var before := model.distance_m
-	model.step(bus.cadence, current_grade(), delta)
+	model.step_kind(ride_kind, bus.cadence, bus.power_w(), current_grade(), delta)
 	var moved := model.distance_m - before
 	var used := delta
 	if model.distance_m >= finish_distance_m:
@@ -1535,6 +1572,8 @@ func resistance_text() -> String:
 
 func _on_telemetry(_message: Dictionary) -> void:
 	_data_since_loss = true
+	if _ride_kind_open and state != STATE_MENU:
+		_fix_ride_kind()
 
 
 func _on_status_changed(new_state: String) -> void:
@@ -1656,7 +1695,8 @@ func _update_view() -> void:
 	rider.progress = track.path_distance(model.distance_m)
 	var grade := current_grade()
 	hud.show_ride(bus.cadence, model.speed_kmh(), stats.distance_m, format_time(lap_time_s()), grade,
-			format_grade(grade), current_station(), format_power(bus.power_w(), bus.power_estimated()))
+			format_grade(grade), current_station(), format_power(bus.power_w(), bus.power_estimated(),
+			power_average.value()))
 	# Puls: ohne Gurt und ohne Wert (Bridge meldet `off`, kein Puls vom Simulator) bleibt die Anzeige weg; war sie in
 	# dieser Fahrt schon da und fällt der Bus weg (der Client meldet dann `off`), bleibt sie mit „--“ stehen.
 	_pulse_shown = (bus.heart_rate_state != BusClient.HEART_RATE_OFF or bus.has_heart_rate()
