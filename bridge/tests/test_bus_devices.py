@@ -165,7 +165,7 @@ def connected_trainer(reader: BusReader) -> dict:
 def test_first_status_has_a_block_per_role(devices_bridge, bus_client):
     devices_bridge(trainer=False)
     status = BusReader(bus_client()).first
-    assert status["trainer"] == {"control": "not_supported", "device": None}
+    assert status["trainer"] == {"control": "not_supported", "device": None, "mode": "sim", "target_power": None}
     assert status["heart_rate"] == {"state": "off", "device": None}
     assert status["controller"] == CONTROLLER_OFF
     assert status["signal"] == {"trainer": None, "heart_rate": None, "controller": None}
@@ -401,7 +401,7 @@ def test_forgetting_the_trainer_during_a_ride_releases_it_and_connects_none(devi
     assert client.reply(set_devices("trainer")) == ack("set_devices")  # „Vergessen“ im Fenster
     assert rig.trainer_writes() == [REQUEST_CONTROL, START, simulation(500), simulation(0), RESET]
     disconnected = client.next("status", lambda m: m["state"] == "disconnected")
-    assert disconnected["trainer"] == {"control": "none", "device": None}
+    assert disconnected["trainer"] == {"control": "none", "device": None, "mode": "sim", "target_power": None}
     time.sleep(0.5)
     assert rig.bridge.call(lambda: (rig.trainer.connected, list(rig.trainer.connect_attempts))) == (set(), [KICKR])
     assert rig.trainer_writes() == [REQUEST_CONTROL, START, simulation(500), simulation(0), RESET]

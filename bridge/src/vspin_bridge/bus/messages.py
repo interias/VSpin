@@ -9,6 +9,8 @@ Verbindungsfenster (Spec #75): Rollen `trainer | heart_rate | controller` (`Devi
 `start_device_search`, `stop_device_search`, `reclaim_trainer_control`; Bridge → Anfrager `device_found`,
 `device_search_ended`. Die Pulsbefehle aus #64 sind Aliase für `kind: heart_rate`. `status` trägt dazu `controller`
 und `signal` (Signalstärke je Rolle), `trainer` zusätzlich `device`.
+ERG (Spec #75): Clients → Bridge `set_target_power` (`watts` 0…2000 oder `null`); `trainer` trägt `mode` und
+`target_power`.
 """
 
 import json
@@ -22,6 +24,7 @@ from ..sources.base import Capability, TelemetrySample
 from ..sources.controller import ControllerDevice, ControllerState, ControllerStatus, Side, controller_side
 from ..sources.heart_rate import HeartRateDevice, HeartRateState, HeartRateStatus, Role
 from ..sources.trainer import TrainerDevice
+from ..sources.trainer_control import TARGET_POWER_MAX_W
 
 PROTOCOL_VERSION = 0
 
@@ -52,6 +55,8 @@ def status_message(
     trainer_device: TrainerDevice | None = None,
     controller: ControllerStatus = ControllerStatus(ControllerState.OFF),
     signal: dict[str, int | None] | None = None,
+    trainer_mode: str = "sim",
+    target_power: int | None = None,
 ) -> str:
     return _encode(
         {
@@ -62,19 +67,24 @@ def status_message(
             "source": source,
             "capabilities": sorted(str(c) for c in capabilities),
             "heart_rate": heart_rate_block(heart_rate),  # Pulsquelle, hinter dem Radteil
-            "trainer": trainer_block(trainer_control, trainer_device),  # Steuerung des Trainers (Spec #75)
+            # Steuerung des Trainers (Spec #75)
+            "trainer": trainer_block(trainer_control, trainer_device, trainer_mode, target_power),
             "controller": controller_block(controller),  # Lenkercontroller (Spec #75)
             "signal": signal_block(signal or {}),  # Signalstärke je Rolle (Verbindungsfenster)
         }
     )
 
 
-def trainer_block(control: str, device: TrainerDevice | None = None) -> dict:
-    """Trainerblock in `status`: Stand der Steuerung (`ControlState`) und der verbundene Trainer (`null` ohne
-    Verbindung bzw. bei Simulator und Replay)."""
+def trainer_block(
+    control: str, device: TrainerDevice | None = None, mode: str = "sim", target_power: int | None = None
+) -> dict:
+    """Trainerblock in `status`: Stand der Steuerung (`ControlState`), der verbundene Trainer (`null` ohne
+    Verbindung bzw. bei Simulator und Replay), Steuermodus (`sim` | `erg`) und Zielleistung in W (`null` ohne ERG)."""
     return {
         "control": str(control),
         "device": None if device is None else {"address": device.address, "name": device.name},
+        "mode": mode,
+        "target_power": target_power,
     }
 
 
@@ -101,6 +111,7 @@ def _encode(message: dict) -> str:
 # --- Clients → Bridge ------------------------------------------------------
 
 SET_GRADE = "set_grade"
+SET_TARGET_POWER = "set_target_power"
 
 
 class ClientMessageError(Exception):
@@ -117,7 +128,14 @@ class SetGrade:
     grade: float  # Anteil, 0.07 = 7 % (ADR-0007)
 
 
-def parse_client_message(raw: str | bytes) -> "SetGrade | DeviceCommand | ReclaimTrainerControl":
+@dataclass(frozen=True, slots=True)
+class SetTargetPower:
+    watts: int | None  # Zielleistung in W (ERG); None beendet ERG
+
+
+def parse_client_message(
+    raw: str | bytes,
+) -> "SetGrade | SetTargetPower | DeviceCommand | ReclaimTrainerControl":
     """Prüft eine Client-Nachricht. Wirft `ClientMessageError` mit `reason` aus docs/bus-protocol.md."""
     if not isinstance(raw, str):
         raise ClientMessageError("invalid_json", "Binärframe – erwartet UTF-8-JSON als Textframe")
@@ -142,6 +160,10 @@ def parse_client_message(raw: str | bytes) -> "SetGrade | DeviceCommand | Reclai
         return _device_command(kind, message)
     if kind == RECLAIM_TRAINER_CONTROL:
         return ReclaimTrainerControl()
+    if kind == SET_TARGET_POWER:
+        if "watts" not in message:
+            raise ClientMessageError("invalid_watts", "Feld 'watts' fehlt (Zahl oder null)")
+        return SetTargetPower(watts=_watts(message["watts"]))
     if kind != SET_GRADE:
         raise ClientMessageError("unknown_type", f"unbekannter type {kind!r}")
     return SetGrade(grade=_grade(message.get("grade")))
@@ -171,6 +193,20 @@ def _grade(value: object) -> float:
     if not math.isfinite(grade):
         raise ClientMessageError("invalid_grade", f"'grade' muss endlich sein, war {value!r}")
     return grade
+
+
+def _watts(value: object) -> int | None:
+    # Ganze Watt 0…2000 oder null; eine ganzzahlige Kommazahl (250.0) gilt als ganze Zahl.
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ClientMessageError("invalid_watts", f"'watts' muss eine ganze Zahl oder null sein, war {value!r}")
+    if isinstance(value, float) and not (math.isfinite(value) and value.is_integer()):
+        raise ClientMessageError("invalid_watts", f"'watts' muss eine ganze Zahl sein, war {value!r}")
+    watts = int(value)
+    if not 0 <= watts <= TARGET_POWER_MAX_W:
+        raise ClientMessageError("invalid_watts", f"'watts' muss 0–{TARGET_POWER_MAX_W} sein, war {value!r}")
+    return watts
 
 
 # --- Rollen und Verbindungsfenster (Spec #75) -----------------------------------

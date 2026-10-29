@@ -55,7 +55,8 @@ class NotSupportedError(Exception):
 
 class ControlRefusedError(Exception):
     """Die Quelle könnte steuern, darf es gerade aber nicht (Spec #75). `reason` geht als `ack`-Grund auf den Bus:
-    `read_only` (Bridge mit `--read-only`) oder `control_lost` (eine andere App steuert den Trainer)."""
+    `read_only` (Bridge mit `--read-only`), `control_lost` (eine andere App steuert den Trainer) oder `erg_active`
+    (`set_grade`, solange ERG läuft)."""
 
     def __init__(self, reason: str, detail: str) -> None:
         super().__init__(detail)

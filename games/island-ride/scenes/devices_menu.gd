@@ -12,7 +12,8 @@
 ##   Karte Brustgurt / Karte Uhr   Anleitung, gemerktes Gerät, Live-Wert (Zustand und bpm aus dem BusClient), „Suchen“,
 ##                                 Liste der gefundenen Pulsgeräte (Name, Signalstärke, ohne Dubletten, laufend
 ##                                 aktualisiert) mit „Als … merken“, „Vergessen“, Hinweise, wenn nichts gefunden wird
-##   Pulswerte                     zwei Eingabefelder (LTHR, Maximalpuls), Zonengrenzen Z1–Z5 in Zonenfarbe, Hinweis ohne Werte
+##   Pulswerte                     Eingabefelder LTHR, Maximalpuls und FTP (ERG, Spec #75), Zonengrenzen Z1–Z5 in
+##                                 Zonenfarbe, Hinweis ohne Werte
 ##   Karte Controller              wie der Trainer, gefundene Controller mit Seite (links bevorzugt)
 ## Das Fenster ändert nur seine Objekte (HeartRateDevices, RoleDevice, SaveGame); gespeichert und an die Bridge geschickt
 ## wird in der Hauptszene über die Signale `devices_changed`, `role_device_changed` und `profile_changed`. Je Rolle gibt es
@@ -113,6 +114,7 @@ var buttons := {}
 var labels := {}
 var lthr_edit: LineEdit
 var max_hr_edit: LineEdit
+var ftp_edit: LineEdit
 ## Karten, in denen die Suche läuft: Rolle der Karte oder "".
 var search_role := ""
 ## Gefundene Geräte der laufenden Suche: Adresse → {name, rssi}.
@@ -169,6 +171,7 @@ func open(bus: BusClient, devices: HeartRateDevices, save: SaveGame, trainer: Ro
 	reclaim_message = ""
 	lthr_edit.text = str(save.lthr_bpm()) if save.lthr_bpm() > 0 else ""
 	max_hr_edit.text = str(save.max_hr_bpm()) if save.max_hr_bpm() > 0 else ""
+	ftp_edit.text = str(save.ftp()) if save.ftp() > 0 else ""
 	labels["profile_message"].text = ""
 	_show_zones()
 	visible = true
@@ -291,22 +294,26 @@ func show_card(kind: String) -> void:
 	(buttons[search_key] as Button).grab_focus()
 
 
-## LTHR und Maximalpuls aus den Feldern übernehmen. Leer = nicht gesetzt; unplausible oder keine ganzen Zahlen werden
-## abgewiesen (Meldung, nichts gespeichert). Gibt zurück, ob gespeichert wurde.
+## LTHR, Maximalpuls und FTP aus den Feldern übernehmen. Leer = nicht gesetzt; unplausible oder keine ganzen Zahlen
+## werden abgewiesen (Meldung, nichts gespeichert). Gibt zurück, ob gespeichert wurde.
 func save_profile() -> bool:
 	var lthr := _parse_value(lthr_edit.text, HeartRateZones.LTHR_MIN, HeartRateZones.LTHR_MAX)
 	var max_hr := _parse_value(max_hr_edit.text, HeartRateZones.MAX_HR_MIN, HeartRateZones.MAX_HR_MAX)
+	var ftp := _parse_value(ftp_edit.text, SaveGame.FTP_MIN, SaveGame.FTP_MAX)
 	var message: Label = labels["profile_message"]
-	if lthr < 0 or max_hr < 0:
+	if lthr < 0 or max_hr < 0 or ftp < 0:
 		var parts := []
 		if lthr < 0:
 			parts.append("LTHR %d–%d bpm" % [HeartRateZones.LTHR_MIN, HeartRateZones.LTHR_MAX])
 		if max_hr < 0:
 			parts.append("Maximalpuls %d–%d bpm" % [HeartRateZones.MAX_HR_MIN, HeartRateZones.MAX_HR_MAX])
+		if ftp < 0:
+			parts.append("FTP %d–%d W" % [SaveGame.FTP_MIN, SaveGame.FTP_MAX])
 		message.text = "Nicht gespeichert – erlaubt sind ganze Zahlen: " + ", ".join(parts) + "."
 		message.add_theme_color_override("font_color", COLOR_ERROR)
 		return false
 	_save.set_heart_rate_profile(lthr, max_hr)
+	_save.set_ftp(ftp)
 	message.text = "Gespeichert."
 	message.add_theme_color_override("font_color", COLOR_OK)
 	profile_changed.emit()
@@ -931,6 +938,7 @@ func _build_profile(content: VBoxContainer) -> void:
 	lthr_edit = _field(grid, "lthr", "LTHR (bpm, %d–%d)" % [HeartRateZones.LTHR_MIN, HeartRateZones.LTHR_MAX])
 	max_hr_edit = _field(grid, "max_hr", "Maximalpuls (bpm, %d–%d)" % [HeartRateZones.MAX_HR_MIN,
 			HeartRateZones.MAX_HR_MAX])
+	ftp_edit = _field(grid, "ftp", "FTP (W, %d–%d, für Einheiten in %% FTP)" % [SaveGame.FTP_MIN, SaveGame.FTP_MAX])
 	_button(content, "save_profile", "Speichern", save_profile)
 	labels["profile_message"] = _line(content, "")
 	_line(content, LTHR_HELP, COLOR_DIM)

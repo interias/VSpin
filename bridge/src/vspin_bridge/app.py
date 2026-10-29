@@ -7,6 +7,10 @@ meldet den Stand der Steuerung (`status.trainer`). Sichere Grundlast, nie gedros
 bleibt), setzt die Bridge sofort Steigung 0; beim Beenden Steigung 0 und Reset, bevor die
 Verbindung schließt. Bei einem harten Absturz der Bridge selbst entscheidet die Trainer-Firmware.
 
+ERG (Spec #75): `set_target_power` geht an den Trainer (`TrainerSource.set_target_power`), sein Modus und die
+Zielleistung stehen in `status.trainer`. Die Grundlast gilt auch in ERG: Der Client der letzten Steigung **oder**
+Zielleistung bzw. alle Clients weg, oder das Beenden – dann verlässt der Trainer ERG und bekommt Steigung 0.
+
 Verbindungsfenster (Spec #75): Neben Rad (Trainer) und Puls hält die Bridge den Lenkercontroller (`ControllerSource`);
 gemerkte Geräte und Suche auf Anfrage je Rolle laufen über `DeviceRelay` (`device_relay.py`). `status` trägt dazu
 `controller` und `signal`; „Steuerung zurückholen“ (`reclaim_trainer_control`) fordert die Steuerung nur auf Wunsch
@@ -23,10 +27,12 @@ from .bus import HOST, PORT, BusServer
 from .bus.messages import (
     RECLAIM_TRAINER_CONTROL,
     SET_GRADE,
+    SET_TARGET_POWER,
     ClientMessageError,
     DeviceKind,
     ReclaimTrainerControl,
     SetGrade,
+    SetTargetPower,
     ack_message,
     error_message,
     parse_client_message,
@@ -100,7 +106,8 @@ class Bridge:
         self._state = DISCONNECTED
         self._cadence: float | None = None
         self._grade: float | None = None
-        self._grade_client: object | None = None  # Client des letzten `set_grade` (Grundlast, wenn er geht)
+        # Client des letzten `set_grade` bzw. `set_target_power` (Grundlast, wenn er geht)
+        self._grade_client: object | None = None
         self._bus = BusServer(
             self._status_message,
             on_clients_changed=self._on_clients_changed,
@@ -127,6 +134,7 @@ class Bridge:
         self._tasks: set[asyncio.Task[None]] = set()  # laufende Grundlast-Aufträge
         if isinstance(source, TrainerSource):
             source.on_control_changed = self._on_trainer_control
+            source.on_target_changed = self._on_trainer_target
             source.on_info = console.info
 
     async def run(self, stop: asyncio.Event) -> None:
@@ -310,6 +318,8 @@ class Bridge:
             return error_message(exc.reason, exc.detail)
         if isinstance(message, ReclaimTrainerControl):
             return await self._reclaim_trainer_control()
+        if isinstance(message, SetTargetPower):
+            return await self._set_target_power(message)
         if not isinstance(message, SetGrade):
             return await self._devices.handle(message, self._bus.sender())
         return await self._set_grade(message)
@@ -325,7 +335,7 @@ class Bridge:
             await self._source.set_grade(message.grade)
         except NotSupportedError:
             ok, reason = False, "not_supported"
-        except ControlRefusedError as exc:  # read_only | control_lost (Spec #75)
+        except ControlRefusedError as exc:  # read_only | control_lost | erg_active (Spec #75)
             ok, reason, detail = False, exc.reason, f" ({exc})"
         except Exception as exc:  # Quelle scheitert anders: Absender bekommt ack, Verbindung bleibt
             ok, reason, detail = False, "source_error", f" ({exc})"
@@ -335,6 +345,27 @@ class Bridge:
         self._console.info(f"set_grade {message.grade:+.3f} ({message.grade * 100:+.1f} %) -> {result}")
         self._render()
         return ack_message(SET_GRADE, ok, reason)
+
+    async def _set_target_power(self, message: SetTargetPower) -> str:
+        """ERG (Spec #75): Zielleistung an den Trainer bzw. `null` beendet ERG; `ack`-Gründe wie bei `set_grade`."""
+        self._grade_client = self._bus.sender()
+        detail = ""
+        if not isinstance(self._source, TrainerSource):  # Simulator und Replay halten keine Leistung
+            ok, reason = False, "not_supported"
+        else:
+            try:
+                await self._source.set_target_power(message.watts)
+            except NotSupportedError:
+                ok, reason = False, "not_supported"
+            except ControlRefusedError as exc:  # read_only | control_lost
+                ok, reason, detail = False, exc.reason, f" ({exc})"
+            except Exception as exc:
+                ok, reason, detail = False, "source_error", f" ({exc})"
+            else:
+                ok, reason = True, None
+        watts = "null" if message.watts is None else f"{message.watts} W"
+        self._console.info(f"set_target_power {watts} -> {('ok' if ok else reason) + detail}")
+        return ack_message(SET_TARGET_POWER, ok, reason)
 
     async def _reclaim_trainer_control(self) -> str:
         """Knopf „Steuerung zurückholen“ (Verbindungsfenster): nur auf diesen Wunsch fordert die Bridge neu an."""
@@ -369,6 +400,8 @@ class Bridge:
                 DeviceKind.HEART_RATE: self._heart_rate.source.rssi,
                 DeviceKind.CONTROLLER: self._controller.rssi,
             },
+            trainer_mode="sim" if trainer is None else trainer.mode,
+            target_power=None if trainer is None else trainer.target_power,
         )
 
     def _trainer_control(self) -> ControlState:
@@ -382,6 +415,11 @@ class Bridge:
         self._bus.publish(self._status_message())
         self._console.info(f"Trainer-Steuerung: {state} ({reason})")
 
+    def _on_trainer_target(self, target_power: int | None) -> None:
+        """ERG an, aus oder neue Zielleistung: genau ein `status` an alle."""
+        self._bus.publish(self._status_message())
+        self._console.info("Trainer: SIM (Steigung)" if target_power is None else f"Trainer: ERG {target_power} W")
+
     def _start_safe_load(self, why: str) -> None:
         if not isinstance(self._source, TrainerSource):
             return
@@ -390,7 +428,7 @@ class Bridge:
         task.add_done_callback(self._tasks.discard)
 
     async def _safe_load(self, why: str) -> None:
-        """Alle Clients weg oder der Client der letzten Steigung weg: sofort Steigung 0 (nie gedrosselt)."""
+        """Alle Clients weg oder der Client der letzten Steigung weg: sofort Steigung 0 (nie gedrosselt), ERG endet."""
         assert isinstance(self._source, TrainerSource)
         try:
             written = await self._source.reset_grade()

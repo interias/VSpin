@@ -51,6 +51,8 @@ const SUBTITLE := "Radfahren auf einer Mittelmeerinsel"
 const COLOR_OK := Color(0.45, 0.85, 0.5)
 const COLOR_WARN := Color(1.0, 0.78, 0.35)
 const COLOR_ERROR := Color(1.0, 0.45, 0.4)
+## Hinweis auf der Seite „Training“, wenn eine Einheit in % FTP ohne FTP gewählt ist.
+const NO_FTP_HINT := "Diese Einheit rechnet in % FTP: Trag deine FTP unter „Verbindungen“ bei den Pulswerten ein."
 ## Hinweis im Radstatus ohne Bus: Bridge von Hand starten.
 const BRIDGE_START_HINT := "Bridge starten: vspin-bridge --source sim"
 ## Schrift der Pulszeile: etwas kleiner als der Radstatus, damit beide Zeilen im Fenster 1152×648 noch passen.
@@ -77,6 +79,8 @@ var buttons := {}
 var options := {}
 ## Einheiten zur Auswahl auf der Seite „Training“ (wie Training.load_file).
 var training_units: Array = []
+## FTP des Profils (W, 0 = nicht gesetzt): ohne sie ist eine Einheit in % FTP nicht startbar (Spec #75, ERG).
+var ftp_w := 0
 ## Ghost selbst gewählt? Dann bleibt die Wahl, solange sie verfügbar ist; sonst gilt der Standard.
 var _ghost_picked := false
 var _main_page: VBoxContainer
@@ -226,9 +230,12 @@ func set_training_units(units: Array) -> void:
 		option.add_item(unit["name"])
 	if not units.is_empty():
 		option.select(0)
-	var button: Button = buttons["training_start"]
-	button.disabled = units.is_empty()
-	button.focus_mode = Control.FOCUS_NONE if button.disabled else Control.FOCUS_ALL
+	_show_training_info()
+
+
+## FTP des Profils (W, 0 = nicht gesetzt) für die Seite „Training“.
+func set_ftp(watts: int) -> void:
+	ftp_w = watts
 	_show_training_info()
 
 
@@ -238,15 +245,21 @@ func training_unit() -> Dictionary:
 	return training_units[index] if index >= 0 and index < training_units.size() else {}
 
 
-## Beschreibung und Dauer der gewählten Einheit, z. B. „10 × 30 s hart / 30 s locker · 23 min“.
+## Beschreibung und Dauer der gewählten Einheit, z. B. „10 × 30 s hart / 30 s locker · 23 min“. Eine Einheit in % FTP
+## ohne FTP ist nicht startbar („Losfahren“ ausgegraut) und sagt, wo die FTP hingehört.
 func _show_training_info() -> void:
 	var unit := training_unit()
+	var button: Button = buttons["training_start"]
+	button.disabled = unit.is_empty() or not Training.startable(unit, ftp_w)
+	button.focus_mode = Control.FOCUS_NONE if button.disabled else Control.FOCUS_ALL
 	if unit.is_empty():
 		_training_info.text = "Keine Einheit gefunden"
 		return
 	var text: String = unit["description"]
 	_training_info.text = "%s%d min" % [text + " · " if not text.is_empty() else "",
 			roundi(Training.new(unit).duration_s() / 60.0)]
+	if not Training.startable(unit, ftp_w):
+		_training_info.text += "\n" + NO_FTP_HINT
 
 
 ## Seite „Arcade“: Stufe `tier` (ArcadeTiers) und Kadenzbereich `range_` auswählen. Grenzen, die nicht in der Auswahl

@@ -12,7 +12,7 @@
 ##                                 "achievements": {"<erfolg>": "…Z"},
 ##                                 "wardrobe": {"trikot"|"radfarbe"|"helm": "<teil-id>"},
 ##                                 "camera": {"view": "nah"|"verfolger"|"weit"},
-##                                 "pulse": {"lthr_bpm": 168, "max_hr_bpm": 190},
+##                                 "pulse": {"lthr_bpm": 168, "max_hr_bpm": 190, "ftp": 250},
 ##                                 "arcade": {"cadence_range": {"min": 60, "max": 120}, "tier": 1,
 ##                                            "best_points": {"<stufe>": <punkte>}, "unlocked": 3,
 ##                                            "defeated": {"<stufe>": ["<boss-id>", …]}}}}}
@@ -34,6 +34,9 @@
 ## 0); daraus bilden sich die Zonen (HeartRateZones). Eine Fahrt mit Puls trägt zusätzlich `avg_hr_bpm`, `peak_hr_bpm` und,
 ## wenn Zonen galten, `hr_zone_s` (Sekunden in Z1–Z5, mit den zur Fahrt gültigen Zonen gerechnet und so gespeichert).
 ## Fahrten ohne Puls und ältere Stände tragen diese Felder nicht – additiv, die Formatversion bleibt 1.
+## FTP (Spec #75, ERG): im selben Bereich `pulse` als `ftp` (W, FTP_MIN–FTP_MAX; fehlt sie, gilt sie als nicht gesetzt = 0)
+## – für Trainingseinheiten in % FTP. Additiv wie der Puls; der Schlüssel nennt bewusst keine Einheit (keine
+## Rohtelemetrie-Wörter im Spielstand).
 ##
 ## Wertung je Geräteart (Spec #75, ADR-0010 Nachtrag): Bestzeiten, Segment-Bestzeiten, Medaillen und Ghosts gibt es je
 ## Geräteart (RideModel.KIND_*). Das Kadenzmodell steht in den bisherigen Bereichen, das Leistungsmodell (gemessene
@@ -73,6 +76,9 @@ const MODE_ARCADE := "arcade"
 const PROFILE_DEFAULTS := {"rides": [], "best_times": {}, "segment_best_times": {}, "medals": {}, "ghosts": {},
 		"achievements": {}, "wardrobe": {}, "camera": {}, "pulse": {}, "arcade": {}, "measured_best_times": {},
 		"measured_segment_best_times": {}, "measured_medals": {}, "measured_ghosts": {}}
+## Plausible FTP in W (Spec #75); andere Werte weist `set_ftp` ab.
+const FTP_MIN := 50
+const FTP_MAX := 600
 ## Vorsilbe der Wertungsbereiche des Leistungsmodells (`scoring_area`).
 const POWER_PREFIX := "measured_"
 ## Endung, unter der eine unlesbare Datei beiseitegelegt wird.
@@ -257,7 +263,24 @@ func max_hr_bpm() -> int:
 ## Setzt LTHR und Maximalpuls des Profils (0 = nicht gesetzt). Ob die Werte plausibel sind, prüft HeartRateZones.
 ## Schreibt nicht auf die Platte.
 func set_heart_rate_profile(lthr: int, max_hr: int) -> void:
-	profile()["pulse"] = {"lthr_bpm": maxi(lthr, 0), "max_hr_bpm": maxi(max_hr, 0)}
+	var pulse: Dictionary = profile()["pulse"]
+	pulse["lthr_bpm"] = maxi(lthr, 0)
+	pulse["max_hr_bpm"] = maxi(max_hr, 0)
+
+
+## FTP des Profils in W (0 = nicht gesetzt).
+func ftp() -> int:
+	var value = profile()["pulse"].get("ftp")
+	return int(value) if (value is float or value is int) and value >= FTP_MIN and value <= FTP_MAX else 0
+
+
+## Setzt die FTP (0 = nicht gesetzt); außerhalb FTP_MIN–FTP_MAX abgewiesen (`false`, unverändert). Schreibt nicht auf
+## die Platte.
+func set_ftp(watts: int) -> bool:
+	if watts != 0 and (watts < FTP_MIN or watts > FTP_MAX):
+		return false
+	profile()["pulse"]["ftp"] = watts
+	return true
 
 
 ## Die Zonen des Profils aus LTHR und Maximalpuls (ohne gültige Werte: `has_zones() == false`).

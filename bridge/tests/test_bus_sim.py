@@ -25,7 +25,7 @@ def test_new_client_gets_status_first_then_telemetry_with_monotonic_t_ms(bridge_
     assert status["source"] == "sim"
     assert status["state"] == "connected"
     assert status["capabilities"] == ["CADENCE"]
-    assert status["trainer"] == {"control": "not_supported", "device": None}  # der Simulator steuert nichts
+    assert status["trainer"] == {"control": "not_supported", "device": None, "mode": "sim", "target_power": None}  # Simulator
     assert isinstance(status["t_ms"], int)
 
     samples = [receive_json(client) for _ in range(8)]

@@ -1,0 +1,13 @@
+{
+	"name": "Sweet Spot (ERG)",
+	"description": "3 × 8 min bei 90 % FTP, der Trainer hält die Leistung",
+	"phases": [
+		{"name": "Aufwärmen", "kind": "warmup", "duration_s": 480, "power_ftp": 0.55},
+		{"name": "Sweet Spot 1/3", "kind": "work", "duration_s": 480, "power_ftp": 0.9},
+		{"name": "Erholung 1/2", "kind": "recovery", "duration_s": 240, "power_ftp": 0.55},
+		{"name": "Sweet Spot 2/3", "kind": "work", "duration_s": 480, "power_ftp": 0.9},
+		{"name": "Erholung 2/2", "kind": "recovery", "duration_s": 240, "power_ftp": 0.55},
+		{"name": "Sweet Spot 3/3", "kind": "work", "duration_s": 480, "power_ftp": 0.9},
+		{"name": "Ausrollen", "kind": "cooldown", "duration_s": 300, "power_ftp": 0.5}
+	]
+}

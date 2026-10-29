@@ -146,11 +146,12 @@ func test_start_and_finish_gates_look_different() -> void:
 ## allein und keins an einer Erholung, die keine Belastung beginnt oder beendet.
 func test_gates_only_at_work_phases_for_all_three_units() -> void:
 	var units := Training.load_all()
-	assert_eq(units.size(), 3)
+	assert_eq(units.size(), 4, "drei Kadenz-Einheiten und die ERG-Einheit (Spec #75)")
 	var expected := {
 		"Intervalle kurz": 20,  # 10 × Start und Ziel
 		"Pyramide": 8,  # 7 Starttore (das nächste Intervall beginnt, wo das vorige endet) und 1 Zieltor
 		"Tempo-Blöcke": 6,
+		"Sweet Spot (ERG)": 6,  # 3 × Start und Ziel
 	}
 	for unit in units:
 		var training := Training.new(unit)

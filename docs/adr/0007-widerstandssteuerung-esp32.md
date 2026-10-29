@@ -65,3 +65,6 @@ Gerät:
 - **Drosselung in der Bridge:** `0x11` nur bei einer Änderung ab 0,1 % und höchstens 2 Hz gegenüber dem zuletzt
   geschriebenen Wert; eine gedrosselte Änderung wird mit dem dann aktuellen Wert nachgeholt.
 - Bus additiv, `v` bleibt 0: `status.trainer`, neue `ack`-Gründe `read_only` und `control_lost` (docs/bus-protocol.md).
+
+ERG (P7 von Spec #75): Als zweiter Steuermodus kommt ERG über denselben FTMS Control Point dazu (`0x05` Set Target
+Power); es gilt dieselbe Regel „immer nur ein Steuerer“, und die Grundlast verlässt ERG mit Steigung 0.

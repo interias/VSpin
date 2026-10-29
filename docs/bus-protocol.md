@@ -71,13 +71,19 @@ Dahinter stehen seit Spec #75 die Blöcke `trainer` (Stand der Steuerung und ver
 {"v": 0, "type": "status", "t_ms": 123456,
  "state": "connected", "source": "ble", "capabilities": ["CADENCE", "POWER", "RESISTANCE_CONTROL", "SPEED"],
  "heart_rate": {"state": "off", "device": null},
- "trainer": {"control": "active", "device": {"address": "AA:BB:CC:DD:EE:01", "name": "KICKR CORE 2"}},
+ "trainer": {"control": "active", "device": {"address": "AA:BB:CC:DD:EE:01", "name": "KICKR CORE 2"},
+             "mode": "sim", "target_power": null},
  "controller": {"state": "connected", "device": {"address": "CC:00:00:00:00:08", "name": "Zwift SF2", "side": "left"},
                 "battery": 81},
  "signal": {"trainer": -55, "heart_rate": null, "controller": -61}}
 ```
 `trainer.device`: der verbundene Trainer (`address`, `name` aus den gemerkten Geräten, sonst aus der Ankündigung),
 `null` ohne Verbindung und bei Simulator und Replay. Ob er verbunden ist, sagt weiter `state` (Radteil).
+`trainer.mode` (ERG, Spec #75): `sim` (Steigung, Indoor Bike Simulation) oder `erg` (der Trainer hält eine
+Zielleistung, `set_target_power`); `trainer.target_power`: die Zielleistung in W, `null` ohne ERG. Beides beschreibt den
+Auftrag an die Bridge: Auch ohne Verbindung bleibt `erg` mit der Zielleistung stehen, die nach dem Verbinden an den
+Trainer geht. Simulator und Replay melden immer `sim`/`null`. Jede Änderung von `mode` oder `target_power` ist genau
+ein `status` an alle Clients.
 
 | `trainer.control` | Bedeutung |
 |---|---|
@@ -146,6 +152,33 @@ schreibt die Bridge sofort Steigung 0; eine noch ausstehende gedrosselte Änderu
 zurück), bevor sie die Verbindung schließt; bei `error`, wenn der Trainer Request Control bestätigt hatte, nur das
 Reset, bei `lost` nichts. Das Spiel sendet `set_grade 0`, sobald die Fahrt
 pausiert oder endet, und beim Weiterfahren wieder die echte Steigung.
+
+Solange ERG läuft (`trainer.mode: "erg"`), beantwortet die Bridge `set_grade` mit `ok: false, reason: "erg_active"` und
+schreibt nichts; die Steigung merkt sie sich und schreibt sie, sobald ERG endet.
+
+### ERG: Zielleistung
+
+```json
+{"v": 0, "type": "set_target_power", "watts": 250}
+{"v": 0, "type": "set_target_power", "watts": null}
+```
+`watts`: ganze Zahl 0…2000 (W; eine ganzzahlige Kommazahl wie `250.0` gilt) startet bzw. hält ERG mit dieser
+Zielleistung (FTMS `0x05` Set Target Power, sint16 in W); `null` beendet ERG – zurück in die Simulation, die Bridge
+sendet sofort die zuletzt gemeldete Steigung (ohne eine: 0) als `0x11` nach. Das Feld ist Pflicht; alles andere ist ein
+`error` mit `reason: "invalid_watts"`. Eine eigene Nachricht `set_mode` gibt es nicht: Die Zielleistung allein legt den
+Modus fest (Zahl = ERG, `null` = SIM), damit nie ein Modus ohne Ziel oder ein Ziel im falschen Modus entstehen kann.
+
+Gedrosselt wie die Steigung: geschrieben wird nur bei einer Änderung ab 1 W und höchstens alle 0,5 s, der zuletzt
+gemeldete Wert wird nachgeholt. Antwort `ack` mit `for: "set_target_power"` und den Gründen wie bei `set_grade`
+(`not_supported`: Trainer ohne Power Target in den Target Setting Features `0x2ACC`, Bit 3, oder Antwort `0x02`; dazu
+Simulator und Replay). Nach einem Neuverbinden und auf `reclaim_trainer_control` setzt die Bridge ERG mit der letzten
+Zielleistung fort, solange ERG aktiv ist; sonst die Steigung. Antwortet der Trainer auf `0x05` mit `0x02`, verlässt die
+Bridge ERG (`mode: "sim"`) und sendet kein `0x05` mehr; ebenso, wenn der Trainer beim Verbinden kein Power Target meldet.
+
+**Grundlast in ERG:** Verlassen alle Clients den Bus oder der Client, der zuletzt `set_grade` **oder**
+`set_target_power` geschickt hat, oder endet die Bridge, verlässt sie ERG (`mode: "sim"`) und schreibt Steigung 0 –
+beim Beenden danach `0x01` Reset; bei `lost` nichts. Das Spiel sendet beim Verlassen der Fahrt (Pause, Ziel, Menü)
+zuerst `set_target_power null`, dann `set_grade 0`, beim Weiterfahren die Zielleistung der laufenden Phase.
 
 ### Puls: gemerkte Geräte
 
@@ -273,6 +306,7 @@ geschriebenen Wert bestätigt hat (höchstens 2 s Zeitlimit), bei gedrosselten W
 | `not_supported` | Quelle ohne Capability `RESISTANCE_CONTROL` (Simulator, Replay, Trainer ohne Indoor Bike Simulation), oder der Trainer antwortet `0x02` (nicht unterstützt) |
 | `read_only` | Bridge läuft mit `--read-only` (Nur-lesen-Modus): sie schreibt nichts auf den Trainer |
 | `control_lost` | eine andere App steuert den Trainer (`status.trainer.control: "lost"`; Antwort `0x05` Steuerung nicht erlaubt) |
+| `erg_active` | nur `set_grade`: ERG läuft (`status.trainer.mode: "erg"`), die Bridge schreibt keine Steigung |
 | `source_error` | Quelle hat den Befehl mit einem Fehler abgelehnt (Details im Bridge-Terminal); die Verbindung bleibt offen. Am Trainer: Antwort `0x03` (ungültiger Parameter, z. B. zu steil) oder `0x04` (gescheitert), keine Antwort im Zeitlimit, Schreibfehler, Steigung außerhalb ±327,67 %, oder gerade keine Steuerung (`none`, `requesting`, `error`) – dann setzt die Bridge die Steigung nach dem Verbinden |
 
 ### `error`

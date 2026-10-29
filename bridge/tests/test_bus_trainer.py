@@ -24,6 +24,7 @@ from trainer_harness import (
     FEATURES_POWER_ONLY,
     KICKR,
     KICKR_NAME,
+    TARGET_POWER,
     TARGET_SIMULATION,
     bike,
     control_responder,
@@ -31,6 +32,7 @@ from trainer_harness import (
     cycling_power,
     kickr,
     simulation,
+    target_power,
 )
 
 from vspin_bridge import app
@@ -45,9 +47,14 @@ pytestmark = pytest.mark.usefixtures("isolated_bus")
 RECONNECT_S = 0.1
 
 
-def trainer_block(control: str, connected: bool = True) -> dict:
-    """Der ganze Block `status.trainer` (seit P4 mit dem verbundenen Gerät)."""
-    return {"control": control, "device": {"address": KICKR, "name": KICKR_NAME} if connected else None}
+def trainer_block(control: str, connected: bool = True, mode: str = "sim", target_power: int | None = None) -> dict:
+    """Der ganze Block `status.trainer` (seit P4 mit dem verbundenen Gerät, seit P7 mit Modus und Zielleistung)."""
+    return {
+        "control": control,
+        "device": {"address": KICKR, "name": KICKR_NAME} if connected else None,
+        "mode": mode,
+        "target_power": target_power,
+    }
 
 
 class Rig:
@@ -87,7 +94,7 @@ def trainer_bridge(request, tmp_path, monkeypatch) -> Iterator[Callable[..., Rig
     def start(present: bool = True, sim: bool = False, read_only: bool = False, respond=None, **kickr_args) -> Rig:
         adapter = FakeBleAdapter()
         if sim:
-            kickr_args["targets"] = TARGET_SIMULATION
+            kickr_args["targets"] = TARGET_SIMULATION | kickr_args.get("targets", 0)
             adapter.answer(KICKR, CONTROL_POINT, CONTROL_POINT, respond or control_responder())
         if present:
             kickr(adapter, **kickr_args)
@@ -390,3 +397,95 @@ def test_trainer_without_simulation_reports_not_supported(trainer_bridge, bus_cl
     reader.client.close()
     rig.bridge.stop()
     assert rig.adapter.writes == []
+
+
+# --- ERG (P7) --------------------------------------------------------------------------------
+
+
+def set_target_power(watts) -> dict:
+    return {"v": 0, "type": "set_target_power", "watts": watts}
+
+
+def ack_power(ok: bool, reason: str | None = None) -> dict:
+    return {"v": 0, "type": "ack", "for": "set_target_power", "ok": ok, "reason": reason}
+
+
+def test_erg_on_and_off_with_one_status_per_change(trainer_bridge, bus_client):
+    rig = trainer_bridge(sim=True, targets=TARGET_POWER)
+    reader = BusReader(bus_client())
+    wait_for_state(reader, "connected")
+    assert reader.reply(set_grade(0.04)) == ack(True)
+    assert reader.reply(set_target_power(250)) == ack_power(True)
+    assert reader.statuses()[-1]["trainer"] == trainer_block("active", mode="erg", target_power=250)  # vor dem ack
+    assert rig.control_writes()[-1] == target_power(250)
+    assert reader.reply(set_target_power(250)) == ack_power(True)  # unverändert: kein Schreiben, kein status
+    assert [m for m in reader.drain(0.3) if m["type"] == "status"] == []
+    assert reader.reply(set_grade(0.06)) == ack(False, "erg_active")  # in ERG schreibt keine Steigung
+    assert rig.control_writes() == [REQUEST_CONTROL, START, simulation(400), target_power(250)]
+    assert reader.reply(set_target_power(None)) == ack_power(True)
+    assert reader.statuses()[-1]["trainer"] == trainer_block("active")
+    assert rig.control_writes()[-1] == simulation(600)  # zurück in SIM mit der zuletzt gemeldeten Steigung
+    assert_one_status_per_change(reader)
+    assert "set_target_power 250 W -> ok" in rig.bridge.log()
+    assert "set_grade +0.060 (+6.0 %) -> erg_active" in rig.bridge.log()
+
+
+def test_set_target_power_without_power_target_is_not_supported(trainer_bridge, bus_client):
+    rig = trainer_bridge(sim=True)  # Simulation ja, Power Target nein
+    reader = BusReader(bus_client())
+    wait_for_state(reader, "connected")
+    assert reader.reply(set_target_power(200)) == ack_power(False, "not_supported")
+    assert rig.control_writes() == [REQUEST_CONTROL, START]
+    assert reader.reply(set_grade(0.03)) == ack(True)  # SIM bleibt
+
+
+def test_invalid_watts_is_an_error(trainer_bridge, bus_client):
+    trainer_bridge(sim=True, targets=TARGET_POWER)
+    reader = BusReader(bus_client())
+    for bad in (-1, 2001, 250.5, "250", True):
+        assert reader.reply(set_target_power(bad))["reason"] == "invalid_watts"
+    assert reader.reply({"v": 0, "type": "set_target_power"})["reason"] == "invalid_watts"
+
+
+def test_the_client_of_the_last_target_power_leaving_ends_erg_with_zero_grade(trainer_bridge, bus_client):
+    rig = trainer_bridge(sim=True, targets=TARGET_POWER)
+    game, companion = BusReader(bus_client()), BusReader(bus_client())
+    wait_for_state(companion, "connected")
+    assert game.reply(set_target_power(220)) == ack_power(True)
+    assert companion.next("status")["trainer"]["mode"] == "erg"
+    game.client.close()
+    assert companion.next("status")["trainer"] == trainer_block("active")  # ERG aus
+    assert rig.wait_for_writes(4, timeout_s=1.0) == [REQUEST_CONTROL, START, target_power(220), simulation(0)]
+    assert "Client der letzten Steigung weg: Grundlast, Steigung 0 am Trainer" in rig.bridge.log()
+
+
+def test_all_clients_leaving_in_erg_sets_zero_grade(trainer_bridge, bus_client):
+    rig = trainer_bridge(sim=True, targets=TARGET_POWER)
+    game = BusReader(bus_client())
+    wait_for_state(game, "connected")
+    assert game.reply(set_target_power(180)) == ack_power(True)
+    game.client.close()
+    assert rig.wait_for_writes(4, timeout_s=1.0) == [REQUEST_CONTROL, START, target_power(180), simulation(0)]
+    assert BusReader(bus_client()).first["trainer"] == trainer_block("active")
+
+
+def test_stopping_the_bridge_in_erg_writes_zero_grade_and_reset(trainer_bridge, bus_client):
+    rig = trainer_bridge(sim=True, targets=TARGET_POWER)
+    reader = BusReader(bus_client())
+    wait_for_state(reader, "connected")
+    assert reader.reply(set_target_power(200)) == ack_power(True)
+    assert rig.bridge.stop() is None
+    assert control_writes(rig.adapter) == [REQUEST_CONTROL, START, target_power(200), simulation(0), RESET]
+
+
+def test_reconnect_in_erg_resends_the_target_power(trainer_bridge, bus_client):
+    rig = trainer_bridge(sim=True, targets=TARGET_POWER)
+    reader = BusReader(bus_client())
+    wait_for_state(reader, "connected")
+    assert reader.reply(set_target_power(230)) == ack_power(True)
+    rig.bridge.call(rig.adapter.drop, KICKR)
+    disconnected = reader.next("status", lambda m: m["state"] == "disconnected")
+    assert disconnected["trainer"] == trainer_block("none", False, "erg", 230)  # ERG bleibt das Ziel
+    reader.next("status", lambda m: m["state"] == "connected")
+    assert rig.wait_for_writes(6) == [REQUEST_CONTROL, START, target_power(230)] * 2
+    assert_one_status_per_change(reader)

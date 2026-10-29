@@ -15,6 +15,7 @@ KICKR_NAME = "KICKR CORE 2 1234"
 FEATURES_CADENCE_POWER = 0x4002  # Bit 1 Cadence, Bit 14 Power Measurement
 FEATURES_POWER_ONLY = 0x4000
 TARGET_SIMULATION = 1 << 13  # Target Setting Features: Indoor Bike Simulation Parameters
+TARGET_POWER = 1 << 3  # Target Setting Features: Power Target (ERG)
 
 
 def features(bits: int, targets: int = 0) -> bytes:
@@ -79,7 +80,8 @@ def sim_kickr(
 ) -> str:
     """Ein Trainer mit Indoor Bike Simulation, dessen Control Point `0x2AD9` antwortet (Standard: immer Erfolg). Wie am
     echten Gerät lehnt er Schreibzugriffe ab, solange die Indications von `0x2AD9` nicht abonniert sind."""
-    kickr(adapter, address, targets=TARGET_SIMULATION, **kickr_args)
+    kickr_args["targets"] = TARGET_SIMULATION | kickr_args.get("targets", 0)
+    kickr(adapter, address, **kickr_args)
     adapter.answer(address, CONTROL_POINT, CONTROL_POINT, respond or control_responder())
     return address
 
@@ -92,3 +94,8 @@ def control_writes(adapter: FakeBleAdapter, address: str = KICKR) -> list[bytes]
 def simulation(grade_hundredths: int) -> bytes:
     """Erwartete Bytes von `0x11`: Wind 0, Steigung in 0,01 %, Crr 0,0040 (40), Cw 0,51 kg/m (51)."""
     return bytes([0x11]) + struct.pack("<hhBB", 0, grade_hundredths, 40, 51)
+
+
+def target_power(watts: int) -> bytes:
+    """Erwartete Bytes von `0x05`: Zielleistung sint16 in W."""
+    return bytes([0x05]) + struct.pack("<h", watts)
