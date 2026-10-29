@@ -95,6 +95,14 @@ Bridge statt als Skript:
   nicht als ein solcher Hersteller aus; wer die Belastung will, zeichnet parallel auf der Uhr auf und schaltet den
   Upload für diese Fahrt ab (bridge/README.md).
 
+## Nachtrag (2026-10-29, Spec #89): Steuerprotokoll
+
+- **Dritte Session-Datei** `YYYY-MM-DD_HH-MM-SS.control.jsonl` neben CSV und Rohdaten (gleicher Name, gleiche
+  Bridge-Zeit `t_ms`, ebenfalls in `.gitignore`): je Zeile ein Ereignis der Trainer-Steuerung – Wechsel von
+  `status.trainer.control` samt Grund, Schreiben und Indications auf `0x2AD9`, Notifications von `0x2ADA`, Fehler.
+  Grund: Die Bridge aus dem Spiel läuft ohne Terminal, und die Rohdaten enthalten nur Messwerte; warum die Steuerung
+  scheitert, wäre am Gerät sonst nicht nachweisbar. Keine Zugangsdaten; ohne Trainer bleibt die Datei leer.
+
 ## Nachtrag (2026-10-28, #76): Daten des Begleiters
 
 - **Ablage außerhalb des Repos:** `%APPDATA%\VSpin\companion\` mit `soul.md` (Seele), `memory.md` (Gedächtnis),

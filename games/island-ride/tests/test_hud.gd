@@ -294,6 +294,19 @@ func test_layout_fits_half_screen_window() -> void:
 	assert_false(message.intersects(hud.get_node("%Bottom").get_global_rect()), "Meldung frei vom Profil")
 
 
+## Gänge aus (Spec #89): jeder Grund passt ins Fenster, über das Panel und frei von den übrigen Anzeigen.
+func test_layout_fits_every_gears_off_hint() -> void:
+	var main := load("res://scenes/main.gd")
+	var texts := [main.RESISTANCE_CONTROL_LOST, main.RESISTANCE_READ_ONLY, main.GEARS_OFF_NONE, main.GEARS_OFF_REQUESTING,
+			main.GEARS_OFF_NOT_SUPPORTED, main.GEARS_OFF_ERROR]
+	for size in [Vector2i(960, 1040), Vector2i(1152, 648), Vector2i(1280, 720)]:
+		var hud := await _layout_in(size)
+		for text in texts:
+			(hud.get_node("Hint") as Label).text = text
+			await wait_process_frames(2)
+			_assert_inside(hud, "%s „%s“" % [size, text])
+
+
 func test_layout_fits_full_hd_and_1600x900() -> void:
 	_assert_inside(await _layout_in(Vector2i(1920, 1080)), "1920×1080")
 	_assert_inside(await _layout_in(Vector2i(1600, 900)), "1600×900")

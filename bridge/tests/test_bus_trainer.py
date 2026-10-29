@@ -399,6 +399,48 @@ def test_trainer_without_simulation_reports_not_supported(trainer_bridge, bus_cl
     assert rig.adapter.writes == []
 
 
+def test_session_control_file_records_takeover_traffic_loss_and_release(trainer_bridge, bus_client):
+    # Steuerprotokoll (Spec #89): `<zeit>.control.jsonl` neben CSV und Rohdaten, Bridge-Zeit wie dort.
+    rig = trainer_bridge(sim=True)
+    reader = BusReader(bus_client())
+    wait_for_state(reader, "connected")
+    assert reader.reply(set_grade(0.05)) == ack(True)
+    rig.send(MACHINE_STATUS, b"\xff")
+    reader.next("status", lambda m: m["trainer"]["control"] == "lost")
+    rig.bridge.stop()
+    [csv_path] = rig.sessions.glob("*.csv")
+    control_path = csv_path.with_name(csv_path.stem + ".control.jsonl")
+    lines = read_jsonl(control_path)
+    assert lines[0]["event"] == "state" and lines[0]["state"] == "none"
+    assert lines[0]["reason"] == "Stand beim Start der Session"
+    assert all(list(line)[:2] == ["t_ms", "event"] and isinstance(line["t_ms"], int) for line in lines)
+    assert [line["t_ms"] for line in lines] == sorted(line["t_ms"] for line in lines)
+    events = [{key: value for key, value in line.items() if key != "t_ms"} for line in lines[1:]]
+    assert events == [
+        {"event": "state", "state": "requesting", "reason": "fordere die Steuerung an"},
+        {"event": "write", "char": "2ad9", "hex": "00"},
+        {"event": "indication", "char": "2ad9", "hex": "800001"},
+        {"event": "write", "char": "2ad9", "hex": "07"},
+        {"event": "indication", "char": "2ad9", "hex": "800701"},
+        {"event": "state", "state": "active", "reason": "VSpin steuert den Trainer"},
+        {"event": "write", "char": "2ad9", "hex": simulation(500).hex()},
+        {"event": "indication", "char": "2ad9", "hex": "801101"},
+        {"event": "notification", "char": "2ada", "hex": "ff"},
+        {"event": "state", "state": "lost", "reason": "Machine Status: Control Permission Lost (0xFF)"},
+        {"event": "state", "state": "none", "reason": "Trainer nicht verbunden"},
+    ]
+    assert f"Steuerprotokoll: {control_path}" in rig.bridge.log()
+
+
+def test_session_control_file_of_a_read_only_bridge_has_only_the_start_state(trainer_bridge, bus_client):
+    rig = trainer_bridge(sim=True, read_only=True)
+    wait_for_state(BusReader(bus_client()), "connected")
+    rig.bridge.stop()
+    [control_path] = rig.sessions.glob("*.control.jsonl")
+    [line] = read_jsonl(control_path)
+    assert (line["event"], line["state"]) == ("state", "read_only")
+
+
 # --- ERG (P7) --------------------------------------------------------------------------------
 
 

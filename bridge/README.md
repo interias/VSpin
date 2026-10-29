@@ -484,7 +484,7 @@ Endet die Quelle (Profil ohne `repeat`), meldet die Bridge `disconnected` und bl
 
 ## Sessions
 
-Jeder Bridge-Lauf schreibt zwei Dateien (ADR-0008) nach `sessions/` – relativ zum
+Jeder Bridge-Lauf schreibt drei Dateien (ADR-0008) nach `sessions/` – relativ zum
 Arbeitsverzeichnis, anderer Ort mit `--sessions-dir DIR`. Die Pfade stehen beim Start im Terminal.
 
 - `YYYY-MM-DD_HH-MM-SS.csv`: eine Zeile pro Sample am Bus, Spalten
@@ -499,9 +499,25 @@ Arbeitsverzeichnis, anderer Ort mit `--sessions-dir DIR`. Die Pfade stehen beim 
   ausgewertete. Beim Replay mit unverändertem `t_ms` der Aufnahme – für eine Eingabe im Format
   von `ble_discovery.py` (Standard-`json.dumps`, `hex` klein) ist die Datei Byte für Byte gleich
   der Eingabe. Der Simulator hat keine rohen Notifications: die Datei bleibt leer, damit eine
-  Session immer aus beiden Dateien besteht.
+  Session immer aus allen Dateien besteht.
+- `YYYY-MM-DD_HH-MM-SS.control.jsonl` (Steuerprotokoll, Spec #89): je Ereignis der Trainer-Steuerung eine Zeile,
+  `t_ms` (Bridge-Zeit wie oben) und `event` zuerst. Die erste Zeile ist der Stand beim Start der Session:
 
-Ist einer der beiden Namen schon belegt, bekommen beide `_2`, `_3`, … angehängt. Jede Zeile wird
+  ```
+  {"t_ms": 3, "event": "state", "state": "none", "reason": "Stand beim Start der Session"}
+  {"t_ms": 812, "event": "state", "state": "requesting", "reason": "fordere die Steuerung an"}
+  {"t_ms": 815, "event": "write", "char": "2ad9", "hex": "00"}
+  {"t_ms": 871, "event": "indication", "char": "2ad9", "hex": "800001"}
+  {"t_ms": 902, "event": "notification", "char": "2ada", "hex": "ff"}
+  {"t_ms": 2875, "event": "error", "text": "0x07: keine Antwort auf 0x07 (Zeitlimit)"}
+  ```
+
+  `state`: jeder Wechsel von `status.trainer.control` mit dem Grund (z. B. `Control Point nicht beschreibbar: …` ohne
+  gebondetes Pairing); `write`/`indication`: jedes Schreiben auf den Control Point `0x2AD9` und jede Indication von
+  dort (Antwort `80 <Op-Code> <Ergebnis>`); `notification`: Machine Status `0x2ADA` (`ff` = eine andere App hat die
+  Steuerung); `error`: gescheiterte Anfragen, Schreib- und Abo-Fehler. Ohne Trainer bleibt die Datei leer.
+
+Ist einer der Namen schon belegt, bekommen alle `_2`, `_3`, … angehängt. Jede Zeile wird
 sofort geflusht, auch nach Strg+C oder Absturz bleiben lesbare Dateien. Scheitert das Schreiben
 mitten im Lauf (z. B. Platte voll), meldet die Bridge das im Terminal, schreibt für diese Session
 nichts mehr und läuft weiter. `sessions/` ist in `.gitignore`.

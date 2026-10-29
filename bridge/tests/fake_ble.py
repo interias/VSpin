@@ -12,6 +12,8 @@ Erweiterung (Spec #75), ohne Wissen über ein Protokoll (kein FTMS hier):
 - Antworten auf Schreibzugriffe als Indication (`answer`). Wie am echten Gerät lehnt der Fake den
   Schreibzugriff ab, solange die Indication-Characteristic nicht abonniert ist.
 - Fehlerinjektion für `read` und `write` (`fail_reads`, `fail_writes`).
+- Spec #89: `answer_before_ack` – die Antwort-Indication kommt schon, bevor der Schreibzugriff quittiert ist (so kann
+  ein Stack sie ausliefern, z. B. WinRT).
 """
 
 import asyncio
@@ -43,6 +45,7 @@ class FakeBleAdapter:
         self.fail_reads: dict[str, int] = {}  # Adresse → so viele `read` scheitern
         self.fail_writes: dict[str, int] = {}  # Adresse → so viele `write` scheitern
         self.answers: dict[tuple[str, str], tuple[str, Callable[[bytes], bytes | None]]] = {}
+        self.answer_before_ack = False  # Antwort-Indication noch vor der Quittung des Schreibzugriffs
         self.scan_starts = 0
         self.max_parallel_scans = 0
         self.connect_attempts: list[str] = []
@@ -225,7 +228,9 @@ class FakeConnection:
         if answer is not None:
             indicate_char, respond = answer
             response = respond(data)
-            if response is not None:
+            if response is not None and self._adapter.answer_before_ack:
+                self.notify(response, indicate_char)
+            elif response is not None:
                 # Die Indication folgt der Quittung des Schreibzugriffs.
                 asyncio.get_running_loop().call_soon(self.notify, response, indicate_char)
 
