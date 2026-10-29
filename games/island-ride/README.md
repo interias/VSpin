@@ -1435,6 +1435,21 @@ Wetter und Tageslicht; Hörer ist die Kamera. Ton ist nur Ausgabe (ADR-0010).
 Im Browser startet der Ton erst nach der ersten Nutzergeste (Regel der Browser); ohne Audio-Gerät (oder wenn die
 Audio-Worklets nicht laden) läuft das Spiel gleich, nur still.
 
+### Tempo aus Leistung und Wertung je Geräteart (#75)
+
+Liefert der Trainer **gemessene** Leistung (`power_estimated: false`), kommt das Tempo aus einem einfachen
+physikalischen Modell (`src/ride_model.gd`, `target_speed_power_mps`): Leistung gegen Hangabtrieb, Rollwiderstand und
+Luftwiderstand auf der Streckensteigung (nicht der Gang-Steigung), Trägheit wie im Kadenzmodell. Parameter in
+`config.cfg [power]`: `mass_kg=85`, `cda_m2=0.32`, `crr=0.004`, `air_density=1.225`, `max_kmh=70` (200 W in der Ebene
+≈ 34 km/h). Geschätzte Leistung (Simulator) behält das Kadenzmodell. Die **Geräteart** einer Fahrt (`power` oder
+`cadence`) steht beim Start bzw. mit der ersten Telemetrie fest; fehlen die Watt, gelten nach 2,5 s 0 W.
+Bestzeiten, Segmentzeiten, Medaillen und Ghosts sind je Geräteart getrennt (ADR-0010, Nachtrag): Die bisherigen
+Bereiche des Spielstands gelten als Kadenzmodell, das Leistungsmodell schreibt `measured_best_times`,
+`measured_segment_best_times`, `measured_medals`, `measured_ghosts` (additiv, Version bleibt 1). Medaillen-Schwellen im
+Leistungsmodell: Bronze 150 W, Silber 200 W, Gold 250 W (gleiche Rundensimulation wie bei 70/85/95 rpm). Das
+Fahrtenbuch zeigt beide Gerätearten, Werte des Leistungsmodells mit „· Leistung“. Arcade-Herausforderungen werten
+weiter die Kadenz. Im HUD steht gemessene Leistung mit 3-s-Mittel („212 W · Ø3s 205 W“), geschätzte weiter als „~150 W“.
+
 ### Virtuelle Gänge (#75)
 
 Mit einem gesteuerten Trainer (`status.trainer.control` = `active`) schaltet der Fahrer mit `↑`/`↓` bzw. Ziffernblock
@@ -1733,10 +1748,11 @@ src/tier_arcade.gd      TierArcade: Erweiterung der Arcade-Bühne (`ArcadeStage.
 src/balancing.gd        Balancing: Simulation des Arcade-Modus ohne Grafik – Kadenzverläufe (Einsteiger, Trainierter, Sprinter) als Daten, Läufe und Laufbahnen über die echten Module, Bericht als Markdown – reine Logik (#55)
 src/ability_hud.gd      AbilityHud: Leiste „bereit / aktiv / Abklingzeit“ und Einblendung „… ausgelöst“ unter dem HUD (#50)
 trainings/              Trainingseinheiten als Dateien (JSON): Intervalle kurz, Pyramide, Tempo-Blöcke
-src/medals.gd           Medals: Medaillen-Schwellen aus dem Fahrmodell (70/85/95 rpm), Medaille einer Zeit – reine Logik
+src/medals.gd           Medals: Medaillen-Schwellen aus dem Fahrmodell (70/85/95 rpm bzw. 150/200/250 W, #75), Medaille einer Zeit – reine Logik
 src/grade_reporter.gd   GradeReporter: wann `set_grade` gesendet wird (Schwelle, Drosselung) – reine Logik
 src/gears.gd            Gears: virtuelle Gänge, effektive Steigung = Strecke + f(Gang), Sperre für ERG – reine Logik (#75)
-src/ride_model.gd       RideModel: reine Logik (Kadenz, Steigung, Δt, Konfig → Geschwindigkeit, Position)
+src/ride_model.gd       RideModel: reine Logik (Kadenz bzw. gemessene Leistung, Steigung, Δt, Konfig → Geschwindigkeit, Position; Geräteart, #75)
+src/power_average.gd    PowerAverage: 3-s-Mittel der gemessenen Leistung fürs HUD – reine Logik (#75)
 src/rider_motion.gd     RiderMotion: Kurbel-/Radwinkel, Schräglage, Vorbeuge, Glieder-IK – reine Logik
 src/rider_model.gd      RiderModel: Fahrer und Rennrad aus Grundkörpern, Pose aus RiderMotion; Garderobe und Arcade-Ausrüstung mit Talisman (#36, #49)
 src/ride_config.gd      RideConfig: liest config.cfg
