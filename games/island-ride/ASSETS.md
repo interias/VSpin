@@ -38,6 +38,7 @@ daneben. Kein Git LFS.
 | Pulsanzeige und Pulskurve im HUD (#64): Zahl mit Zonenfarbe, Kurve der letzten 3 min auf Zonenbändern | prozedural gezeichnet, `src/ride_hud.gd`, `src/hud_pulse.gd` | MIT (Projektlizenz) |
 | Dialog „Fahrt speichern?“ (#84): Texte, Schalter, Knöpfe in Godot-Steuerelementen – **keine Dateien** | Godot-UI (Container, Label, CheckBox, Button), `scenes/ride_save_dialog.gd` | MIT (Projektlizenz) |
 | Ausrüstungssymbole (#83): Modelle je Platz (Rahmen, Laufrad, Trikot, Helm, Radschuh, Talisman mit Drac-, Tramuntana- und Dimonis-Motiv bzw. Kiesel), Seltenheitsrahmen, Hintergrundverlauf und Schimmer; Fund-Karte im HUD (`src/loot_toast.gd`) – **keine Dateien**, zur Laufzeit gerendert | Godot-Grundkörper (Box, Kegelstumpf, Kugel, Torus) und Verläufe (GradientTexture2D), `src/item_icons.gd`, `src/item_icon_view.gd` | MIT (Projektlizenz) |
+| Symbol des Begleiters Toni im HUD (#80): hört zu, denkt, spricht, heiser – aus Kreis, Rechteck, Bogen und Linien | prozedural gezeichnet, `src/hud_companion.gd` | MIT (Projektlizenz) |
 | VSpin-Symbol „Faltband mit Schattenfalte“ (Fenster, Taskleiste, Browser-Tab): `icon.svg`, daraus gerastert `icon.ico` (16–256 px) | selbst erstellt | MIT (Projektlizenz) |
 | Schrift (HUD, Stationsschilder) | in die Engine eingebaute Standardschrift (Open Sans), keine Datei im Repo | SIL OFL 1.1 (Godot-Lizenzhinweise) |
 

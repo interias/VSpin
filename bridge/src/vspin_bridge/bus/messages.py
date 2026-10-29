@@ -7,6 +7,8 @@ den Anfrager der Suche); Clients → Bridge `set_heart_rate_devices`, `start_hea
 `stop_heart_rate_search`.
 Fahrt speichern (Spec #84): Clients → Bridge `save_ride`; Antwort `ride_saved` nur an den Absender; Block
 `garmin` in `status`.
+Clients → alle anderen Clients (die Bridge leitet nur weiter): `ride_state`, `ride_event`,
+`companion_ptt`, `companion_status`.
 """
 
 import json
@@ -67,6 +69,9 @@ def _encode(message: dict) -> str:
 # --- Clients → Bridge ------------------------------------------------------
 
 SET_GRADE = "set_grade"
+# Nachrichten zwischen Spiel und Begleiter: Die Bridge prüft nur den Umschlag (`v`, `type`) und leitet den Frame
+# unverändert an alle anderen Clients weiter – ihre Felder sind nicht ihr Vertrag (docs/bus-protocol.md).
+RELAYED_TYPES = frozenset({"ride_state", "ride_event", "companion_ptt", "companion_status"})
 
 
 class ClientMessageError(Exception):
@@ -83,7 +88,15 @@ class SetGrade:
     grade: float  # Anteil, 0.07 = 7 % (ADR-0007)
 
 
-def parse_client_message(raw: str | bytes) -> "SetGrade | HeartRateCommand | SaveRide":
+@dataclass(frozen=True, slots=True)
+class Relay:
+    """Client-Nachricht für alle anderen Clients; `raw` ist der empfangene Textframe, unverändert."""
+
+    type: str
+    raw: str
+
+
+def parse_client_message(raw: str | bytes) -> "SetGrade | HeartRateCommand | SaveRide | Relay":
     """Prüft eine Client-Nachricht. Wirft `ClientMessageError` mit `reason` aus docs/bus-protocol.md."""
     if not isinstance(raw, str):
         raise ClientMessageError("invalid_json", "Binärframe – erwartet UTF-8-JSON als Textframe")
@@ -102,6 +115,8 @@ def parse_client_message(raw: str | bytes) -> "SetGrade | HeartRateCommand | Sav
             "unsupported_version", f"'v' muss {PROTOCOL_VERSION} sein, war {message.get('v')!r}"
         )
     kind = message["type"]
+    if isinstance(kind, str) and kind in RELAYED_TYPES:
+        return Relay(type=kind, raw=raw)
     if kind in HEART_RATE_COMMANDS:
         return _heart_rate_command(kind, message)
     if kind == SAVE_RIDE:

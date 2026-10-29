@@ -5,6 +5,7 @@ from contextlib import ExitStack
 
 import pytest
 from bridge_harness import BUS_URL, HOST, ISOLATED_HOST, PORT, BridgeProcess, InProcessBridge, port_lock
+from companion_harness import InProcessCompanion
 from websockets.sync.client import ClientConnection, connect
 
 
@@ -67,6 +68,24 @@ def in_process_bridge(request, tmp_path) -> Iterator:
     yield start
     for bridge in started:
         bridge.stop()
+
+
+@pytest.fixture
+def in_process_companion(tmp_path) -> Iterator:
+    """Fabrik: `in_process_companion(brain, ears, mouth, clock, data_dir=None, config=None, rng=None)` startet Toni
+    mit Fakes im Testprozess (`InProcessCompanion`); Ablage standardmäßig `tmp_path/companion`. Stopp nach dem Test."""
+    started: list[InProcessCompanion] = []
+
+    def start(brain, ears, mouth, clock, data_dir=None, config=None, rng=None) -> InProcessCompanion:
+        data_dir = data_dir or tmp_path / "companion"
+        companion = InProcessCompanion(brain, ears, mouth, clock, data_dir, config, rng)
+        started.append(companion)
+        companion.start()
+        return companion
+
+    yield start
+    for companion in started:
+        companion.stop()
 
 
 @pytest.fixture

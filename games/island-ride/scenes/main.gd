@@ -32,7 +32,7 @@
 ##
 ## Spielzustände (`state`):
 ##   riding             fahren – Bus verbunden, Quelle `connected` und Daten seit dem letzten Abbruch
-##   paused_manual      pausiert per Taste (P/Leertaste), bis erneut gedrückt
+##   paused_manual      pausiert per Taste (P), bis erneut gedrückt
 ##   paused_connection  pausiert wegen Verbindung: Bridge nicht erreichbar, Quelle `stale`/`disconnected`
 ##                      oder noch keine Daten; auch wenn die Bridge bei offenem Bus schweigt (BusClient.silent).
 ##                      Ein Abbruch ist keine Kadenz 0 (ADR-0004): das Fahrmodell
@@ -121,6 +121,19 @@
 ## Bridge aus dem Spiel (#25, BridgeLauncher, nur Windows-Desktop): Ist beim Start keine Bridge auf der Bus-Adresse
 ## erreichbar, startet das Spiel sie unsichtbar mit der Quelle aus `config.cfg [bridge]`; eine laufende wird nur
 ## mitbenutzt. Beim Schließen (Fenster, „Beenden“) beendet das Spiel nur die eigene, sauber über die Stoppdatei.
+##
+## Begleiter Toni (Spec #76, docs/bus-protocol.md „Spiel ↔ Begleiter“): Er liest nur (ADR-0010) – nichts von ihm wirkt auf
+## Tempo, Wertung, Bestzeit oder Beute. Das Spiel spricht mit ihm über den Bus, solange „Begleiter“ im Einstellungsmenü an ist
+## (Standard; sofort wirksam). Aus: keine dieser Nachrichten, kein Symbol, kein Ducking, kein Start durch den Launcher.
+##   Sprechtaste  Leertaste in der laufenden Fahrt (nicht im Menü, nicht in der Pause, nicht bei offenem Einstellungsmenü): Drücken
+##                sendet `companion_ptt down`, Loslassen `up` (ohne Tastenwiederholung); Pause, Einstellungsmenü, Fahrtende
+##                oder Fokusverlust beenden ein gehaltenes Sprechen mit `up`. Pause ist nur noch `P`.
+##   Fahrtzustand `ride_state` alle COMPANION_STATE_S Sekunden Fahrzeit (`ride_state_message`), `ride_event` sofort beim Eintreten
+##                (`companion_event`): `ride_start` mit Kurzfassung des Fahrtenbuchs, Runde, Medaille, Bestzeit, Erfolg, Boss,
+##                Intervall, Pause, `ride_end`. Beide tragen `companion_volume` (`ride_state`, `ride_start`) – Toni spricht über das
+##                Windows-Standardgerät, sein Pegel lässt sich nicht über einen Godot-Bus regeln.
+##   Anzeige      HUD-Symbol für `companion_status` (nur wenn das Spiel schon eins gesehen hat) und einmal je Fahrt „Toni ist
+##                heiser“; solange `speaking` duckt `RideSound` den Spielton.
 extends Node3D
 
 ## Neuer Spielzustand (siehe STATE_*).
@@ -137,7 +150,8 @@ const STATE_MENU := "menu"
 
 ## Tastenbelegung: Aktion → Tasten (physische Tastenposition, unabhängig vom Layout).
 const KEY_BINDINGS := {
-	"ride_pause": [KEY_P, KEY_SPACE],
+	"ride_pause": [KEY_P],
+	"companion_ptt": [KEY_SPACE],
 	"ride_debug": [KEY_F3],
 	"ride_settings": [KEY_ESCAPE, KEY_F2],
 	"ride_fullscreen": [KEY_F11],
@@ -199,6 +213,14 @@ const GHOST_OFFSET_M := -1.3
 const GATE_KEEP_BEHIND_M := 20.0
 ## Beute (#49): so weit vor dem Fahrer (m) steht die Lichtsäule eines Fundes (Tests lesen sie hier).
 const LOOT_AHEAD_M := ArcadeStage.LOOT_AHEAD_M
+
+## Begleiter: Abstand der `ride_state`-Nachrichten (s Fahrzeit) und Anzahl der letzten Fahrten in der Kurzfassung des
+## Fahrtenbuchs bei `ride_start`.
+const COMPANION_STATE_S := 5.0
+const COMPANION_LOGBOOK_RIDES := 5
+## Frist (ms) nach einem `ride_start`, in der ein erstes `companion_status` als dessen Antwort gilt, nicht als Neuankömmling.
+const COMPANION_REPLY_GRACE_MS := 1500
+const COMPANION_HOARSE_NOTICE := "Toni ist heiser"
 
 const BRIDGE_START_HINT := "Bridge starten: vspin-bridge --source sim"
 const RESISTANCE_NOT_SUPPORTED := "Widerstand: nicht unterstützt"
@@ -318,6 +340,24 @@ var panorama_spots: Array = []
 var panorama_enabled := true
 var panorama: Dictionary = {}
 
+## Abstand der `ride_state`-Nachrichten in Sekunden Fahrzeit (Standard COMPANION_STATE_S; Tests verkürzen ihn).
+var companion_state_interval_s := COMPANION_STATE_S
+## Begleiter: `ride_start` wartet auf den Bus / wurde gesendet; Fahrzeit seit dem letzten `ride_state`; Sprechtaste gehalten;
+## „Toni ist heiser“ in dieser Fahrt schon gezeigt; war der Begleiter im letzten Frame an; Index der zuletzt gemeldeten
+## Trainingsphase (-1 = noch keine).
+var _ride_start_pending := false
+var _ride_start_sent := false
+var _state_s := 0.0
+var _ptt_down := false
+var _hoarse_noted := false
+var _companion_was_on := true
+## Zeit des letzten gesendeten `ride_start` (ms), war ein Begleiter im letzten Frame gesehen, war der eigene Begleiter schon
+## als beendet gemeldet.
+var _ride_start_ms := 0
+var _companion_seen_before := false
+var _companion_failed_before := false
+var _interval_index := -1
+
 var _manual_pause := false
 var _camera_look := Vector3.ZERO
 ## Fahrtposition, bis zu der die Panorama-Auslösepunkte geprüft sind.
@@ -412,6 +452,8 @@ func _ready() -> void:
 	arcade_stage = ArcadeStage.new()
 	add_child(arcade_stage)
 	arcade_stage.setup(track, hud, format_time, GATE_KEEP_BEHIND_M)
+	arcade_stage.challenge_started.connect(_on_challenge_started)
+	arcade_stage.challenge_ended.connect(_on_challenge_ended)
 	arcade_stage.summary_providers.append(func(_run: ArcadeRun) -> Array: return pulse_lines())
 	talent_arcade = TalentArcade.new()  # nach den Fähigkeiten (#50, in EXTENSIONS): ihr `run_hook` verändert deren Daten
 	talent_arcade.attach(arcade_stage)
@@ -454,12 +496,14 @@ func _ready() -> void:
 	else:
 		start_menu.close()
 		settings_menu.set_ride_active(true)
+		_ride_start_pending = true  # die Fahrt läuft schon ohne `start_ride` (Tests, Prüfhilfen)
 
 
 func _process(delta: float) -> void:
 	bus.poll(delta)
 	bridge_launcher.poll(delta)
 	_update_state()
+	_update_companion(delta)
 	if state == STATE_MENU:
 		_fly_title(delta)
 		start_menu.show_wheel_status(bus, bridge_launcher.hint())
@@ -752,6 +796,7 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 	_ride_saved = false
 	_save_dialog_done = false
 	ride_trace = RideTrace.new()
+	_begin_companion_ride()
 	start_menu.close()
 	settings_menu.set_ride_active(true)
 	hud.visible = true
@@ -827,6 +872,7 @@ func _achievement_event(event: Dictionary, announce: bool = true) -> void:
 		ride_achievements.append(achievement)
 		if announce:
 			hud.celebrate("Erfolg: %s – %s" % [achievement["name"], achievement["text"]])
+			companion_event("achievement", {"id": achievement["id"], "name": achievement["name"]})
 
 
 ## Fahrerlevel aus den Gesamt-Kilometern (bisher plus diese Fahrt); ein Aufstieg blendet mit `announce` ein.
@@ -1047,6 +1093,7 @@ func _trace_ride() -> void:
 
 
 func _enter_menu() -> void:
+	_end_companion_ride()
 	logbook.close()
 	wardrobe.close()
 	devices_menu.close()
@@ -1075,6 +1122,7 @@ func _enter_menu() -> void:
 func _finish_ride() -> void:
 	state = STATE_FINISHED
 	ride_trace.finish(bus.last_telemetry_t_ms, stats.distance_m)
+	_end_companion_ride()
 	hud.end_celebration()  # „neu!“ steht im Ergebnis; die Einblendung stünde dahinter
 	hud.clear_popups()  # ebenso die Popups (#49)
 	if training != null and training.finished() and not _ride_saved:
@@ -1153,15 +1201,24 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("ride_camera") and state != STATE_MENU and not settings_menu.visible:
 		cycle_camera_view()
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("companion_ptt") and _can_talk():
+		_press_ptt()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_released("companion_ptt") and _ptt_down:
+		_release_ptt()
+		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("ride_pause") and state != STATE_MENU:
 		if state != STATE_FINISHED and state != STATE_SAVING:
 			_manual_pause = not _manual_pause
+			_release_ptt()
+			companion_event("pause", {"paused": _manual_pause})
 		_update_state()
 		_update_view()
 		get_viewport().set_input_as_handled()
 
 
 func _on_quit_requested() -> void:
+	_end_companion_ride()
 	_save_ride()
 	quit_requested.emit()
 	if quit_on_request:
@@ -1170,7 +1227,10 @@ func _on_quit_requested() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		_end_companion_ride()
 		_save_ride()  # Fenster geschlossen mitten in der Fahrt
+	elif what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		_release_ptt()  # Fenster verloren: das Loslassen der Leertaste käme nie an
 
 
 func _exit_tree() -> void:
@@ -1268,7 +1328,7 @@ func status_message() -> String:
 					" · " + rewards if not rewards.is_empty() else "", format_time(lap_time_s(), true),
 					lap_result(), roundi(stats.avg_cadence()), stats.avg_speed_kmh(), _pulse_block()]
 		STATE_PAUSED_MANUAL:
-			return "Pause\nP / Leertaste: weiter\nEsc / F2: Einstellungen (Fahrt beenden, Beenden)"
+			return "Pause\nP: weiter\nEsc / F2: Einstellungen (Fahrt beenden, Beenden)"
 		STATE_PAUSED_CONNECTION:
 			var text: String
 			if not bus.bus_connected:
@@ -1413,6 +1473,7 @@ func _ride(delta: float) -> void:
 	pulse_stats.add(used, bus.heart_rate_bpm if bus.has_heart_rate() else null)
 	if training != null:
 		training.advance(bus.cadence, used)
+		_report_interval()
 	arcade_stage.advance(model.distance_m, used)
 	var segments_before := lap_timing.segments.results.size()
 	var laps_done := lap_timing.advance(model.distance_m, used)
@@ -1420,6 +1481,7 @@ func _ride(delta: float) -> void:
 		hud.celebrate("Neue Bestzeit!  %s" % format_time(lap_timing.lap_times[-1], true))
 	for i in range(segments_before, lap_timing.segments.results.size()):
 		hud.celebrate(segment_result_text(lap_timing.segments.results[i]))
+	_report_laps_and_segments(laps_done, segments_before)
 	if laps_done > 0:
 		ride_trace.lap_end(bus.last_telemetry_t_ms)
 		_achievement_event({"type": Achievements.EVENT_LAP, "total_laps": _laps_before + lap_timing.lap_times.size(),
@@ -1442,6 +1504,246 @@ func _report_grade(delta: float) -> void:
 	var grade := GradeReporter.quantize(current_grade())
 	if grade_reporter.wants_to_send(grade) and bus.send_message({"type": "set_grade", "grade": grade}) == OK:
 		grade_reporter.sent(grade)
+
+
+## Ist der Begleiter eingeschaltet (Einstellungsmenü, Standard an)? Aus: das Spiel sendet nichts an ihn und zeigt nichts.
+func companion_enabled() -> bool:
+	return settings_menu.settings.companion_enabled
+
+
+## Läuft eine Fahrt (auch pausiert)? Nicht im Menü und nicht im Ergebnis.
+func _ride_active() -> bool:
+	return state != STATE_MENU and state != STATE_FINISHED
+
+
+## Je Frame: Launcher abgleichen, `ride_start` nachholen, `ride_state` im Takt, HUD-Symbol, „Toni ist heiser“ und
+## Ducking. Der Begleiter liest nur – nichts davon ändert Fahrt, Wertung oder Beute (ADR-0010).
+func _update_companion(delta: float) -> void:
+	var on := companion_enabled()
+	if on and not _companion_was_on and _ride_active():
+		_ride_start_pending = true  # eingeschaltet mitten in der Fahrt: er kennt sie noch nicht
+		_ride_start_sent = false
+	if not on and _companion_was_on:
+		bus.forget_companion()  # ausgeschaltet: ein beendeter Begleiter meldet sich nicht ab, ein neuer beim Einschalten schon
+	_companion_was_on = on
+	if bridge_launcher.companion_failed and not _companion_failed_before:
+		bus.forget_companion()  # der eigene Begleiter ist weg: sein letzter Zustand (Symbol, Ducking) bliebe sonst stehen
+	_companion_failed_before = bridge_launcher.companion_failed
+	bridge_launcher.set_companion(on, bus.companion_seen)
+	if _ptt_down and (not on or state != STATE_RIDING or settings_menu.visible):
+		_release_ptt()
+	if on and _ride_start_pending and bus.bus_connected and _ride_active():
+		_ride_start_pending = false
+		_ride_start_sent = true
+		_state_s = 0.0
+		_ride_start_ms = Time.get_ticks_msec()
+		bus.send_message(ride_start_message())
+	# Ein Begleiter, der erst während der Fahrt an den Bus kommt, kennt sie nicht: `ride_start` noch einmal, einmal je
+	# Erscheinen. Meldet er sich innerhalb der Frist nach unserem `ride_start`, ist das seine Antwort darauf.
+	if on and bus.companion_seen and not _companion_seen_before and _ride_start_sent and bus.bus_connected \
+			and Time.get_ticks_msec() - _ride_start_ms > COMPANION_REPLY_GRACE_MS:
+		_ride_start_ms = Time.get_ticks_msec()
+		bus.send_message(ride_start_message())
+	_companion_seen_before = bus.companion_seen
+	if on and state == STATE_RIDING and _ride_start_sent and bus.bus_connected:
+		_state_s += delta
+		if _state_s >= companion_state_interval_s:
+			_state_s = 0.0
+			bus.send_message(ride_state_message())
+	var shown := bus.companion_state if on and bus.bus_connected and bus.companion_seen else ""
+	hud.show_companion(shown)
+	if shown == BusClient.COMPANION_HOARSE and not _hoarse_noted and state != STATE_MENU:
+		_hoarse_noted = true  # einmal je Fahrt; das Symbol bleibt
+		hud.show_companion_notice(COMPANION_HOARSE_NOTICE)
+	sound.set_ducked(not shown.is_empty() and bus.companion_speaking)
+
+
+## Neue Fahrt für den Begleiter: `ride_start` geht raus, sobald der Bus verbunden ist.
+func _begin_companion_ride() -> void:
+	_release_ptt()
+	_ride_start_pending = true
+	_ride_start_sent = false
+	_state_s = 0.0
+	_hoarse_noted = false
+	_interval_index = -1
+
+
+## Fahrt für den Begleiter beenden: gehaltene Sprechtaste loslassen, `ride_end` senden (einmal je Fahrt).
+func _end_companion_ride() -> void:
+	_release_ptt()
+	if _ride_start_sent:
+		companion_event("ride_end", {"finished": training.finished() if training != null else lap_timing.finished(),
+				"distance_km": snappedf(stats.distance_m / 1000.0, 0.001), "duration_s": snappedf(stats.ride_time_s, 0.1)})
+	_ride_start_sent = false
+	_ride_start_pending = false
+
+
+## `ride_event` `kind` mit `fields` (docs/bus-protocol.md) – sofort, nur bei eingeschaltetem Begleiter, nach `ride_start`
+## und bei verbundenem Bus; sonst verfällt es.
+func companion_event(kind: String, fields: Dictionary = {}) -> void:
+	if not companion_enabled() or not _ride_start_sent:
+		return
+	var message := {"type": "ride_event", "kind": kind}
+	message.merge(fields)
+	bus.send_message(message)
+
+
+## Darf die Sprechtaste jetzt sprechen? Nur in der laufenden Fahrt (nicht im Menü, nicht in der Pause, nicht bei offenem
+## Einstellungsmenü) und mit eingeschaltetem Begleiter.
+func _can_talk() -> bool:
+	return companion_enabled() and state == STATE_RIDING and not settings_menu.visible and bus.bus_connected
+
+
+func _press_ptt() -> void:
+	if bus.send_message({"type": "companion_ptt", "action": "down"}) == OK:
+		_ptt_down = true
+
+
+## Gehaltene Sprechtaste loslassen (`up`), damit Toni nicht weiter zuhört; ohne gehaltene Taste nichts.
+func _release_ptt() -> void:
+	if not _ptt_down:
+		return
+	_ptt_down = false
+	bus.send_message({"type": "companion_ptt", "action": "up"})
+
+
+## Trainingsphase gewechselt: `interval_start` mit Zielkadenz (Mitte des Bereichs) und Dauer der Phase.
+func _report_interval() -> void:
+	if training.finished() or training.phase_index() == _interval_index:
+		return
+	_interval_index = training.phase_index()
+	var phase := training.phase()
+	companion_event("interval_start", {"target_cadence": (float(phase["cadence_min"]) + float(phase["cadence_max"])) / 2.0,
+			"duration_s": float(phase["duration_s"])})
+
+
+## Runden und Segmente dieses Fahrschritts an den Begleiter: `lap` je Runde, dazu Medaille und Bestzeit (nur dort, wo sie
+## zählen, `records_count`), je neu gewertetem Segment Medaille und Bestzeit.
+func _report_laps_and_segments(laps_done: int, segments_before: int) -> void:
+	var times := lap_timing.lap_times
+	for i in range(times.size() - laps_done, times.size()):
+		companion_event("lap", {"lap": i + 1, "time_s": snappedf(times[i], 0.01)})
+		if not records_count():
+			continue
+		var medal := lap_medal(i)
+		if medal != Medals.NONE:
+			companion_event("medal", {"medal": medal, "for": Medals.LAP})
+		if i == times.size() - 1 and lap_timing.last_lap_is_new_best():
+			var previous := lap_timing.best_before_s
+			for earlier in times.slice(0, i):
+				previous = minf(previous, earlier)
+			companion_event("best_time", {"time_s": snappedf(times[i], 0.01), "previous_s": _seconds_or_null(previous),
+					"for": Medals.LAP})
+	var results: Array = lap_timing.segments.results
+	for i in range(segments_before, results.size()):
+		var result: Dictionary = results[i]
+		var medal := segment_medal(result)
+		if medal != Medals.NONE:
+			companion_event("medal", {"medal": medal, "for": result["id"]})
+		if result["new_best"]:
+			var previous: float = lap_timing.segments.best_before.get(result["id"], INF)
+			for earlier in results.slice(0, i):
+				if earlier["id"] == result["id"]:
+					previous = minf(previous, earlier["time_s"])
+			companion_event("best_time", {"time_s": snappedf(result["time_s"], 0.01),
+					"previous_s": _seconds_or_null(previous), "for": result["id"]})
+
+
+func _on_challenge_started(entry: Dictionary) -> void:
+	if entry["definition"].get("boss", false):
+		companion_event("boss_start", {"boss": entry["definition"]["name"]})
+
+
+func _on_challenge_ended(result: Dictionary) -> void:
+	if result.get("boss", false):
+		companion_event("boss_end", {"boss": result["name"], "defeated": result["succeeded"]})
+
+
+## Sekunden gerundet; INF/NAN (kein Wert) wird `null`.
+static func _seconds_or_null(seconds: float):
+	return snappedf(seconds, 0.01) if is_finite(seconds) else null
+
+
+## Zahl auf `step` gerundet; NAN/INF (unbekannt) wird `null`.
+static func _number_or_null(value: float, step: float):
+	return snappedf(value, step) if is_finite(value) else null
+
+
+## `ride_state` (docs/bus-protocol.md): der Fahrtzustand jetzt; was das Spiel nicht kennt, ist `null`.
+func ride_state_message() -> Dictionary:
+	var message := {"type": "ride_state"}
+	message.merge(_ride_fields())
+	var sight := next_sight()
+	var bpm := bus.heart_rate_bpm
+	var power := bus.power_w()
+	var zone := RideHud.pulse_zone(bpm, pulse_zones)
+	var best := save_game.best_time_s(config.track, track.direction)
+	message.merge({
+		"lap": lap_timing.lap_number(),
+		"km_done": snappedf(stats.distance_m / 1000.0, 0.001),
+		"km_left": _number_or_null((finish_distance_m - model.distance_m) / 1000.0, 0.001),
+		"section": current_station() if not current_station().is_empty() else null,
+		"next_sight": sight.get("name"),
+		"next_sight_km": sight.get("km"),
+		"grade": snappedf(current_grade(), 0.001),
+		"speed_kmh": snappedf(model.speed_kmh(), 0.1),
+		"cadence": snappedf(bus.cadence, 0.1),
+		"power_w": _number_or_null(power, 1.0),
+		"power_estimated": bus.power_estimated() if is_finite(power) else null,
+		"heart_rate": roundi(bpm) if bus.has_heart_rate() else null,
+		"hr_zone": zone if zone > 0 else null,
+		"ghost_gap_s": _number_or_null(ghost_gap_s(), 0.1),
+		"best_time_s": _number_or_null(best, 0.1),
+		"companion_volume": settings_menu.settings.companion_volume,
+	})
+	return message
+
+
+## `ride_event` `ride_start`: Modus, Richtung, Runden, Kurzfassung des Fahrtenbuchs (ohne die Fahrt, die gerade beginnt).
+func ride_start_message() -> Dictionary:
+	var message := {"type": "ride_event", "kind": "ride_start"}
+	message.merge(_ride_fields())
+	message["logbook"] = logbook_summary()
+	message["companion_volume"] = settings_menu.settings.companion_volume
+	return message
+
+
+## Felder, die `ride_state` und `ride_start` teilen: Modus, Richtung und geplante Runden (`null` = endlos).
+func _ride_fields() -> Dictionary:
+	return {"mode": ride_mode, "direction": track.direction, "laps": laps if laps > 0 else null}
+
+
+## Kurzfassung des Fahrtenbuchs: Zahl der Fahrten, Gesamtkilometer und die letzten Fahrten (neueste zuerst).
+func logbook_summary() -> Dictionary:
+	var rides := save_game.rides()
+	var recent := []
+	for i in range(rides.size() - 1, maxi(rides.size() - 1 - COMPANION_LOGBOOK_RIDES, -1), -1):
+		var ride = rides[i]
+		if ride is Dictionary:
+			recent.append({"date": ride.get("date"), "mode": ride.get("mode"), "distance_km": ride.get("distance_km"),
+					"duration_s": ride.get("duration_s"), "avg_cadence_rpm": ride.get("avg_cadence_rpm")})
+	return {"rides": rides.size(), "km_total": snappedf(save_game.total_km(), 0.1), "recent": recent}
+
+
+## Nächste Sehenswürdigkeit in Fahrtrichtung ({name, km}; {} = keine mehr, auch keine vor dem Ziel einer Fahrt mit
+## Rundenzahl und keine bei der Graybox-Strecke).
+func next_sight() -> Dictionary:
+	var length := track.length_m()
+	if panorama_spots.is_empty() or length <= 0.0:
+		return {}
+	var here := fposmod(model.distance_m, length)
+	var best := {}
+	var best_gap := INF
+	for spot in panorama_spots:
+		var gap := fposmod(track.path_distance(spot["path_m"]) - here, length)
+		if is_zero_approx(gap):
+			gap = length
+		if gap < best_gap:
+			best_gap = gap
+			best = spot
+	if best.is_empty() or model.distance_m + best_gap > finish_distance_m:
+		return {}
+	return {"name": best["name"], "km": snappedf(best_gap / 1000.0, 0.01)}
 
 
 ## Speichert die gemerkten Pulsgeräte und schickt sie sofort an die Bridge (für die Geräteseite).

@@ -417,7 +417,8 @@ gegen den Uhrzeigersinn (#34; `--shots` dann in Metern dieser Richtung, Torböge
 
 | Taste | Wirkung |
 |---|---|
-| `P` oder Leertaste | Pause an/aus (jederzeit) |
+| `P` | Pause an/aus (jederzeit) |
+| Leertaste (halten) | **Sprechtaste** für Toni, den Begleiter: halten, sprechen, loslassen (nur in der Fahrt, Begleiter an; #80). Im Startmenü startet die Leertaste wie bisher |
 | `C` | Kameraperspektive wechseln: Nah → Verfolger → Weit (in der Fahrt, nicht bei offenem Menü; #59) |
 | `Esc` oder `F2` | Menü „Grafik und Fenster“ auf/zu (jederzeit, auch aus der Pause); **Beenden** über den Knopf „Beenden“ im Menü (nicht im Browser), in der Fahrt „Fahrt beenden“ zurück ins Startmenü |
 | `Enter` | im Ziel: zurück ins Startmenü |
@@ -431,7 +432,7 @@ Physische Tastenposition (gleich auf QWERTZ/QWERTY); definiert in `scenes/main.g
 | Zustand (`state`) | Wann | Anzeige |
 |---|---|---|
 | `riding` – fahren | Bus verbunden, Quelle `connected` und seit dem letzten Abbruch Telemetrie empfangen | – |
-| `paused_manual` – pausiert (manuell) | `P`/Leertaste | „Pause“ |
+| `paused_manual` – pausiert (manuell) | `P` | „Pause“ |
 | `paused_connection` – pausiert (Verbindung) | Bridge nicht erreichbar, Quelle `stale`/`disconnected`, noch keine Daten oder Bridge schweigt bei offenem Bus | „Bridge nicht erreichbar … Bridge starten“ bzw. „Verbindung verloren (Rad: stale)“ / „(Bridge sendet seit 4 s nichts)“ |
 | `finished` – Ziel erreicht | Ziellinie nach der letzten Runde überfahren oder „Fahrt beenden“ nach mindestens einer vollen Runde (Endzustand der Fahrt, Pause-Taste wirkungslos) | „Ziel erreicht!“ bzw. „Fahrt beendet“ mit Zeit, allen Rundenzeiten, Bestzeit, Ø Kadenz, Ø Tempo; `Enter` zurück ins Menü – mit Bridge am Bus erst über den Dialog „Fahrt speichern?“ (#84) |
 | `saving` – Fahrt speichern (#84) | „Fahrt beenden“ ohne Ergebnis (keine volle Runde), Fahrzeit > 0, Bridge am Bus | Dialog „Fahrt speichern?“ über der angehaltenen Fahrt; danach ins Menü |
@@ -517,6 +518,8 @@ Startmenü) und „Beenden“ (beendet das Spiel; im Browser ausgeblendet) – `
 | Ton | An, Aus – alle Klänge des Spiels (#44) | An |
 | Lautstärke | 10, 20, 30, 50, 70, 100 % – eigener Audio-Bus „Spiel“, Musik nebenher bleibt hörbar | 30 % (leise) |
 | Fahrtwind | Aus, 25, 50, 75, 100 % – eigener Regler nur für den Fahrtwind, zusätzlich zur Lautstärke (#69) | 100 % |
+| Begleiter | An, Aus – Toni, der sprechende Begleiter (#76, #80); Aus: kein Start, keine Nachrichten an den Bus, kein Symbol, kein Ducking | An |
+| Toni-Stimme | 20, 40, 60, 80, 100 % – Lautstärke von Tonis Stimme (spielt der Begleiter selbst ab, nicht über den Bus „Spiel“) | 80 % |
 | Fenstermodus | Fenster (mit Rahmen, frei skalierbar), Randloses Fenster, Vollbild | Fenster 1600 × 900, mittig |
 | Fenstergröße | 960 × 1040, 1280 × 720, 1600 × 900, 1920 × 1080, 2560 × 1440 (im Vollbild: Bildschirmauflösung) | 1600 × 900 |
 
@@ -1453,6 +1456,37 @@ Die Antwort (`ack`) der Bridge erscheint dezent unter den Werten: „Widerstand:
 nichts bei `ok: true`. `error`-Antworten landen als Warnung im Log. Mit dem Simulator sinkt bergauf die
 Kadenz; die Steigung steht in der Session-CSV der Bridge (Spalte `grade`).
 
+### Begleiter Toni (#76, #80)
+
+Toni ist ein eigener Prozess am Bus (`vspin-companion`, `bridge/README.md`, ADR-0011). Das Spiel spricht mit ihm über
+die Bridge, die die Nachrichten nur weiterleitet (`docs/bus-protocol.md`, „Clients → alle anderen Clients“):
+
+- **Sprechtaste:** Leertaste in der Fahrt halten → `companion_ptt down`, loslassen → `up` (keine Tastenwiederholung).
+  Pause, Einstellungsmenü, Fahrtende oder Fokusverlust lassen die Taste los. Pause liegt nur noch auf `P`.
+- **Was Toni erfährt:**
+  - alle 5 s Fahrzeit `ride_state`: Modus, Richtung, Runde, km gefahren und verbleibend, Abschnitt, nächste
+    Sehenswürdigkeit, Steigung, Tempo, Kadenz, Watt, Puls und Zone, Ghost-Abstand, Bestzeit und `companion_volume`;
+  - `ride_event` für Runde, Medaille, Bestzeit, Erfolg, Boss, Intervall, Pause, `ride_start` (mit Kurzfassung des
+    Fahrtenbuchs) und `ride_end`.
+
+  Kommt Toni erst während der Fahrt an den Bus, schickt das Spiel `ride_start` noch einmal. Was das Spiel nicht kennt,
+  ist `null`.
+- **HUD:** Ein kleines, gezeichnetes Symbol (`src/hud_companion.gd`) zeigt, ob Toni zuhört, nachdenkt, spricht oder
+  heiser ist; „Toni ist heiser“ erscheint einmal je Fahrt. Ohne Meldung des Begleiters (`companion_status`) gibt es kein
+  Symbol.
+- **Ducking:** Solange Toni spricht, wird der Bus „Spiel“ (Musik, Effekte, Fahrtwind) auf 30 % geduckt (etwa −10 dB,
+  0,25 s Übergang).
+- **Start:** Unter Windows startet das Spiel den Begleiter neben seiner eigenen Bridge mit (`program` aus
+  `config.cfg [companion]`, `-m vspin_companion --port … --stop-file …`), wenn er an ist und noch keiner am Bus ist.
+  Standard ist das eigene venv `bridge/.venv-companion` (Installation in `bridge/README.md`), nicht das der Bridge;
+  fehlt das Programm, startet kein Begleiter (Warnung im Log), Fahrt und Bridge laufen weiter. Das
+  Spiel gibt ihm seine PID in `VSPIN_COMPANION_PARENT_PID` mit und beendet ihn beim Schließen über die Stoppdatei.
+  - Mit einer von Hand gestarteten Bridge startet man auch den Begleiter von Hand (`bridge/README.md`).
+  - Die Abhängigkeiten von Ohren, Mund und Denken stehen im Extra `companion`, das gehört in ein eigenes venv. Ohne sie
+    wird Toni heiser; die Fahrt läuft weiter.
+- **Wertung:** Toni liest nur; nichts von ihm wirkt auf Tempo, Wertung, Bestzeit oder Beute (ADR-0010). Die Ansagen
+  von Training und Arcade bleiben unverändert.
+
 ### Puls (#64)
 
 Puls ist eine zweite Quelle der Bridge (Brustgurt oder Uhr per BLE, `docs/bus-protocol.md`, Abschnitt Puls). Das Spiel
@@ -1540,6 +1574,7 @@ Nur per Test belegt, nicht im Fenster gesichtet (`tests/test_ride_save_dialog.gd
 | `[bus] url` | `ws://127.0.0.1:8765` | Bus-Adresse |
 | `[bus] reconnect_s` | `2.0` | Sekunden zwischen Verbindungsversuchen |
 | `[bus] connect_timeout_s` | `5.0` | hängt ein Verbindungsaufbau länger, wird er abgebrochen und neu versucht |
+| `[companion] program` | `../../bridge/.venv-companion/Scripts/pythonw.exe` | Programm des Begleiters Toni (#76), eigenes venv; relative Pfade ab dem Spielordner |
 | `[ride] k_kmh_per_rpm` | `0.33` | Übersetzungsfaktor k: `v_ziel = k · Kadenz` (km/h) auf flacher Strecke |
 | `[ride] uphill_damping` | `8.0` | bergauf: `v_ziel / (1 + uphill_damping · Steigung)` |
 | `[ride] downhill_boost` | `2.0` | bergab: `v_ziel · (1 + downhill_boost · \|Gefälle\|)` |
@@ -1687,6 +1722,7 @@ src/heart_rate_zones.gd HeartRateZones: Pulszonen aus LTHR oder Maximalpuls, Gre
 src/heart_rate_stats.gd HeartRateStats: Ø-Puls, Max-Puls, Sekunden je Zone einer Fahrt – reine Logik (#64)
 src/heart_rate_devices.gd HeartRateDevices: gemerkter Brustgurt und Uhr in user://settings.cfg [heart_rate], Liste für die Bridge (#64)
 src/hud_pulse.gd        HudPulse: Pulskurve der letzten 3 min auf Zonenbändern (curve_points/band_rects als reine Rechnung) (#64)
+src/hud_companion.gd    HudCompanion: Symbol für den Zustand des Begleiters Toni, prozedural gezeichnet (#80)
 scenes/devices_menu.gd  DevicesMenu: Menüseite „Geräte“ – Anleitung, Suche, Merken/Vergessen, Live-Puls, LTHR/Maximalpuls mit Zonen (#64)
 src/lap_timing.gd       LapTiming: Rundenwertung – Rundenzeiten, Ziel nach n Runden oder endlos, Bestzeit, Ghost-Aufzeichnung – reine Logik
 src/segment_timing.gd   SegmentTiming: Segmentzeiten (Live-Zeit, gewertete Segmente, Segment-Bestzeit) – reine Logik

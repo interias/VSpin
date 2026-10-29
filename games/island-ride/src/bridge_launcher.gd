@@ -4,6 +4,17 @@
 ## eigene, und zwar sauber über die Stoppdatei (`vspin-bridge --stop-file`): Die Bridge schließt Session-CSV und
 ## Rohdaten ab wie bei Strg+C. Erst wenn sie nicht rechtzeitig endet, wird sie hart beendet.
 ##
+## Begleiter (Spec #76): Ist er gewünscht (`set_companion`, Einstellung „Begleiter“) und hat das Spiel die Bridge selbst
+## gestartet (`own`), startet es mit dem eigenen Programm aus `config.cfg [companion] program` (`pythonw.exe` des venv
+## `bridge/.venv-companion`, nicht das der Bridge: dessen schwere Pakete machen Toni sonst heiser) und
+## `-m vspin_companion --port <Bus-Port> --stop-file <Stoppdatei>`. Fehlt das Programm, startet kein Begleiter (Warnung,
+## `companion_failed`, kein neuer Versuch bis der Schalter einmal aus und wieder an war); Fahrt und Bridge laufen weiter.
+## Nur bei eigener Bridge: Sie lief vorher nicht, also kann auch kein von Hand gestarteter Begleiter an ihr hängen –
+## bei einer mitbenutzten Bridge gehört der Begleiter (wie die Bridge) dem, der sie gestartet hat. Zusätzlich nie, wenn
+## schon ein Begleiter am Bus gemeldet ist (`present`): nie zwei Tonis. Ausschalten beendet nur den eigenen, sauber über
+## die Stoppdatei und ohne zu blocken (nach STOP_TIMEOUT_S hart); beim Schließen (`stop`) vor der Bridge. Ein eigener
+## Begleiter, der sich von selbst beendet, wird nicht neu gestartet, bis der Schalter einmal aus und wieder an war.
+##
 ## Prozesse laufen über einen austauschbaren Starter (`Processes`; Tests: Fake-Prozess). Kein Node: der Besitzer
 ## ruft `begin()` einmal, dann `poll(delta)` regelmäßig und beim Schließen `stop()`.
 class_name BridgeLauncher
@@ -28,6 +39,9 @@ const WATCH_INTERVAL_S := 0.5
 ## So lange wartet `stop()` auf das saubere Ende (Sekunden), bevor die Bridge hart beendet wird.
 const STOP_TIMEOUT_S := 5.0
 const DEFAULT_STOP_FILE := "user://bridge.stop"
+const DEFAULT_COMPANION_STOP_FILE := "user://companion.stop"
+## Umgebungsvariable mit der PID des Spiels für den eigenen Begleiter.
+const COMPANION_PARENT_ENV := "VSPIN_COMPANION_PARENT_PID"
 
 
 ## Prozessstarter: echte Prozesse über `OS`. Tests ersetzen ihn durch einen Fake-Prozess.
@@ -55,8 +69,20 @@ var pid := -1
 ## Aufrufzeile der eigenen Bridge (Programm, Argumente) – für Meldungen und Tests.
 var program := ""
 var args := PackedStringArray()
+## PID und Aufrufzeile des eigenen Begleiters (-1 = keiner) und ob er sich von selbst beendet hat.
+var companion_pid := -1
+var companion_args := PackedStringArray()
+## Programm des Begleiters (`[companion] program`, aufgelöst) – ein anderes als das der Bridge.
+var companion_program := ""
+var companion_failed := false
 
 var _enabled: bool
+var _companion_wanted := false
+var _companion_present := false
+## Sekunden seit der Stoppdatei an den eigenen Begleiter (< 0 = er läuft normal).
+var _companion_stopping_s := -1.0
+var _companion_watch_s := 0.0
+var _companion_stop_file: String
 var _host := ""
 var _port := -1
 var _source: String
@@ -73,9 +99,11 @@ var _watch_s := 0.0
 ## (Spielordner, siehe `game_dir()`); `platform_ok`: Windows-Desktop. `stop_file` liegt beim Spiel. Tests setzen
 ## Prozessstarter, Plattform, Stoppdatei und `bridge_port` (Fake-Bus statt 8765).
 func _init(config: RideConfig, base_dir: String, processes: Processes = null, platform_ok := is_supported_platform(),
-		stop_file := DEFAULT_STOP_FILE, bridge_port := BRIDGE_PORT) -> void:
+		stop_file := DEFAULT_STOP_FILE, bridge_port := BRIDGE_PORT,
+		companion_stop_file := DEFAULT_COMPANION_STOP_FILE) -> void:
 	_processes = processes if processes != null else Processes.new()
 	program = _absolute(config.bridge_program, base_dir)
+	companion_program = _absolute(config.companion_program, base_dir)
 	_sessions_dir = _absolute(config.bridge_sessions_dir, base_dir)
 	_source = config.bridge_source
 	_sim_cadence = config.bridge_sim_cadence
@@ -83,6 +111,7 @@ func _init(config: RideConfig, base_dir: String, processes: Processes = null, pl
 		push_warning("BridgeLauncher: unbekannte Quelle '%s', nutze 'sim'" % _source)
 		_source = "sim"
 	_stop_file = ProjectSettings.globalize_path(stop_file)
+	_companion_stop_file = ProjectSettings.globalize_path(companion_stop_file)
 	_parse_bus_url(config.bus_url)
 	_enabled = platform_ok and config.bridge_autostart and _host in BRIDGE_HOSTS and _port == bridge_port
 
@@ -110,7 +139,17 @@ func begin() -> void:
 		_launch()
 
 
+## Begleiter gewünscht (Einstellung) und schon einer am Bus gemeldet (`BusClient.companion_seen`)? Wirkt ab dem nächsten
+## `poll`; das Ausschalten und ein vom Spiel nicht gestarteter Begleiter ändern nichts an fremden Prozessen.
+func set_companion(wanted: bool, present: bool) -> void:
+	_companion_wanted = wanted
+	_companion_present = present
+	if not wanted:
+		companion_failed = false  # aus und wieder an versucht es neu
+
+
 func poll(delta_s: float) -> void:
+	_poll_companion(delta_s)
 	match state:
 		STATE_PROBING:
 			_tcp.poll()
@@ -133,10 +172,36 @@ func poll(delta_s: float) -> void:
 					state = STATE_FAILED
 
 
-## Beendet die eigene Bridge sauber über die Stoppdatei und wartet bis `timeout_s` auf ihr Ende; danach hart.
-## Eine mitbenutzte Bridge bleibt unberührt. Liefert true, wenn keine eigene Bridge mehr läuft und keine hart
-## beendet werden musste.
+## Beendet den eigenen Begleiter und dann die eigene Bridge sauber über die Stoppdatei und wartet je bis `timeout_s` auf
+## ihr Ende; danach hart. Eine mitbenutzte Bridge bleibt unberührt. Liefert true, wenn nichts Eigenes mehr läuft und
+## nichts hart beendet werden musste.
 func stop(timeout_s := STOP_TIMEOUT_S) -> bool:
+	var companion_clean := _stop_companion_now(timeout_s)
+	return _stop_bridge(timeout_s) and companion_clean
+
+
+## Eigenen Begleiter beenden und warten (beim Schließen); true, wenn er sauber endete oder keiner lief.
+func _stop_companion_now(timeout_s: float) -> bool:
+	_companion_wanted = false
+	if companion_pid <= 0:
+		return true
+	var pid_to_stop := companion_pid
+	companion_pid = -1
+	_companion_stopping_s = -1.0
+	if not _processes.is_running(pid_to_stop):
+		return true
+	_write_stop_file(_companion_stop_file)
+	var deadline := Time.get_ticks_msec() + int(timeout_s * 1000.0)
+	while _processes.is_running(pid_to_stop) and Time.get_ticks_msec() < deadline:
+		OS.delay_msec(50)
+	if not _processes.is_running(pid_to_stop):
+		return true
+	push_warning("BridgeLauncher: Begleiter endet nicht innerhalb von %.1f s, beende ihn hart" % timeout_s)
+	_processes.kill(pid_to_stop)
+	return false
+
+
+func _stop_bridge(timeout_s: float) -> bool:
 	if _tcp != null:
 		_tcp.disconnect_from_host()
 		_tcp = null
@@ -145,9 +210,7 @@ func stop(timeout_s := STOP_TIMEOUT_S) -> bool:
 	state = STATE_STOPPED
 	if not _processes.is_running(pid):
 		return true
-	var file := FileAccess.open(_stop_file, FileAccess.WRITE)
-	if file != null:
-		file.close()
+	_write_stop_file(_stop_file)
 	var deadline := Time.get_ticks_msec() + int(timeout_s * 1000.0)
 	while _processes.is_running(pid) and Time.get_ticks_msec() < deadline:
 		OS.delay_msec(50)
@@ -170,6 +233,66 @@ func hint() -> String:
 		STATE_FAILED:
 			return "Bridge-Start gescheitert (Quelle %s)" % _source
 	return ""
+
+
+static func _write_stop_file(path: String) -> void:
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file != null:
+		file.close()
+
+
+## Eigenen Begleiter starten, beobachten oder (ohne Wunsch) ohne Blockieren beenden – siehe Kopf der Datei.
+func _poll_companion(delta_s: float) -> void:
+	if companion_pid > 0:
+		if _companion_stopping_s >= 0.0:
+			_companion_stopping_s += delta_s
+			if not _processes.is_running(companion_pid):
+				_companion_exited()
+			elif _companion_stopping_s >= STOP_TIMEOUT_S:
+				push_warning("BridgeLauncher: Begleiter endet nicht innerhalb von %.1f s, beende ihn hart" % STOP_TIMEOUT_S)
+				_processes.kill(companion_pid)
+				_companion_exited()
+			return
+		if not _companion_wanted:
+			_write_stop_file(_companion_stop_file)
+			_companion_stopping_s = 0.0
+			return
+		_companion_watch_s += delta_s
+		if _companion_watch_s >= WATCH_INTERVAL_S:
+			_companion_watch_s = 0.0
+			if not _processes.is_running(companion_pid):
+				push_warning("BridgeLauncher: der gestartete Begleiter hat sich beendet (%s)" % " ".join(companion_args))
+				companion_failed = true
+				_companion_exited()
+		return
+	if _companion_wanted and not _companion_present and not companion_failed and state == STATE_OWN:
+		_launch_companion()
+
+
+func _companion_exited() -> void:
+	companion_pid = -1
+	_companion_stopping_s = -1.0
+
+
+func _launch_companion() -> void:
+	if not _processes.program_exists(companion_program):
+		push_warning("BridgeLauncher: Programm des Begleiters fehlt: %s" % companion_program)
+		companion_failed = true
+		return
+	DirAccess.remove_absolute(_companion_stop_file)  # Rest eines früheren Laufs
+	companion_args = PackedStringArray(["-m", "vspin_companion", "--port", str(_port), "--stop-file",
+			_companion_stop_file])
+	# Parent-Wächter ohne neues Argument: der Begleiter (#79) beendet sich, wenn dieser Prozess nicht mehr lebt. Die
+	# Umgebung erben die Kinder; ein unbekanntes CLI-Argument ließe den Start eines älteren Begleiters scheitern.
+	OS.set_environment(COMPANION_PARENT_ENV, str(OS.get_process_id()))
+	companion_pid = _processes.start(companion_program, companion_args)
+	if companion_pid <= 0:
+		push_warning("BridgeLauncher: Start des Begleiters gescheitert: %s %s" % [companion_program, " ".join(companion_args)])
+		companion_pid = -1
+		companion_failed = true
+		return
+	_companion_watch_s = 0.0
+	_companion_stopping_s = -1.0
 
 
 func _launch() -> void:

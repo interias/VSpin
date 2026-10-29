@@ -94,3 +94,15 @@ Bridge statt als Skript:
 - **Keine Trainingsbelastung:** Garmin berechnet sie nur für Dateien von Garmin- und Partnergeräten. VSpin gibt sich
   nicht als ein solcher Hersteller aus; wer die Belastung will, zeichnet parallel auf der Uhr auf und schaltet den
   Upload für diese Fahrt ab (bridge/README.md).
+
+## Nachtrag (2026-10-28, #76): Daten des Begleiters
+
+- **Ablage außerhalb des Repos:** `%APPDATA%\VSpin\companion\` mit `soul.md` (Seele), `memory.md` (Gedächtnis),
+  `companion.json` (Einstellungen, z. B. Wecker-Takt, Stimme), `.bak`-Sicherungen vor jedem Aufräumen und dem
+  Protokoll des Begleiters (Antwortzeiten, Sprachkosten). Tests lenken die Ablage um (`--data-dir` oder
+  `VSPIN_COMPANION_DIR`) und schreiben nie in das echte `%APPDATA%`.
+- **Kein Audio wird gespeichert** – weder die Stimme des Fahrers noch Tonis Sprachausgabe.
+- **Der Gesprächsverlauf lebt nur im Speicher**, eine Sitzung je Fahrt; was bleiben soll, steht danach in
+  `memory.md`.
+- **Geheimnisse** (`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`) stehen nur in einer lokalen
+  `.env`, nie im Repo.
