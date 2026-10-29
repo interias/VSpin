@@ -227,7 +227,8 @@ func _main_part(unit: Dictionary) -> Array:
 
 
 func test_three_units_load_from_files_as_described() -> void:
-	var units := Training.load_all()
+	# die Kadenz-Einheiten; die ERG-Einheit (Watt-Ziele, Spec #75) prüft test_training_erg.gd
+	var units := Training.load_all().filter(func(u): return not u["erg"])
 	var names := units.map(func(u): return u["name"])
 	assert_eq(names, ["Intervalle kurz", "Pyramide", "Tempo-Blöcke"], "drei Einheiten aus res://trainings")
 	for unit in units:

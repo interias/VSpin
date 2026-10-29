@@ -51,6 +51,13 @@
 ## Steuert eine andere App den Trainer (`status.trainer.control` `lost`) oder läuft die Bridge im Nur-lesen-Modus
 ## (`read_only`, `config.cfg [bridge] trainer_read_only`), zeigt das HUD einen Hinweis (`resistance_text()`).
 ##
+## ERG (Spec #75): In einer ERG-Einheit (Training.erg) meldet das Spiel statt der Steigung je Phase die Zielleistung per
+## `set_target_power` – nur in `riding` und nur, solange VSpin den Trainer steuert (`gears_active`). Ohne Steuerung
+## (Simulator, nur lesen, `lost`) läuft die Einheit ohne ERG weiter: Die Zielleistung wird angesagt und bewertet, der
+## Fahrer hält sie selbst. In einer ERG-Einheit geht nie `set_grade` raus, die Gänge sind gesperrt und ausgeblendet.
+## Verlässt die Fahrt `riding`, geht zuerst `set_target_power null` und dann wie bisher `set_grade 0` raus; beim
+## Weiterfahren die Zielleistung der laufenden Phase neu. Das Tempo kommt aus der gemessenen Leistung (Leistungsmodell).
+##
 ## Runden (#31): Start an `start_distance_m`, jede Runde endet beim Überfahren der Start/Ziel-Linie (Streckenposition
 ## = Vielfaches der Rundenlänge), das Ziel nach `laps` Runden (0 = endlos). Rundenzeiten und Bestzeit führt die
 ## Rundenwertung (LapTiming) allein aus Streckenposition und Fahrzeit – also nur aus Kadenz und Steigung (ADR-0010).
@@ -307,6 +314,8 @@ var grade_reporter := GradeReporter.new()
 var gears: Gears
 ## In `riding` schon eine Steigung gemeldet: beim Verlassen von `riding` geht dann die Grundlast raus.
 var _grade_reported := false
+## ERG: zuletzt per `set_target_power` gemeldete Zielleistung (W, -1 = keine; beim Verlassen von `riding` geht `null`).
+var _target_power_sent := -1
 ## Fahrzeit, Strecke und Durchschnitte der laufenden Fahrt (ohne Pausen).
 var stats := RideStats.new()
 ## Ø-Puls, Max-Puls und Zeit je Zone der laufenden Fahrt (mit den Zonen des Profils beim Start; nur Fahrzeit, #64).
@@ -492,6 +501,7 @@ func _process(delta: float) -> void:
 	if state == STATE_RIDING:
 		_ride(delta)
 	_report_grade(delta)
+	_report_target_power()
 	power_average.add(bus.power_w() if not bus.power_estimated() else NAN, delta)
 	_update_view()
 	_update_rider(delta)
@@ -752,7 +762,7 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 		training_unit: Dictionary = {}, direction: String = Track.DIRECTION_CW,
 		tier: int = ArcadeTiers.DEFAULT) -> void:
 	ride_mode = mode
-	training = Training.new(training_unit) if not training_unit.is_empty() else null
+	training = Training.new(training_unit, save_game.ftp()) if not training_unit.is_empty() else null
 	if training != null or mode == SaveGame.MODE_ARCADE:
 		lap_count = 0
 		ghost_kind = ""
@@ -769,6 +779,7 @@ func start_ride(mode: String = SaveGame.MODE_ROUND_TRIP, lap_count: int = 1, gho
 	model = RideModel.new(config, start_distance_m)
 	power_average.reset()
 	gears.reset()
+	gears.locked = erg_ride()  # in ERG wird nicht geschaltet (Gang neutral: kein Offset in `reported_grade`)
 	stats = RideStats.new()
 	pulse_zones = save_game.heart_rate_zones()
 	pulse_stats = HeartRateStats.new(pulse_zones)
@@ -817,6 +828,8 @@ func _fix_ride_kind() -> void:
 func _on_ride_requested(mode: String) -> void:
 	settings_menu.select_time(start_menu.time_index())
 	if mode == SaveGame.MODE_TRAINING:
+		if not Training.startable(start_menu.training_unit(), save_game.ftp()):
+			return  # % FTP ohne FTP: das Menü sagt, wo sie hingehört
 		start_ride(mode, 0, "", start_menu.training_unit())
 		return
 	if mode == SaveGame.MODE_ARCADE:
@@ -971,6 +984,7 @@ func connections_needed() -> bool:
 func _on_pulse_profile_changed() -> void:
 	if not save_path.is_empty():
 		save_game.save_file(save_path)
+	start_menu.set_ftp(save_game.ftp())  # FTP (ERG): %-FTP-Einheiten werden startbar
 
 
 ## Teil in der Garderobe gewählt: der Fahrer trägt es, der Spielstand wird gleich gespeichert.
@@ -1088,6 +1102,7 @@ func _enter_menu() -> void:
 	speed_effects.reset()
 	_update_round_trip_menu()
 	_update_arcade_menu()
+	start_menu.set_ftp(save_game.ftp())
 	start_menu.open()
 	state_changed.emit(state)
 	_fly_title(0.0, true)
@@ -1276,6 +1291,11 @@ func ghost_active() -> bool:
 	return ghost != null and state != STATE_MENU
 
 
+## Fährt diese Fahrt eine ERG-Einheit (Watt-Ziele, Training.erg)?
+func erg_ride() -> bool:
+	return training != null and training.erg()
+
+
 ## Läuft ein Training? (Dann keine Panorama-Momente, #43.)
 func training_active() -> bool:
 	return training != null and state != STATE_MENU
@@ -1391,9 +1411,10 @@ func lap_result() -> String:
 ## Aufwärmen 100 % · 70 rpm 80 % · …“. Abgebrochen: die Teilbewertung der gefahrenen Phasen.
 func training_result() -> String:
 	var rewards := rewards_result()
-	return "%s%s\n%s · Zeit: %s\nZielkadenz getroffen: %s\nJe Phase: %s\nØ Kadenz: %d rpm · Ø Tempo: %.1f km/h%s\n%s" % [
+	return "%s%s\n%s · Zeit: %s\n%s getroffen: %s\nJe Phase: %s\nØ Kadenz: %d rpm · Ø Tempo: %.1f km/h%s\n%s" % [
 			"Training beendet!" if training.finished() else "Training abgebrochen",
 			" · " + rewards if not rewards.is_empty() else "", training.unit["name"], format_time(lap_time_s(), true),
+			"Zielleistung" if training.erg() else "Zielkadenz",
 			Training.percent_text(training.total_score()), training.phase_summary(), roundi(stats.avg_cadence()),
 			stats.avg_speed_kmh(), _pulse_block(), "Enter: zurück ins Menü · Esc: Einstellungen"]
 
@@ -1485,7 +1506,7 @@ func _ride(delta: float) -> void:
 	stats.add(used, bus.cadence, model.distance_m - before)
 	pulse_stats.add(used, bus.heart_rate_bpm if bus.has_heart_rate() else null)
 	if training != null:
-		training.advance(bus.cadence, used)
+		training.advance(bus.cadence, used, bus.power_w())
 	arcade_stage.advance(model.distance_m, used)
 	var segments_before := lap_timing.segments.results.size()
 	var laps_done := lap_timing.advance(model.distance_m, used)
@@ -1506,10 +1527,10 @@ func _ride(delta: float) -> void:
 
 
 ## Meldet die Steigung per `set_grade`, wenn sie sich genug geändert hat (gedrosselt, siehe GradeReporter).
-## Nur beim Fahren – in jeder Pause gilt die Grundlast (`_report_rest_load`).
+## Nur beim Fahren – in jeder Pause gilt die Grundlast (`_report_rest_load`). In einer ERG-Einheit nie.
 func _report_grade(delta: float) -> void:
 	grade_reporter.tick(delta)
-	if state != STATE_RIDING:
+	if state != STATE_RIDING or erg_ride():
 		return
 	var grade := GradeReporter.quantize(reported_grade())
 	if grade_reporter.wants_to_send(grade) and bus.send_message({"type": "set_grade", "grade": grade}) == OK:
@@ -1521,11 +1542,26 @@ func _report_grade(delta: float) -> void:
 ## `set_grade 0` raus – ungedrosselt, am GradeReporter vorbei. Beim Weiterfahren meldet der zurückgesetzte Reporter die
 ## echte Steigung sofort neu. Ist der Bus weg, scheitert das Senden; dann setzt die Bridge die Grundlast selbst.
 func _report_rest_load() -> void:
-	if state == STATE_RIDING or not _grade_reported:
+	if state == STATE_RIDING or not (_grade_reported or _target_power_sent >= 0):
 		return
+	if _target_power_sent >= 0:  # ERG zuerst beenden: die Bridge lehnt `set_grade` in ERG ab
+		_target_power_sent = -1
+		bus.send_message({"type": "set_target_power", "watts": null})
 	_grade_reported = false
 	grade_reporter.reset()
 	bus.send_message({"type": "set_grade", "grade": 0.0})
+
+
+## ERG: meldet die Zielleistung der laufenden Phase per `set_target_power`, sobald sie sich ändert (je Phase einmal) –
+## nur in `riding` und nur, solange VSpin den Trainer steuert. Neuverbinden und „Steuerung zurückholen“ setzt die
+## Bridge selbst mit der letzten Zielleistung fort.
+func _report_target_power() -> void:
+	if state != STATE_RIDING or not erg_ride() or not gears_active():
+		return
+	var watts := training.target_power_w()
+	if watts >= 0 and watts != _target_power_sent \
+			and bus.send_message({"type": "set_target_power", "watts": watts}) == OK:
+		_target_power_sent = watts
 
 
 ## Speichert die gemerkten Pulsgeräte und schickt sie sofort an die Bridge (für die Geräteseite).
@@ -1545,7 +1581,7 @@ func apply_role_device(kind: String) -> void:
 
 
 func _on_ack(message: Dictionary) -> void:
-	if message.get("for") != "set_grade":
+	if not (message.get("for") in ["set_grade", "set_target_power"]):
 		return
 	if message.get("ok") == true:
 		resistance_hint = ""
@@ -1638,9 +1674,14 @@ func _show_training() -> void:
 	var next := training.next_phase()
 	hud.show_training(phase["name"], Training.target_text(phase), format_time(ceilf(training.remaining_s())),
 			"%s · %s" % [next["name"], Training.target_text(next)] if not next.is_empty() else "Ende der Einheit")
-	hud.show_zone(phase["cadence_min"], phase["cadence_max"], bus.cadence,
-			Training.percent_text(training.phase_score(training.phase_index())))
-	var announcement := training.announcement()
+	var score := Training.percent_text(training.phase_score(training.phase_index()))
+	if training.erg():  # Zielband der Leistung und gemessene Leistung
+		var band := Training.power_range(phase)
+		hud.show_zone(band[0], band[1], bus.power_w() if not is_nan(bus.power_w()) else 0.0, score)
+	else:
+		hud.show_zone(phase["cadence_min"], phase["cadence_max"], bus.cadence, score)
+	# Story 14: Regelt VSpin den Widerstand selbst, entfällt die Ansage zum Widerstandsknopf.
+	var announcement := training.announcement(not gears_active())
 	hud.show_announcement(announcement)
 	sound.announce(announcement, training.phase_index())
 
@@ -1718,7 +1759,7 @@ func _update_view() -> void:
 	if debug_label.visible:
 		debug_label.text = debug_text()
 	hint_label.text = resistance_text()
-	hud.show_gear(gears.text() if gears_active() else "")
+	hud.show_gear(gears.text() if gears_active() and not gears.locked else "")
 	var message := status_message()
 	message_label.text = message
 	message_label.visible = not message.is_empty()

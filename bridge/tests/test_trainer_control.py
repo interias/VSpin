@@ -10,11 +10,20 @@ import asyncio
 
 import pytest
 from fake_ble import FakeBleAdapter
-from trainer_harness import KICKR, control_responder, control_writes, kickr, sim_kickr, simulation
+from trainer_harness import (
+    KICKR,
+    TARGET_POWER,
+    control_responder,
+    control_writes,
+    kickr,
+    sim_kickr,
+    simulation,
+    target_power,
+)
 
 from vspin_bridge.ble import BleError
 from vspin_bridge.sources.base import Capability, ControlRefusedError, NotSupportedError
-from vspin_bridge.sources.trainer import GRADE_INTERVAL_S, GRADE_STEP, TrainerSource
+from vspin_bridge.sources.trainer import GRADE_INTERVAL_S, GRADE_STEP, MODE_ERG, MODE_SIM, TrainerSource
 from vspin_bridge.sources.trainer_control import (
     CONTROL_POINT,
     CW_KG_PER_M,
@@ -542,5 +551,236 @@ def test_release_tries_the_reset_even_if_zero_grade_fails():
         with pytest.raises(RuntimeError, match="Steigung 0"):
             await source.release()
         assert control_writes(adapter) == [*TAKEN, simulation(0), RESET]
+
+    run(scenario)
+
+
+# --- ERG (P7) --------------------------------------------------------------------------------
+
+
+def erg(adapter: FakeBleAdapter, respond=None, **options) -> tuple[TrainerSource, list[int | None]]:
+    """Trainer mit Simulation und Power Target; die Liste sammelt jede Änderung der Zielleistung."""
+    sim_kickr(adapter, respond=respond, targets=TARGET_POWER)
+    source, _ = controlled(adapter, **options)
+    targets: list[int | None] = []
+    source.on_target_changed = targets.append
+    return source, targets
+
+
+def test_target_power_writes_0x05_and_null_returns_to_simulation_with_the_last_grade():
+    async def scenario(adapter):
+        source, targets = erg(adapter)
+        await source.connect()
+        assert source.mode == MODE_SIM and source.target_power is None
+        await source.set_grade(0.05)
+        await source.set_target_power(250)
+        assert source.mode == MODE_ERG and source.target_power == 250
+        await source.set_target_power(None)
+        assert control_writes(adapter) == [*TAKEN, simulation(500), target_power(250), simulation(500)]
+        assert source.mode == MODE_SIM and targets == [250, None]  # je Änderung genau eine Meldung
+        await source.set_target_power(None)  # schon SIM: nichts
+        assert control_writes(adapter)[-1] == simulation(500) and targets == [250, None]
+
+    run(scenario)
+
+
+def test_null_without_any_grade_returns_to_zero_grade():
+    async def scenario(adapter):
+        source, _ = erg(adapter)
+        await source.connect()
+        await source.set_target_power(150)
+        await source.set_target_power(None)
+        assert control_writes(adapter) == [*TAKEN, target_power(150), simulation(0)]
+
+    run(scenario)
+
+
+def test_set_grade_in_erg_is_refused_writes_nothing_and_follows_after_erg():
+    async def scenario(adapter):
+        source, _ = erg(adapter)
+        await source.connect()
+        await source.set_target_power(200)
+        with pytest.raises(ControlRefusedError) as refused:
+            await source.set_grade(0.07)
+        assert refused.value.reason == "erg_active"
+        assert control_writes(adapter) == [*TAKEN, target_power(200)]
+        await source.set_target_power(None)
+        assert control_writes(adapter)[-1] == simulation(700)  # die in ERG gemeldete Steigung gilt danach
+
+    run(scenario)
+
+
+def test_target_power_without_the_feature_bit_is_not_supported():
+    async def scenario(adapter):
+        sim_kickr(adapter)  # Indoor Bike Simulation, aber kein Power Target
+        source, _ = controlled(adapter)
+        await source.connect()
+        with pytest.raises(NotSupportedError):
+            await source.set_target_power(200)
+        assert control_writes(adapter) == TAKEN and source.mode == MODE_SIM
+        await source.set_grade(0.02)  # SIM geht weiter
+        assert control_writes(adapter)[-1] == simulation(200)
+
+    run(scenario)
+
+
+def test_target_power_outside_the_bus_range_is_a_value_error():
+    async def scenario(adapter):
+        source, _ = erg(adapter)
+        await source.connect()
+        for watts in (-1, 2001):
+            with pytest.raises(ValueError):
+                await source.set_target_power(watts)
+        assert control_writes(adapter) == TAKEN and source.mode == MODE_SIM
+
+    run(scenario)
+
+
+@pytest.mark.parametrize(
+    ("result", "error"), [(0x02, NotSupportedError), (0x03, ControlPointError), (0x04, ControlPointError)]
+)
+def test_answers_to_0x05_map_to_errors(result, error):
+    async def scenario(adapter):
+        source, _ = erg(adapter, respond=control_responder({0x05: result}))
+        await source.connect()
+        with pytest.raises(error):
+            await source.set_target_power(200)
+        assert source.control is ControlState.ACTIVE
+
+    run(scenario)
+
+
+def test_answer_0x05_to_target_power_is_control_lost_and_nothing_follows():
+    async def scenario(adapter):
+        source, _ = erg(adapter, respond=control_responder({0x05: 0x05}))
+        await source.connect()
+        with pytest.raises(ControlRefusedError) as refused:
+            await source.set_target_power(200)
+        assert refused.value.reason == "control_lost" and source.control is ControlState.LOST
+        before = list(adapter.writes)
+        with pytest.raises(ControlRefusedError):
+            await source.set_target_power(210)
+        await source.set_target_power(None)
+        assert await source.reset_grade() is False
+        await source.release()
+        assert adapter.writes == before  # nach `lost` nichts, auch keine Grundlast
+
+    run(scenario)
+
+
+def test_target_power_is_throttled_and_the_last_value_is_caught_up():
+    async def scenario(adapter):
+        source, targets = erg(adapter, grade_interval_s=0.2)
+        await source.connect()
+        await source.set_target_power(200)
+        await source.set_target_power(210)  # gedrosselt …
+        await source.set_target_power(220)  # … nur der Endwert kommt
+        assert control_writes(adapter) == [*TAKEN, target_power(200)]
+        await asyncio.sleep(0.35)
+        assert control_writes(adapter) == [*TAKEN, target_power(200), target_power(220)]
+        await asyncio.sleep(0.25)
+        await source.set_target_power(220)  # gleicher Wert: kein Schreiben
+        assert control_writes(adapter) == [*TAKEN, target_power(200), target_power(220)]
+        assert targets == [200, 210, 220]
+
+    run(scenario)
+
+
+def test_reset_grade_in_erg_leaves_erg_writes_zero_grade_and_drops_the_catch_up():
+    async def scenario(adapter):
+        source, targets = erg(adapter, grade_interval_s=0.2)
+        await source.connect()
+        await source.set_target_power(200)
+        await source.set_target_power(260)  # gedrosselt
+        assert await source.reset_grade() is True
+        assert source.mode == MODE_SIM and targets[-1] is None
+        await asyncio.sleep(0.35)
+        assert control_writes(adapter) == [*TAKEN, target_power(200), simulation(0)]  # 260 W kommt nie nach
+
+    run(scenario)
+
+
+def test_release_in_erg_writes_zero_grade_then_reset():
+    async def scenario(adapter):
+        source, targets = erg(adapter)
+        await source.connect()
+        await source.set_target_power(240)
+        await source.release()
+        assert control_writes(adapter) == [*TAKEN, target_power(240), simulation(0), RESET]
+        assert source.mode == MODE_SIM and targets == [240, None]
+        with pytest.raises(RuntimeError):
+            await source.set_target_power(200)  # `_releasing` sperrt auch 0x05
+        assert control_writes(adapter)[-1] == RESET
+
+    run(scenario)
+
+
+def test_answer_0x02_to_target_power_leaves_erg_and_reconnect_sends_no_0x05():
+    async def scenario(adapter):
+        source, targets = erg(adapter, respond=control_responder({0x05: 0x02}))
+        await source.connect()
+        await source.set_grade(0.03)
+        with pytest.raises(NotSupportedError):
+            await source.set_target_power(200)
+        assert source.mode == MODE_SIM and source.target_power is None and targets == [200, None]  # genau eine Meldung
+        with pytest.raises(NotSupportedError):
+            await source.set_target_power(210)  # kein Power Target mehr, nichts geschrieben
+        adapter.drop(KICKR)
+        await source.connect()
+        assert control_writes(adapter) == [*TAKEN, simulation(300), target_power(200), *TAKEN, simulation(300)]
+        assert source.mode == MODE_SIM and targets == [200, None]
+
+    run(scenario)
+
+
+def test_target_without_power_target_feature_on_connect_sends_no_0x05_but_the_grade():
+    async def scenario(adapter):
+        source, targets = erg(adapter)
+        await source.connect()
+        await source.set_grade(0.03)
+        await source.set_target_power(210)
+        adapter.drop(KICKR)
+        with pytest.raises(RuntimeError):
+            await source.set_target_power(215)  # ohne Verbindung: gemerkt
+        sim_kickr(adapter)  # derselbe Trainer meldet jetzt kein Power Target (Bit 3)
+        await source.connect()
+        assert control_writes(adapter) == [*TAKEN, simulation(300), target_power(210), *TAKEN, simulation(300)]
+        assert source.mode == MODE_SIM and targets == [210, 215, None]  # genau eine Meldung für das Ende
+
+    run(scenario)
+
+
+def test_no_target_power_is_written_while_releasing_with_a_pending_reset():
+    # Wie bei `set_grade`: hängt das Reset (Steuerung noch `active`), darf kein `0x05` mehr zum Trainer.
+    async def scenario(adapter):
+        source, _ = erg(adapter, respond=control_responder({0x01: None}))
+        await source.connect()
+        await source.set_target_power(240)
+        releasing = asyncio.create_task(source.release())
+        await asyncio.sleep(0.05)  # 0 ist geschrieben, das Reset wartet auf die Antwort
+        with pytest.raises(RuntimeError, match="freigegeben"):
+            await source.set_target_power(200)
+        with pytest.raises(RuntimeError, match="Reset"):
+            await releasing
+        await asyncio.sleep(0.2)
+        assert control_writes(adapter) == [*TAKEN, target_power(240), simulation(0), RESET]
+
+    run(scenario)
+
+
+def test_reconnect_and_reclaim_in_erg_resend_the_target_power():
+    async def scenario(adapter):
+        source, _ = erg(adapter)
+        await source.connect()
+        await source.set_grade(0.03)
+        await source.set_target_power(210)
+        adapter.drop(KICKR)
+        with pytest.raises(RuntimeError):
+            await source.set_target_power(215)  # ohne Verbindung: gemerkt
+        await source.connect()
+        assert control_writes(adapter) == [*TAKEN, simulation(300), target_power(210), *TAKEN, target_power(215)]
+        adapter.indicate(KICKR, MACHINE_STATUS, b"\xff")
+        await source.reclaim_control()
+        assert control_writes(adapter)[-3:] == [*TAKEN, target_power(215)]
 
     run(scenario)

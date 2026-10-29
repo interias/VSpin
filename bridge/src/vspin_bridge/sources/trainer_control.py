@@ -2,15 +2,16 @@
 
 Bausteine für `TrainerSource` nach Bluetooth SIG FTMS 1.0 – kein Wahoo- oder Zwift-Sonderprotokoll:
 
-- **Op-Codes:** `0x00` Request Control, `0x01` Reset, `0x07` Start/Resume, `0x11` Set Indoor Bike Simulation
-  Parameters. Jede Anfrage beantwortet der Trainer per Indication `0x80 <Op-Code> <Ergebnis>` (`RESULT_*`).
+- **Op-Codes:** `0x00` Request Control, `0x01` Reset, `0x05` Set Target Power (ERG), `0x07` Start/Resume, `0x11` Set
+  Indoor Bike Simulation Parameters. Jede Anfrage beantwortet der Trainer per Indication `0x80 <Op-Code> <Ergebnis>`
+  (`RESULT_*`).
 - **`ControlPoint`:** je Verbindung ein Objekt; eine Anfrage zur Zeit (FTMS erlaubt keine zweite, solange eine offen
   ist), Schreiben mit Antwort, dann Warten auf die Indication mit Zeitlimit (`RESPONSE_TIMEOUT_S`). Das Abo der
   Indications kommt **vor** dem ersten Schreiben (ohne Abo lehnt das Gerät Schreibzugriffe ab).
 - **`ControlState`:** Stand der Steuerung, auf dem Bus `status.trainer.control` (docs/bus-protocol.md).
 
-Andockpunkt ERG (P7): Target Power `0x05` kommt als weiterer Op-Code hierher und geht wie `0x11` über
-`ControlPoint.request`; Zustand, Kontrollverlust und Grundlast gelten dann für beide.
+ERG (P7): Target Power `0x05` geht wie `0x11` über `ControlPoint.request`; Zustand, Kontrollverlust und Grundlast
+gelten für beide. Ein `0x11` nach `0x05` schaltet den Trainer zurück in die Simulation.
 """
 
 import asyncio
@@ -24,6 +25,7 @@ MACHINE_STATUS = "00002ada-0000-1000-8000-00805f9b34fb"  # Fitness Machine Statu
 
 OP_REQUEST_CONTROL = 0x00
 OP_RESET = 0x01
+OP_TARGET_POWER = 0x05
 OP_START = 0x07
 OP_SIMULATION = 0x11
 OP_RESPONSE = 0x80
@@ -93,6 +95,17 @@ def simulation_parameters(
         )
     except struct.error as exc:
         raise ValueError(f"Steigung {grade * 100:+.2f} % nicht darstellbar (FTMS: sint16 in 0,01 %)") from exc
+
+
+TARGET_POWER_MAX_W = 2000  # Bus-Grenze der Zielleistung (docs/bus-protocol.md); das Feld selbst ist sint16
+
+
+def target_power_parameter(watts: int) -> bytes:
+    """Parameter von `0x05` (ohne Op-Code): Zielleistung sint16 in W, Little Endian. Außerhalb 0…TARGET_POWER_MAX_W ist
+    es ein `ValueError` – ob der Trainer den Wert annimmt, sagt seine Antwort."""
+    if not 0 <= watts <= TARGET_POWER_MAX_W:
+        raise ValueError(f"Zielleistung {watts} W außerhalb 0–{TARGET_POWER_MAX_W} W")
+    return struct.pack("<h", watts)
 
 
 class ControlPoint:

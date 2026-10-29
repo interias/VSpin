@@ -129,8 +129,15 @@ ADR-0007 Nachtrag Spec #75). Es gibt immer nur einen Steuerer; den Stand meldet 
   dabei noch kommt, schreibt sie nicht mehr. Beim Pausieren sendet das
   Spiel selbst `set_grade 0`. Ein harter Absturz der Bridge (TerminateProcess) lässt sich nicht abfangen; was der
   Trainer dann tut, entscheidet seine Firmware.
+- **ERG** (`set_target_power`): Eine Zielleistung in W geht als `0x05` Set Target Power an den Trainer (gedrosselt ab
+  1 W, höchstens 2 Hz), `null` beendet ERG und sendet die zuletzt gemeldete Steigung nach. Voraussetzung ist Power
+  Target in den Target Setting Features (`0x2ACC`, Bit 3), sonst `ack` mit `not_supported`. `status.trainer` meldet
+  `mode` (`sim` | `erg`) und `target_power`, das Terminal `Trainer: ERG 250 W` bzw. `Trainer: SIM (Steigung)`. In ERG
+  bekommt `set_grade` `reason: "erg_active"` und schreibt nichts. Die Grundlast verlässt ERG und schreibt Steigung 0
+  (beim Beenden danach Reset); nach dem Neuverbinden und „Steuerung zurückholen“ geht die letzte Zielleistung nach.
 - **Am Gerät offen:** SIM-Gefühl und Latenz, die größte Steigung, die der KICKR CORE 2 annimmt, der Steuerkonflikt
-  mit Zwift, ob Reset die Steuerung wirklich zurückgibt, und das Verhalten bei einem Absturz der Bridge.
+  mit Zwift, ob Reset die Steuerung wirklich zurückgibt, und das Verhalten bei einem Absturz der Bridge. Zu ERG: ob der
+  KICKR Power Target meldet, das ERG-Gefühl, die Reaktionszeit auf einen Zielwechsel und ob ein `0x11` ERG verlässt.
 
 ## Puls
 

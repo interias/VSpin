@@ -42,6 +42,17 @@ Widerstand (ADR-0007, Nachtrag Spec #75; Bausteine in `trainer_control.py`):
 - **Steuerung zurückholen** (`reclaim_control()`, Knopf im Verbindungsfenster): nach `lost` oder `error` nur auf einen
   Klick des Fahrers – `0x00`, `0x07` und die letzte Steigung wie beim Verbinden. Von selbst fordert die Quelle nie neu an.
 
+ERG (Spec #75, P7): zweiter Steuermodus, der Trainer hält eine Zielleistung.
+- **`set_target_power(watts)`:** eine Zahl startet bzw. hält ERG (`0x05` mit sint16 W), `None` beendet es – zurück in die
+  Simulation, die zuletzt gemeldete Steigung (ohne eine: 0) geht sofort als `0x11` hinterher. Verlangt Power Target in den
+  Target Setting Features (Bit 3), sonst `NotSupportedError`. Gedrosselt wie die Steigung: nur bei einer Änderung ab
+  `POWER_STEP_W` und höchstens alle `grade_interval_s`, der Endwert wird nachgeholt.
+- **Modus:** `mode` (`sim` | `erg`) und `target_power`; jede Änderung meldet `on_target_changed(target_power)`. Solange
+  ERG läuft, lehnt `set_grade` mit `ControlRefusedError("erg_active")` ab und schreibt nichts (die Steigung wird gemerkt).
+- **Grundlast in ERG:** `reset_grade()` und `release()` verlassen ERG (Modus `sim`) und schreiben Steigung 0 (`0x11`) –
+  bei `release()` danach das Reset. `_releasing` sperrt auch `0x05`, nach `lost` schreibt die Quelle nichts.
+- **Neuverbinden, Steuerung zurückholen:** läuft ERG, geht die letzte Zielleistung statt der Steigung hinterher.
+
 Verbindungsfenster (Spec #75, Rolle `trainer`):
 - **Gemerkte Trainer** (`set_known_devices`, vom Spiel über `set_devices`): Sobald eine Liste gesetzt ist, gilt nur sie –
   die Suche nimmt das stärkste gemerkte Gerät, das sendet (FTMS vor Cycling Power); eine leere Liste heißt: keiner, bis
@@ -77,6 +88,7 @@ from .trainer_control import (
     OP_RESET,
     OP_SIMULATION,
     OP_START,
+    OP_TARGET_POWER,
     RESPONSE_TIMEOUT_S,
     RESULT_CONTROL_NOT_PERMITTED,
     RESULT_NOT_SUPPORTED,
@@ -86,6 +98,7 @@ from .trainer_control import (
     ControlPointError,
     ControlState,
     simulation_parameters,
+    target_power_parameter,
 )
 
 FTMS_SERVICE = "00001826-0000-1000-8000-00805f9b34fb"
@@ -97,6 +110,10 @@ NO_CADENCE_AFTER = 3  # so viele 0x2AD2-Notifications ohne Kadenzfeld, dann komm
 
 GRADE_STEP = 0.001  # Drosselung: neue Steigung erst ab 0,1 % Abstand zum zuletzt geschriebenen Wert …
 GRADE_INTERVAL_S = 0.5  # … und höchstens alle 0,5 s (2 Hz)
+POWER_STEP_W = 1  # ERG: neue Zielleistung ab 1 W Abstand zur zuletzt geschriebenen, im selben Takt wie die Steigung
+
+MODE_SIM = "sim"  # Bus `status.trainer.mode`: Steigung (Indoor Bike Simulation)
+MODE_ERG = "erg"  # Zielleistung (Target Power)
 
 _LOST = object()  # Marke in der Warteschlange: die Verbindung ist weg
 
@@ -147,6 +164,13 @@ class TrainerSource:
         self._catch_up: asyncio.Task[None] | None = None  # Nachholen einer gedrosselten Änderung
         self._releasing = False  # `release()` läuft: eigenes Reset ist kein Kontrollverlust, kein `set_grade` mehr
         self._granted = False  # `0x00` in dieser Verbindung bestätigt: der Trainer führt VSpin als Steuerer
+        # ERG (P7): Zielleistung (None = Simulation), Rückruf der Bridge, Feature-Bit und Drosselung wie bei der Steigung.
+        self.on_target_changed: Callable[[int | None], None] = lambda target_power: None
+        self._target_power: int | None = None
+        self._power_target_supported: bool | None = None  # None = noch nie verbunden
+        self._power_written: int | None = None
+        self._power_written_at = -math.inf
+        self._power_catch_up: asyncio.Task[None] | None = None
         # Vor der ersten Verbindung ist nur die Kadenz sicher (ADR-0004: einziger Game-Input); nach dem
         # Verbinden stehen hier die Fähigkeiten laut Features.
         self.capabilities: set[Capability] = {Capability.CADENCE}
@@ -190,6 +214,7 @@ class TrainerSource:
                 if features.cadence or self._cycling_power_available:
                     capabilities.add(Capability.CADENCE)
                 self.capabilities = capabilities
+                self._power_target_supported = features.power_target
                 await self._subscribe(connection, queue, INDOOR_BIKE_DATA)
                 if not features.cadence and self._cycling_power_available:
                     await self._subscribe_cycling_power(connection, queue)
@@ -201,6 +226,7 @@ class TrainerSource:
             elif self._cycling_power_available:
                 # Leistungsmesser ohne FTMS: Leistung und Kadenz kommen allein aus 0x2A63.
                 self.capabilities = {Capability.POWER, Capability.CADENCE}
+                self._power_target_supported = False
                 await self._subscribe_cycling_power(connection, queue)
                 self._set_control(ControlState.NOT_SUPPORTED, "Gerät ohne FTMS")
             else:
@@ -247,13 +273,15 @@ class TrainerSource:
 
     async def set_grade(self, grade: float) -> None:
         """Steigung an den Trainer (gedrosselt, siehe oben). Wirft `ControlRefusedError` (`read_only`,
-        `control_lost`), `NotSupportedError` (Trainer kann keine Simulation oder antwortet `0x02`), `ControlPointError`
-        (andere Antwort, keine Antwort), `BleError`, `ValueError` (Steigung nicht darstellbar) oder `RuntimeError`
-        (gerade keine Steuerung, z. B. nicht verbunden – die Steigung folgt dann nach dem Verbinden)."""
+        `control_lost`, `erg_active`), `NotSupportedError` (Trainer kann keine Simulation oder antwortet `0x02`),
+        `ControlPointError` (andere Antwort, keine Antwort), `BleError`, `ValueError` (Steigung nicht darstellbar) oder
+        `RuntimeError` (gerade keine Steuerung, z. B. nicht verbunden – die Steigung folgt dann nach dem Verbinden)."""
         simulation_parameters(grade)  # nicht darstellbar → ValueError, bevor sie als Ziel gilt
         self._grade = grade
         if self._read_only:
             raise ControlRefusedError("read_only", "Nur-lesen-Modus (--read-only): VSpin steuert den Trainer nicht")
+        if self._target_power is not None:  # ERG: der Trainer hält die Leistung, die Steigung folgt nach dem Ende
+            raise ControlRefusedError("erg_active", f"ERG läuft ({self._target_power} W): keine Steigung")
         if self.control is ControlState.LOST:
             raise ControlRefusedError("control_lost", "eine andere App steuert den Trainer")
         if self._releasing:  # nach der Grundlast beim Beenden nichts mehr, auch wenn das Reset noch aussteht
@@ -272,11 +300,59 @@ class TrainerSource:
         self._cancel_catch_up()
         await self._write_grade(grade)
 
-    async def reset_grade(self) -> bool:
-        """Sichere Grundlast (Bridge: alle Clients weg): sofort Steigung 0, nie gedrosselt. `True`, wenn sie an den
-        Trainer ging; ohne aktive Steuerung wird sie nur das Ziel fürs nächste Verbinden. Wirft wie `set_grade`."""
-        self._grade = 0.0
+    async def set_target_power(self, watts: int | None) -> None:
+        """ERG (siehe oben): `watts` als Zielleistung, `None` beendet ERG und sendet die letzte Steigung nach. Wirft
+        `ValueError` (außerhalb 0…2000 W), `ControlRefusedError` (`read_only`, `control_lost`), `NotSupportedError`
+        (kein Power Target oder Antwort `0x02`), `ControlPointError`, `BleError` oder `RuntimeError` (gerade keine
+        Steuerung – die Zielleistung folgt dann nach dem Verbinden; Freigabe läuft)."""
+        if watts is None:
+            if self._target_power is None:
+                return
+            self._leave_erg()
+            if self._releasing or self.control is not ControlState.ACTIVE or self._control_point is None:
+                return  # die Steigung folgt beim (Neu-)Verbinden; nach `lost` nichts
+            await self._write_grade(0.0 if self._grade is None else self._grade)
+            return
+        target_power_parameter(watts)  # nicht darstellbar → ValueError, bevor sie als Ziel gilt
+        if self._read_only:
+            raise ControlRefusedError("read_only", "Nur-lesen-Modus (--read-only): VSpin steuert den Trainer nicht")
+        if self.control is ControlState.NOT_SUPPORTED or self._power_target_supported is False:
+            raise NotSupportedError("Der Trainer nimmt keine Zielleistung an (Target Setting Features ohne Power Target)")
+        if self._target_power is None:
+            self._cancel_catch_up()  # eine ausstehende Steigung kommt in ERG nicht mehr
+        self._set_target(watts)
+        if self.control is ControlState.LOST:
+            raise ControlRefusedError("control_lost", "eine andere App steuert den Trainer")
+        if self._releasing:
+            raise RuntimeError("Bridge endet: Trainer wird freigegeben")
+        if self.control is not ControlState.ACTIVE or self._control_point is None:
+            raise RuntimeError(f"Trainer gerade nicht gesteuert ({self.control})")
+        if self._power_written is not None and abs(watts - self._power_written) < POWER_STEP_W:
+            return
+        wait_s = self._power_written_at + self._grade_interval_s - asyncio.get_running_loop().time()
+        if wait_s > 0:
+            if self._power_catch_up is None:
+                self._power_catch_up = asyncio.create_task(self._power_catch_up_after(wait_s))
+            return  # gedrosselt: das Nachholen schreibt den dann aktuellen Wert
         self._cancel_catch_up()
+        await self._write_power(watts)
+
+    @property
+    def mode(self) -> str:
+        """Steuermodus für `status.trainer.mode`: `erg`, solange eine Zielleistung gilt, sonst `sim`."""
+        return MODE_SIM if self._target_power is None else MODE_ERG
+
+    @property
+    def target_power(self) -> int | None:
+        """Zielleistung in W (None = kein ERG) – auch, wenn sie erst nach dem Verbinden an den Trainer geht."""
+        return self._target_power
+
+    async def reset_grade(self) -> bool:
+        """Sichere Grundlast (Bridge: alle Clients weg): sofort Steigung 0, nie gedrosselt; ERG endet dabei. `True`, wenn
+        sie an den Trainer ging; ohne aktive Steuerung wird sie nur das Ziel fürs nächste Verbinden. Wirft wie
+        `set_grade`."""
+        self._grade = 0.0
+        self._leave_erg()
         if self.control is not ControlState.ACTIVE or self._control_point is None:
             return False
         await self._write_grade(0.0)
@@ -286,8 +362,9 @@ class TrainerSource:
         """Beim Beenden der Bridge, vor dem Trennen: Steigung 0, dann `0x01` Reset (gibt die Steuerung zurück) – beides
         nie gedrosselt. Auch ohne `active`, wenn `0x00` in dieser Verbindung bestätigt wurde (z. B. `error`, weil `0x07`
         scheiterte): dann Steigung 0 nur, falls eine geschrieben wurde, und das Reset. Bei `lost` nichts (eine andere App
-        steuert), ebenso ohne Verbindung. Wirft `RuntimeError` mit den Fehlern, versucht aber beides."""
-        self._cancel_catch_up()
+        steuert), ebenso ohne Verbindung. ERG endet dabei (Modus `sim`). Wirft `RuntimeError` mit den Fehlern, versucht
+        aber beides."""
+        self._leave_erg()
         control_point = self._control_point
         active = self.control is ControlState.ACTIVE
         if control_point is None or self.control is ControlState.LOST or not (active or self._granted):
@@ -436,8 +513,16 @@ class TrainerSource:
             self._set_control(ControlState.ERROR, f"Control Point nicht beschreibbar: {exc}")
             return
         self._set_control(ControlState.ACTIVE, "VSpin steuert den Trainer")
-        # zuletzt gemeldete Steigung nachsenden (Neuverbinden) – nicht, wenn `release()` schon läuft (`0x07` kam spät)
-        if self._grade is not None and not self._releasing:
+        # ERG: die Zielleistung nachsenden, sonst die zuletzt gemeldete Steigung (Neuverbinden) – nicht, wenn `release()`
+        # schon läuft (`0x07` kam spät)
+        if self._target_power is not None and self._power_target_supported is False:
+            self._leave_erg()  # der Trainer kann kein Power Target: weiter mit der Steigung wie in SIM
+        if self._target_power is not None and not self._releasing:
+            try:
+                await self._write_power(self._target_power)
+            except Exception as exc:
+                self.on_info(f"Zielleistung {self._target_power} W nach dem Verbinden nicht gesetzt: {exc}")
+        elif self._grade is not None and not self._releasing:
             try:
                 await self._write_grade(self._grade)
             except Exception as exc:  # Steuerung steht; der Fehler gehört ins Terminal (lost meldet der Zustand)
@@ -461,6 +546,51 @@ class TrainerSource:
         if control_point is self._control_point:
             self._written = grade
 
+    async def _write_power(self, watts: int) -> None:
+        """`0x05` mit `watts`, ohne Drosselung; Antworten und Verlust wie bei `_write_grade`."""
+        control_point = self._control_point
+        if control_point is None:
+            raise RuntimeError("Trainer gerade nicht gesteuert")
+        self._power_written_at = asyncio.get_running_loop().time()
+        try:
+            await control_point.request(OP_TARGET_POWER, target_power_parameter(watts))
+        except ControlPointError as exc:
+            if exc.result == RESULT_CONTROL_NOT_PERMITTED:
+                self._lose(control_point, str(exc))
+                raise ControlRefusedError("control_lost", str(exc)) from exc
+            if exc.result == RESULT_NOT_SUPPORTED:
+                self._power_target_supported = False  # kein ERG mehr, auch nicht beim Neuverbinden/Zurückholen
+                self._leave_erg()
+                raise NotSupportedError(str(exc)) from exc
+            raise
+        if control_point is self._control_point:
+            self._power_written = watts
+
+    def _set_target(self, watts: int) -> None:
+        if watts != self._target_power:
+            self._target_power = watts
+            self.on_target_changed(watts)
+
+    def _leave_erg(self) -> None:
+        """ERG endet (Zielleistung `None`, Modus `sim`); schreibt selbst nichts. Bricht jedes Nachholen ab."""
+        self._cancel_catch_up()
+        self._power_written = None
+        if self._target_power is not None:
+            self._target_power = None
+            self.on_target_changed(None)
+
+    async def _power_catch_up_after(self, delay_s: float) -> None:
+        """Gedrosselte Zielleistung nachholen, wie `_catch_up_after`."""
+        await asyncio.sleep(delay_s)
+        self._power_catch_up = None
+        watts = self._target_power
+        if watts is None or self._releasing or self.control is not ControlState.ACTIVE or watts == self._power_written:
+            return
+        try:
+            await self._write_power(watts)
+        except Exception as exc:
+            self.on_info(f"set_target_power {watts} W nachgeholt -> {exc}")
+
     async def _catch_up_after(self, delay_s: float) -> None:
         """Gedrosselte Änderung nachholen: nach `delay_s` den dann aktuellen Wert schreiben (falls er weit genug weg
         ist). Fehler gehen ins Terminal – einen Client, der ein `ack` bekäme, gibt es hier nicht."""
@@ -477,9 +607,13 @@ class TrainerSource:
             self.on_info(f"set_grade {grade:+.3f} nachgeholt -> {exc}")
 
     def _cancel_catch_up(self) -> None:
+        """Bricht das Nachholen der Steigung und der Zielleistung ab."""
         if self._catch_up is not None:
             self._catch_up.cancel()
             self._catch_up = None
+        if self._power_catch_up is not None:
+            self._power_catch_up.cancel()
+            self._power_catch_up = None
 
     def _on_machine_status(self, control_point: ControlPoint, data: bytes) -> None:
         if control_point is not self._control_point or not data or self._releasing:
@@ -510,6 +644,7 @@ class TrainerSource:
             self._control_point = None
         self._cancel_catch_up()
         self._written = None
+        self._power_written = None
         if self.control is not ControlState.NOT_SUPPORTED:
             self._set_control(ControlState.NONE, "Trainer nicht verbunden")
 

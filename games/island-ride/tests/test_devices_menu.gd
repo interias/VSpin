@@ -402,3 +402,33 @@ func test_layout_fits_low_window() -> void:
 func test_layout_fits_half_screen_and_full_screen_windows() -> void:
 	_assert_inside(await _menu_in(Vector2i(960, 1040)), "960×1040")
 	_assert_inside(await _menu_in(Vector2i(1920, 1080)), "1920×1080")
+
+
+## FTP (Spec #75, ERG): neben LTHR und Maximalpuls, gleiche Regeln – leer = nicht gesetzt, unplausibel abgewiesen.
+func test_ftp_is_saved_with_the_profile_values() -> void:
+	var bus := start_fake_bus([FakeBusServer.status()])
+	var game := await _spawn_game(bus)
+	var menu := await _open(game)
+	assert_eq(menu.ftp_edit.text, "", "ohne FTP leer")
+	menu.lthr_edit.text = "168"
+	menu.ftp_edit.text = "250"
+	menu.buttons["save_profile"].pressed.emit()
+	assert_eq(game.save_game.ftp(), 250)
+	assert_eq(SaveGame.load_file(SAVE_PATH).ftp(), 250, "auf der Platte")
+	assert_eq(game.start_menu.ftp_w, 250, "das Startmenü kennt die FTP sofort")
+	menu.ftp_edit.text = ""
+	assert_true(menu.save_profile(), "leer = nicht gesetzt")
+	assert_eq(game.save_game.ftp(), 0)
+
+
+func test_implausible_ftp_is_rejected() -> void:
+	var bus := start_fake_bus([FakeBusServer.status()])
+	var game := await _spawn_game(bus)
+	var menu := await _open(game)
+	game.save_game.set_ftp(240)
+	for text in ["49", "601", "abc", "250.5"]:
+		menu.ftp_edit.text = text
+		assert_false(menu.save_profile(), "abgewiesen: %s" % text)
+		assert_eq(game.save_game.ftp(), 240, "Wert unverändert")
+	assert_string_contains(menu.labels["profile_message"].text, "FTP 50–600 W")
+	assert_false(FileAccess.file_exists(SAVE_PATH), "nichts geschrieben")

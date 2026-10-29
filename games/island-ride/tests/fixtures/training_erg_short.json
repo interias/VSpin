@@ -1,0 +1,9 @@
+{
+	"name": "Kurztest ERG",
+	"description": "Testeinheit: je 2 s Aufwärmen 150 W, hart 100 % FTP, Ausrollen 100 W",
+	"phases": [
+		{"name": "Aufwärmen", "kind": "warmup", "duration_s": 2, "power_w": 150},
+		{"name": "Hart", "kind": "work", "duration_s": 2, "power_ftp": 1.0},
+		{"name": "Ausrollen", "kind": "cooldown", "duration_s": 2, "power_w": 100}
+	]
+}
