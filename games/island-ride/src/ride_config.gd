@@ -58,6 +58,17 @@ var gears_count := 24
 var gears_neutral := 12
 var gears_step_pp := 0.5
 
+## Leistungsmodell (Spec #75, `RideModel.target_speed_power_mps`): Gesamtmasse Fahrer + Rad (kg), Luftwiderstandsfläche
+## CdA (m²), Rollwiderstandsbeiwert Crr, Luftdichte (kg/m³) und Höchsttempo (km/h). Standard: ein 75-kg-Fahrer auf einem
+## 10-kg-Rennrad, aufrecht am Oberlenker (CdA 0,32), auf guten Straßenreifen (Crr 0,004), Luft auf Meereshöhe bei 15 °C –
+## 200 W ergeben in der Ebene gut 34 km/h. Das Höchsttempo begrenzt nur steile Abfahrten (ohne Treten rollt man bei −10 %
+## sonst über 70 km/h) auf ein Tempo, bei dem Kurven, Kamera und Tore noch mitkommen.
+var power_mass_kg := 85.0
+var power_cda_m2 := 0.32
+var power_crr := 0.004
+var power_air_density := 1.225
+var power_max_kmh := 70.0
+
 
 ## Liest `path`; fehlende Datei oder fehlende Schlüssel ergeben die Standardwerte.
 static func load_file(path: String = DEFAULT_PATH) -> RideConfig:
@@ -97,6 +108,11 @@ static func load_file(path: String = DEFAULT_PATH) -> RideConfig:
 	config.gears_count = int(file.get_value("gears", "count", config.gears_count))
 	config.gears_neutral = int(file.get_value("gears", "neutral", config.gears_neutral))
 	config.gears_step_pp = float(file.get_value("gears", "step_pp", config.gears_step_pp))
+	config.power_mass_kg = float(file.get_value("power", "mass_kg", config.power_mass_kg))
+	config.power_cda_m2 = float(file.get_value("power", "cda_m2", config.power_cda_m2))
+	config.power_crr = float(file.get_value("power", "crr", config.power_crr))
+	config.power_air_density = float(file.get_value("power", "air_density", config.power_air_density))
+	config.power_max_kmh = float(file.get_value("power", "max_kmh", config.power_max_kmh))
 	return config
 
 

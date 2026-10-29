@@ -252,7 +252,7 @@ func _fill_overview(content: VBoxContainer, save: SaveGame) -> void:
 	_heading(content, "Bestzeiten")
 	var best := _grid(content, 2)
 	for area in areas:
-		var seconds := save.best_time_s(area[0], area[1])
+		var seconds := save.best_time_s(area[0], area[1], area[2])
 		if is_finite(seconds):
 			_cells(best, [_area_name(area), lap_time_text(seconds)])
 	if best.get_child_count() == 0:
@@ -260,7 +260,7 @@ func _fill_overview(content: VBoxContainer, save: SaveGame) -> void:
 	_heading(content, "Segmentzeiten")
 	var segments := _grid(content, 3)
 	for area in areas:
-		var times := save.segment_best_times(area[0], area[1])
+		var times := save.segment_best_times(area[0], area[1], area[2])
 		for id in times:
 			_cells(segments, [segment_name(id), _area_name(area), lap_time_text(times[id])])
 	if segments.get_child_count() == 0:
@@ -270,7 +270,7 @@ func _fill_overview(content: VBoxContainer, save: SaveGame) -> void:
 	var counts := {}
 	for area in areas:
 		for key in _medal_keys(save, area):
-			var medal := save.best_medal(area[0], area[1], key)
+			var medal := save.best_medal(area[0], area[1], key, area[2])
 			if medal != Medals.NONE:
 				counts[medal] = counts.get(medal, 0) + 1
 				_cells(medals, ["Runde" if key == Medals.LAP else segment_name(key), _area_name(area),
@@ -351,34 +351,38 @@ func _fill_rides(content: VBoxContainer, save: SaveGame) -> void:
 			_line(content, text)
 
 
-## Strecken und Richtungen mit Bestzeit, Segmentzeit oder Medaille: [[strecke, richtung], …], sortiert.
+## Strecken und Richtungen mit Bestzeit, Segmentzeit oder Medaille je Geräteart (Spec #75):
+## [[strecke, richtung, geräteart], …], sortiert, das Kadenzmodell vor dem Leistungsmodell.
 func _track_directions(save: SaveGame) -> Array:
 	var result := []
-	for area in ["best_times", "segment_best_times", "medals"]:
-		var tracks: Dictionary = save.profile()[area]
-		for track in tracks:
-			if not (tracks[track] is Dictionary):
-				continue
-			for direction in tracks[track]:
-				if not ([track, direction] in result):
-					result.append([track, direction])
-	result.sort_custom(func(a, b): return a[0] + a[1] < b[0] + b[1])
+	for kind in [RideModel.KIND_CADENCE, RideModel.KIND_POWER]:
+		for area in ["best_times", "segment_best_times", "medals"]:
+			var tracks: Dictionary = save.profile()[SaveGame.scoring_area(area, kind)]
+			for track in tracks:
+				if not (tracks[track] is Dictionary):
+					continue
+				for direction in tracks[track]:
+					if not ([track, direction, kind] in result):
+						result.append([track, direction, kind])
+	result.sort_custom(func(a, b): return a[0] + a[1] + a[2] < b[0] + b[1] + b[2])
 	return result
 
 
 ## Runde zuerst, dann die Segmente.
 func _medal_keys(save: SaveGame, area: Array) -> Array:
 	var keys := [Medals.LAP]
-	var stored: Dictionary = save.profile()["medals"].get(area[0], {}).get(area[1], {}) \
-			if save.profile()["medals"].get(area[0]) is Dictionary else {}
+	var medals: Dictionary = save.profile()[SaveGame.scoring_area("medals", area[2])]
+	var stored: Dictionary = medals.get(area[0], {}).get(area[1], {}) if medals.get(area[0]) is Dictionary else {}
 	for key in stored:
 		if key != Medals.LAP:
 			keys.append(key)
 	return keys
 
 
+## „Insel, im Uhrzeigersinn“; im Leistungsmodell mit „ · Leistung“ dahinter (Wertung je Geräteart).
 func _area_name(area: Array) -> String:
-	return "%s, %s" % [track_name(area[0]), DIRECTION_NAMES.get(area[1], area[1])]
+	var name := "%s, %s" % [track_name(area[0]), DIRECTION_NAMES.get(area[1], area[1])]
+	return name + " · Leistung" if area[2] == RideModel.KIND_POWER else name
 
 
 func _heading(parent: Container, text: String) -> void:

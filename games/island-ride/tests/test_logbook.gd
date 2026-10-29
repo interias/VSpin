@@ -326,3 +326,14 @@ func test_layout_fits_full_screen_sizes() -> void:
 	small.show_page("achievements")
 	await wait_process_frames(2)
 	assert_true(small.pages["achievements"].get_v_scroll_bar().visible, "1152×648: viele Erfolge → scrollt")
+
+
+## Wertung je Geräteart (Spec #75): beide Bestzeiten und Medaillen stehen da, das Leistungsmodell gekennzeichnet.
+func test_logbook_marks_power_scores() -> void:
+	var save := _full_save(1)
+	save.record_best_time(RideConfig.TRACK_ISLAND, LapTiming.DIRECTION_CW, 801.3, RideModel.KIND_POWER)
+	save.record_medal(RideConfig.TRACK_ISLAND, LapTiming.DIRECTION_CW, Medals.LAP, Medals.BRONZE, RideModel.KIND_POWER)
+	var overview: String = (await _logbook_in(Vector2i(1920, 1080), save)).page_text("overview")
+	for text in ["Insel-Rundkurs, im Uhrzeigersinn\n14:44.7", "Insel-Rundkurs, im Uhrzeigersinn · Leistung\n13:21.3",
+			"Runde\nInsel-Rundkurs, im Uhrzeigersinn\nSilber", "Runde\nInsel-Rundkurs, im Uhrzeigersinn · Leistung\nBronze"]:
+		assert_string_contains(overview, text)
