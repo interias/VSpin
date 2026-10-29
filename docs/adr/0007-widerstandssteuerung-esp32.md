@@ -1,6 +1,6 @@
 # ADR-0007: Widerstandssteuerung – virtuelle Steigung über FTMS, ESP32 als Smart-Bike
 
-- **Status:** akzeptiert
+- **Status:** abgelöst durch den Nachtrag vom 28.10.2026 (Spec #75): Widerstand kommt aus FTMS-Smart-Trainern, der ESP32-Umbau entfällt. Der ursprüngliche Text bleibt als Zeitdokument stehen.
 - **Datum:** 2026-10-06
 
 ## Kontext

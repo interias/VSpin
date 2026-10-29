@@ -5,7 +5,7 @@
 
 ## Entscheidung
 
-- **Monorepo** `interias/VSpin` mit `bridge/`, `tools/`, `games/`, `firmware/`, `docs/`.
+- **Monorepo** `interias/VSpin` mit `bridge/`, `tools/`, `games/`, `docs/` (`firmware/` entfiel mit Spec #75).
 - **Privat** – Projekt ist nur für den Eigengebrauch.
 - **Lizenz: MIT.**
 - **qdomyos-zwift (GPL-3.0) nur als Referenz lesen**, keinen Code daraus
@@ -15,5 +15,5 @@
 
 ## Konsequenzen
 
-- Bus-Protokoll, Bridge, Game und Firmware können gemeinsam in einem Commit geändert werden.
+- Bus-Protokoll, Bridge und Game können gemeinsam in einem Commit geändert werden.
 - Eine spätere Veröffentlichung bleibt ohne Lizenz-Aufräumen möglich.

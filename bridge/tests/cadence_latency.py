@@ -2,7 +2,7 @@
 
     python tests/cadence_latency.py                     # im Ordner bridge/: Standardmessung als Tabelle
     python tests/cadence_latency.py --profile P.toml --interval 500 --seeds 50
-    python tests/cadence_latency.py --replay sessions/AUFNAHME.raw.jsonl   # z. B. ein JC312-Mitschnitt (#1)
+    python tests/cadence_latency.py --replay sessions/AUFNAHME.raw.jsonl   # z. B. ein Mitschnitt vom Trainer (#1)
 
 Beide Folgen entstehen in `processing.CadenceProcessor` wie in der Bridge: `cadence` (EMA 0,3 s) und `cadence_raw`
 (ungeglättet, nach Plausibilität und 2,5-s-Regel – so steht es am Bus, docs/bus-protocol.md).

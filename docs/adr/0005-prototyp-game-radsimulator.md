@@ -25,7 +25,7 @@ schön anzusehenden Radsimulator.
 - Latenz fällt bei Kadenz → Geschwindigkeit weniger auf; die < 200 ms werden
   daher zusätzlich über eine Debug-Anzeige (Kadenz-Rohwert vs. Zeitstempel) geprüft.
 - Steigungen wirken nur virtuell (langsamer bei gleicher Kadenz), da der
-  Widerstand manuell ist – spürbar erst mit ESP32-Retrofit.
+  Widerstand manuell ist – spürbar erst mit steuerbarem Trainer (ADR-0007).
 
 ## Offen
 
