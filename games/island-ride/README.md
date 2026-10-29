@@ -434,7 +434,8 @@ Physische Tastenposition (gleich auf QWERTZ/QWERTY); definiert in `scenes/main.g
 | `riding` – fahren | Bus verbunden, Quelle `connected` und seit dem letzten Abbruch Telemetrie empfangen | – |
 | `paused_manual` – pausiert (manuell) | `P` | „Pause“ |
 | `paused_connection` – pausiert (Verbindung) | Bridge nicht erreichbar, Quelle `stale`/`disconnected`, noch keine Daten oder Bridge schweigt bei offenem Bus | „Bridge nicht erreichbar … Bridge starten“ bzw. „Verbindung verloren (Rad: stale)“ / „(Bridge sendet seit 4 s nichts)“ |
-| `finished` – Ziel erreicht | Ziellinie nach der letzten Runde überfahren oder „Fahrt beenden“ nach mindestens einer vollen Runde (Endzustand der Fahrt, Pause-Taste wirkungslos) | „Ziel erreicht!“ bzw. „Fahrt beendet“ mit Zeit, allen Rundenzeiten, Bestzeit, Ø Kadenz, Ø Tempo; `Enter` zurück ins Menü |
+| `finished` – Ziel erreicht | Ziellinie nach der letzten Runde überfahren oder „Fahrt beenden“ nach mindestens einer vollen Runde (Endzustand der Fahrt, Pause-Taste wirkungslos) | „Ziel erreicht!“ bzw. „Fahrt beendet“ mit Zeit, allen Rundenzeiten, Bestzeit, Ø Kadenz, Ø Tempo; `Enter` zurück ins Menü – mit Bridge am Bus erst über den Dialog „Fahrt speichern?“ (#84) |
+| `saving` – Fahrt speichern (#84) | „Fahrt beenden“ ohne Ergebnis (keine volle Runde), Fahrzeit > 0, Bridge am Bus | Dialog „Fahrt speichern?“ über der angehaltenen Fahrt; danach ins Menü |
 | `menu` – Startmenü | nach dem Start und nach jeder Fahrt | Titelbild mit Menü und Radstatus (HUD aus) |
 
 In jeder Pause steht das Fahrmodell still: Position und Geschwindigkeit bleiben, wie sie waren. Ein
@@ -509,6 +510,7 @@ Startmenü) und „Beenden“ (beendet das Spiel; im Browser ausgeblendet) – `
 | Schatten | Niedrig/Mittel/Hoch (Schattenatlas 2048/4096/8192, Weichzeichnung) | Mittel (wie bisher) |
 | Tempo-Effekte | An, Aus – Geschwindigkeitslinien und Sichtfeld-Kick ab 35 km/h (#42) | An |
 | Panorama-Momente | An, Aus – Kameraschwenk mit Namen an Sehenswürdigkeiten (#43) | An |
+| Leuchten (Ausrüstung) | An, Aus – Puls und Schimmer legendärer Ausrüstungssymbole (#83) | An |
 | Kamera | Nah, Verfolger, Weit – wie Taste `C`; steht im Spielstand, nicht in `settings.cfg` (#59) | Verfolger |
 | Tageszeit | Echtzeit (Mallorca), feste Uhrzeit 6:00/9:00/12:00/15:00/18:00/20:30/22:00/0:00, Zeitraffer 12/24/48 min je Tag (startet bei der aktuellen Uhrzeit des Spiels) | wie `config.cfg [sky]` (Echtzeit) |
 | Wetter | Wechselnd (meist sonnig), Klar, Leicht bewölkt, Bewölkt, Regen (fest) – sofort, ohne Überblendung | wie `config.cfg [sky]` (Wechselnd) |
@@ -517,7 +519,7 @@ Startmenü) und „Beenden“ (beendet das Spiel; im Browser ausgeblendet) – `
 | Lautstärke | 10, 20, 30, 50, 70, 100 % – eigener Audio-Bus „Spiel“, Musik nebenher bleibt hörbar | 30 % (leise) |
 | Fahrtwind | Aus, 25, 50, 75, 100 % – eigener Regler nur für den Fahrtwind, zusätzlich zur Lautstärke (#69) | 100 % |
 | Begleiter | An, Aus – Toni, der sprechende Begleiter (#76, #80); Aus: kein Start, keine Nachrichten an den Bus, kein Symbol, kein Ducking | An |
-| Toni-Lautstärke | 20, 40, 60, 80, 100 % – Lautstärke von Tonis Stimme (spielt der Begleiter selbst ab, nicht über den Bus „Spiel“) | 80 % |
+| Toni-Stimme | 20, 40, 60, 80, 100 % – Lautstärke von Tonis Stimme (spielt der Begleiter selbst ab, nicht über den Bus „Spiel“) | 80 % |
 | Fenstermodus | Fenster (mit Rahmen, frei skalierbar), Randloses Fenster, Vollbild | Fenster 1600 × 900, mittig |
 | Fenstergröße | 960 × 1040, 1280 × 720, 1600 × 900, 1920 × 1080, 2560 × 1440 (im Vollbild: Bildschirmauflösung) | 1600 × 900 |
 
@@ -1215,6 +1217,42 @@ wieder alle. Darunter stehen die Summe der Werte und die **Stärke** neben der *
 neuen Werte, keine Wirkung außerhalb des Arcade (ADR-0010). Passt in 960 × 1040, 1920 × 1080 und 1152 × 648; Fahrer und
 Plätze scrollen, wenn die Höhe nicht reicht. Test: `tests/test_character_sheet.gd`.
 
+**Ausrüstungssymbole (#83):** Jedes Teil hat ein kleines Bild, das zeigt, was es ist und wie gut es ist. Jeder Platz hat
+eine eigene Low-Poly-Form: Diamantrahmen mit Sattel und Lenker, Speichenrad mit Felgenflanke, Trikot mit Kragen,
+Reißverschluss und Brustband, schlanker Aerohelm mit langer Heckspitze, Längsschlitzen und Visier, Radschuh im Profil mit Sohle, Drehverschluss und
+Pedalplatte samt Cleat,
+Talisman als Amulett mit Drac, Tramuntana oder Dimonis (gewöhnliche als Kiesel). Rahmen und Hintergrund stehen in der
+Farbe der Seltenheit, legendäre Teile leuchten mit Puls und Schimmer. Selten und legendär behalten die Rahmenfarben
+aus der Beute (Gelb, Orange), sind im Symbol aber auch ohne Leuchten zu trennen: selten mit hellem goldgelbem Hintergrund
+und silbergoldener Zier, legendär mit Strahlenkranz von Glutorange bis Blutrot und goldener Zier. Farbe (aus einer Inselpalette), Muster (Streifen,
+Karo, Verlauf) und Detail folgen dem **Inhalt** des Teils (Platz, Seltenheit, Werte, Effekt), nicht seiner id – ein Fund
+sieht beim Einblenden so aus wie später im Inventar. Talisman-Motiv legendärer Teile aus dem Effekt (Rückstoß, Auf dem
+Sprung → Tramuntana; Tiefer Atem, Im Fluss → Drac; Kombo-Ernte → Dimonis), sonst aus dem Inhalt. Leere Plätze zeigen die
+graue Silhouette ihrer Form. Die Bilder entstehen beim ersten Anzeigen aus Grundkörpern in je einem eigenen SubViewport
+(einmal gerendert, nur im Speicher, höchstens 6 neue je Bild, im Browser 4 ohne MSAA); gemessen offscreen 0,5 ms je neues
+Symbol (Browser-Renderer 2,1 ms). **Leuchten (Ausrüstung)** im Grafikmenü schaltet das Leuchten ab. Logik und Modelle:
+`src/item_icons.gd`, fertiges Control: `src/item_icon_view.gd`, Tests: `tests/test_item_icons.gd`. Sichtprüfung und
+Messung: `godot --path games/island-ride --position -32000,-32000 -s res://tools/icon_gallery.gd -- --out=<ordner>
+[--compat] [--count=40]` (Bögen je Platz × Seltenheit, Silhouetten, Talisman-Motive, Leuchten an/aus, Zeitmessung; für
+den echten Browser-Renderer zusätzlich `--rendering-method gl_compatibility`).
+
+**Symbole im Ausrüstungsmenü (#83):** Jeder Platz des Charakterblatts zeigt das Symbol des angelegten Teils (80 px,
+Rahmen in der Farbe der Seltenheit) mit Name und Werten darunter; ein leerer Platz zeigt die graue Silhouette seiner
+Form. Jede Zeile der Inventarliste beginnt mit dem Symbol ihres Teils (56 px); das Detail zeigt das gewählte Teil groß
+(112 px) und im Vergleich das angelegte Teil des Platzes klein (64 px, bei leerem Platz die Silhouette). Die Symbole sind
+nur Anzeige in den Knöpfen – Fokus, Maus und Tastatur bleiben wie zuvor. Die Liste wird bei jeder Änderung neu
+aufgebaut, die Bilder kommen aus dem Cache von `ItemIcons`: ein Inventar mit 50 Teilen öffnet sofort, die Symbole füllen
+sich von oben nach unten. Tests: `tests/test_gear_icons.gd`. Sichtprüfung: `icon_gallery.gd -- --out=<ordner> --gear`
+(je ein Bild in 960 × 1040, 1920 × 1080 und 1152 × 648, Beispielstand nur im Speicher).
+
+**Fund-Karte (#83):** Fällt im Arcade-Lauf ein Teil, schiebt rechts im HUD unter der Minikarte eine Karte ein
+(`LootToast`, `src/loot_toast.gd`): das Ausrüstungssymbol (legendäre Teile leuchten), der Name in der Farbe der
+Seltenheit, die Seltenheit (bei legendären Teilen mit Effekt) und die Werte. Einschieben 0,35 s, stehen 5 s, ausblenden
+0,6 s; höchstens zwei Karten untereinander, weitere Funde warten. Text-Popup und Lichtsäule bleiben. Die Größe folgt der
+HUD-Schrift (Symbol 96 px bei 1080 px Höhe, nie unter 64 px); im Halbbild wird die Karte schmaler und lässt den
+Popups in der Mitte Platz. Sie fängt keine Maus und ist im Menü, im Ergebnis und bei einer neuen Fahrt weg.
+`ArcadeStage.loot_toast` hält sie; `RideHud` bleibt unberührt. Tests: `tests/test_loot_toast.gd`.
+
 **Am Fahrer:** Im Arcade-Lauf trägt der Fahrer die angelegten Teile in der Farbe ihrer Seltenheit – Rahmen, Felgen,
 Trikot (Brustband dunkler), Helm (Streifen dunkler), Schuhe und den Talisman am Sattel. Jedes angelegte Teil überdeckt
 die Garderobe nur an seinem Platz; Plätze ohne Teil zeigen die Garderobe.
@@ -1494,6 +1532,39 @@ zeigt ihn nur an und wertet ihn aus; er verändert die Fahrt nicht.
   Wie viele BLE-Verbindungen der HRM 600 parallel hält, ist nicht verifiziert – die Anleitung empfiehlt, die Uhr per ANT+
   mit dem Gurt zu koppeln.
 
+### Fahrt speichern (#84)
+
+Am Ende einer Fahrt fragt das Spiel **„Fahrt speichern?“** – wie bei Zwift. Das gilt in Rundfahrt, Training und Arcade
+und auch bei „Fahrt beenden“. Exportieren kann nur die Bridge (ADR-0008 „nur die Bridge loggt“, Nachtrag #84), deshalb
+kommt der Dialog nur mit Bridge am Bus und nur, wenn gefahren wurde. Im Browser oder ohne Bus endet die Fahrt wie bisher.
+Mit Ergebnis (Ziel, volle Runde, Teilbewertung, Arcade-Zusammenfassung) steht erst das Ergebnis, `Enter` öffnet den
+Dialog. „Fahrt beenden“ ohne Ergebnis öffnet ihn sofort (Zustand `saving`).
+
+- **Speichern** schickt der Bridge `save_ride` (`docs/bus-protocol.md`, „Fahrt speichern“) mit Start, Ende, den Enden
+  der vollen Runden und einer Streckenspur. Die Spur ist die gefahrene Strecke etwa im Sekundentakt, alles in Bridge-Zeit
+  (`src/ride_trace.gd`). Strecke und Geschwindigkeit liefert das Spiel, weil der JC312 keine Geschwindigkeit sendet. Die
+  Bridge schreibt daraus und aus ihrer Session-CSV eine **FIT-Datei** in die Fahrtablage `bridge/sessions/rides/`. Der
+  Dialog zeigt den Pfad und den Import von Hand (Garmin Connect, Web: „Importieren“).
+- **Nach Garmin Connect hochladen:** Der Schalter steht auf an, wenn die Bridge angemeldet ist. Die Wahl merkt sich
+  `user://settings.cfg [garmin] upload`. Zeichnet die Uhr parallel auf (z. B. für die Trainingsbelastung), schaltet man
+  ihn für diese Fahrt ab, damit kein Duplikat entsteht.
+- **Anmeldezustand** aus `status.garmin` der Bridge, laufend aktualisiert:
+  - „angemeldet“;
+  - „nicht angemeldet – so geht's“ mit `python -m vspin_bridge.garmin login` im Ordner `bridge/`;
+  - „nicht installiert“ mit `pip install -e ".[garmin]"`;
+  - „unbekannt“ bei einer älteren Bridge.
+  Anmelden kann man sich nur selbst im Terminal (`bridge/README.md`, „Fahrt speichern / Garmin“).
+- **Ergebnis:** erst „speichert …“, dann die Meldung der Bridge zum Upload (hochgeladen, schon in Garmin, abgeschaltet,
+  nicht angemeldet, abgelaufen, abgelehnt, gescheitert). Scheitert der Upload, bleibt die Datei für den manuellen Import.
+  „Erneut speichern“ meint dieselbe Fahrt, die Bridge lädt sie nie doppelt hoch. Ohne Antwort binnen 60 s oder bei
+  Busverlust gibt es eine Meldung und „Weiter“ ins Menü.
+- **Verwerfen** sendet nichts. Spielstand, Fahrtenbuch und Session-CSV bleiben wie bisher.
+- Wird die Bridge mitten in der Fahrt neu gestartet (Bridge-Zeit läuft zurück), ist die Fahrt nicht exportierbar, und
+  der Dialog entfällt.
+
+Nur per Test belegt, nicht im Fenster gesichtet (`tests/test_ride_save_dialog.gd`, Layout in 960×1040, 1920×1080 und
+1152×648). Ebenso offen ist die Abnahme mit echter Bridge und echtem Garmin-Upload durch den Nutzer.
+
 ## Konfiguration
 
 `config.cfg` (ConfigFile/INI) – Änderungen wirken beim nächsten Start, ohne Codeänderung:
@@ -1643,7 +1714,9 @@ src/ride_hud.gd         RideHud: Anzeige der Werte, Rundenfortschritt, readout()
 src/hud_gauge.gd        HudGauge: Kadenz-Bogen · src/hud_grade_icon.gd HudGradeIcon: Steigungskeil
 src/hud_profile.gd      HudProfile: Höhenprofil mit Marker (profile_point() als reine Rechnung)
 src/hud_minimap.gd      HudMinimap: Inselkarte mit Strecke, Landmarken, Fahrer-Pfeil (map_point() als reine Rechnung)
-src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeout), status/telemetry parsen (`cadence` geglättet für HUD/Fahrmodell, `cadence_raw` ungeglättet für Kadenzmuster, #45; Puls und Pulsbefehle, #64), send_message
+src/bus_client.gd       BusClient: verbinden/reconnecten (mit Verbindungs-Timeout), status/telemetry parsen (`cadence` geglättet für HUD/Fahrmodell, `cadence_raw` ungeglättet für Kadenzmuster, #45; Puls und Pulsbefehle, #64; `ride_saved` und `status.garmin`, #84), send_message
+src/ride_trace.gd       RideTrace: ride_id, Streckenspur, Rundenenden und save_ride-Befehl einer Fahrt in Bridge-Zeit – reine Logik (#84)
+scenes/ride_save_dialog.gd Dialog „Fahrt speichern?“: Anmeldezustand, Upload-Schalter, Ergebnis der Bridge (#84)
 src/ride_stats.gd       RideStats: Fahrzeit, Strecke, Ø Kadenz, Ø Tempo (ohne Pausen) – reine Logik
 src/heart_rate_zones.gd HeartRateZones: Pulszonen aus LTHR oder Maximalpuls, Grenzen und Farben je Zone – reine Logik (#64)
 src/heart_rate_stats.gd HeartRateStats: Ø-Puls, Max-Puls, Sekunden je Zone einer Fahrt – reine Logik (#64)

@@ -1,9 +1,10 @@
 ## Grafik- und Fenstereinstellungen der Inselfahrt (Menü `F2`, G4): Kantenglättung, Render-Auflösung, VSync,
 ## fps-Limit, Schatten, Tempo-Effekte (#42), Panorama-Momente (#43), Ton an/aus und Lautstärke (#44, Abschnitt `[sound]`),
 ## Begleiter an/aus und seine Lautstärke (Spec #76, Abschnitt `[companion]`),
-## Fenstermodus und -geometrie; dazu Tageszeit, Wetter und Jahreszeit (G8, #39; Abschnitt `[sky]`, nur geschrieben,
-## sobald im Menü gewählt – sonst gilt `config.cfg [sky]`). Gespeichert in `user://settings.cfg` (ConfigFile), getrennt von
-## der Spiel-Konfiguration `config.cfg` (Bus, Fahrmodell). Fehlende Datei oder Schlüssel, ungültige Werte → Standard.
+## Leuchten der Ausrüstungssymbole (#83, wirkt über `apply_engine` auf ItemIcons), Fenstermodus und -geometrie; dazu
+## Tageszeit, Wetter und Jahreszeit (G8, #39; Abschnitt `[sky]`, nur geschrieben, sobald im Menü gewählt – sonst gilt
+## `config.cfg [sky]`). Gespeichert in `user://settings.cfg` (ConfigFile), getrennt von der Spiel-Konfiguration
+## `config.cfg` (Bus, Fahrmodell). Fehlende Datei oder Schlüssel, ungültige Werte → Standard.
 ## Logik und Werte hier; das Menü (`scenes/settings_menu.gd`) zeigt sie an und wendet sie an.
 class_name GraphicsSettings
 extends RefCounted
@@ -81,6 +82,8 @@ var shadows := SHADOWS_MEDIUM
 var speed_effects := true
 ## Panorama-Momente an den Sehenswürdigkeiten (#43).
 var panorama := true
+## Leuchten legendärer Ausrüstungssymbole (#83); `apply_engine` gibt es an ItemIcons weiter.
+var item_glow := true
 ## Ton (#44): an/aus und Lautstärke 0..1; Fahrtwind-Regler 0..1 (#69).
 var sound_enabled := true
 var sound_volume := DEFAULT_SOUND_VOLUME
@@ -102,6 +105,9 @@ var weather := Weather.CLEAR
 ## Jahreszeit (#39, Season): nach dem Datum oder fest.
 var season_mode := Season.MODE_REAL
 var season := Season.SPRING
+## Schalter „Nach Garmin Connect hochladen“ im Dialog „Fahrt speichern“ (Spec #84, Abschnitt `[garmin]`): die letzte Wahl
+## des Fahrers; null = noch nie gewählt, dann gilt der Anmeldezustand (angemeldet = an).
+var garmin_upload = null
 
 
 ## Liest `path`; fehlende/kaputte Datei oder Schlüssel und ungültige Werte ergeben die Standardwerte.
@@ -123,6 +129,7 @@ static func load_file(path: String = DEFAULT_PATH) -> GraphicsSettings:
 			settings.shadows)
 	settings.speed_effects = bool(file.get_value("graphics", "speed_effects", settings.speed_effects))
 	settings.panorama = bool(file.get_value("graphics", "panorama", settings.panorama))
+	settings.item_glow = bool(file.get_value("graphics", "item_glow", settings.item_glow))
 	settings.sound_enabled = bool(file.get_value("sound", "enabled", settings.sound_enabled))
 	settings.sound_volume = clampf(_number(file.get_value("sound", "volume", settings.sound_volume), settings.sound_volume), 0.0, 1.0)
 	settings.wind_volume = clampf(_number(file.get_value("sound", "wind_volume", settings.wind_volume), settings.wind_volume), 0.0, 1.0)
@@ -151,6 +158,10 @@ static func load_file(path: String = DEFAULT_PATH) -> GraphicsSettings:
 		settings.season_mode = _choice(file.get_value("sky", "season_mode", settings.season_mode), Season.MODES,
 				settings.season_mode)
 		settings.season = _choice(file.get_value("sky", "season", settings.season), Season.PHASES, settings.season)
+	if file.has_section_key("garmin", "upload"):
+		var upload = file.get_value("garmin", "upload")
+		if upload is bool:
+			settings.garmin_upload = upload
 	return settings
 
 
@@ -169,6 +180,7 @@ func save_file(path: String = DEFAULT_PATH) -> Error:
 	file.set_value("graphics", "shadows", shadows)
 	file.set_value("graphics", "speed_effects", speed_effects)
 	file.set_value("graphics", "panorama", panorama)
+	file.set_value("graphics", "item_glow", item_glow)
 	file.set_value("sound", "enabled", sound_enabled)
 	file.set_value("sound", "volume", sound_volume)
 	file.set_value("sound", "wind_volume", wind_volume)
@@ -185,6 +197,8 @@ func save_file(path: String = DEFAULT_PATH) -> Error:
 		file.set_value("sky", "weather", weather)
 		file.set_value("sky", "season_mode", season_mode)
 		file.set_value("sky", "season", season)
+	if garmin_upload is bool:
+		file.set_value("garmin", "upload", garmin_upload)
 	var err := file.save(path)
 	if err != OK:
 		push_warning("GraphicsSettings: %s nicht schreibbar (Fehler %d)" % [path, err])
@@ -206,9 +220,10 @@ func apply_to_viewport(viewport: Viewport, compatibility: bool = false) -> void:
 	viewport.scaling_3d_scale = render_scale
 
 
-## VSync, fps-Limit und Schattenqualität (global für das ganze Spiel). `window_vsync = false`: VSync nicht
-## anfassen (Browser – den steuert dort der Browser).
+## VSync, fps-Limit, Schattenqualität und Leuchten der Ausrüstungssymbole (global für das ganze Spiel).
+## `window_vsync = false`: VSync nicht anfassen (Browser – den steuert dort der Browser).
 func apply_engine(window_vsync: bool = true) -> void:
+	ItemIcons.glow_enabled = item_glow
 	if window_vsync:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if vsync else DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = max_fps

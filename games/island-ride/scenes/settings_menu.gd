@@ -5,7 +5,8 @@
 ## Beim Start wendet das Menü die gespeicherten Einstellungen an; die Fenstergeometrie (auch nach Ziehen oder
 ## Windows-Snap) wird beim Beenden gemerkt. Das Spiel läuft weiter, solange das Menü offen ist.
 ## Tempo-Effekte (#42, Geschwindigkeitslinien und Sichtfeld-Kick) und Panorama-Momente (#43) schaltet die Hauptszene über
-## `settings_changed` um.
+## `settings_changed` um. „Leuchten (Ausrüstung)“ (#83) wirkt ohne die Hauptszene: `apply()` gibt es über
+## GraphicsSettings.apply_engine an ItemIcons weiter (beim Start und nach jeder Auswahl).
 ## Die Kameraperspektive (#59, CameraViews) steht nicht in den Einstellungen, sondern im Spielstand: Die Hauptszene setzt
 ## `camera_view`, das Feld zeigt es, eine Auswahl meldet `settings_changed("camera_view")`, und die Hauptszene speichert.
 ## Ton (#44): „Ton“ an/aus und „Lautstärke“ in der rechten Spalte; die Hauptszene stellt den Bus über `settings_changed`.
@@ -126,7 +127,7 @@ func select_time(index: int) -> void:
 	option.item_selected.emit(index)
 
 
-## Kantenglättung, Auflösung, VSync, fps-Limit und Schatten anwenden (ohne Fenster).
+## Kantenglättung, Auflösung, VSync, fps-Limit, Schatten und Leuchten der Ausrüstung anwenden (ohne Fenster).
 func apply() -> void:
 	settings.apply_to_viewport(get_viewport(), compatibility)
 	settings.apply_engine(not web)
@@ -224,6 +225,7 @@ func _build() -> void:
 			GraphicsSettings.SHADOW_QUALITIES, func(v): settings.shadows = v)
 	_add_row(grid, "speed_effects", "Tempo-Effekte", ["An", "Aus"], [true, false], func(v): settings.speed_effects = v)
 	_add_row(grid, "panorama", "Panorama-Momente", ["An", "Aus"], [true, false], func(v): settings.panorama = v)
+	_add_row(grid, "item_glow", "Leuchten (Ausrüstung)", ["An", "Aus"], [true, false], func(v): settings.item_glow = v)
 	_add_row(grid, "camera_view", "Kamera", CameraViews.IDS.map(func(id): return CameraViews.NAMES[id]),
 			CameraViews.IDS, func(v): camera_view = v)
 	grid = _add_grid(columns)
@@ -246,7 +248,7 @@ func _build() -> void:
 			GraphicsSettings.WIND_VOLUMES.map(func(v): return "Aus" if v == 0.0 else "%d %%" % roundi(v * 100.0)),
 			GraphicsSettings.WIND_VOLUMES, func(v): settings.wind_volume = v)
 	_add_row(grid, "companion", "Begleiter", ["An", "Aus"], [true, false], func(v): settings.companion_enabled = v)
-	_add_row(grid, "companion_volume", "Toni-Lautstärke",
+	_add_row(grid, "companion_volume", "Toni-Stimme",
 			GraphicsSettings.COMPANION_VOLUMES.map(func(v): return "%d %%" % roundi(v * 100.0)),
 			GraphicsSettings.COMPANION_VOLUMES, func(v): settings.companion_volume = v)
 	_add_row(grid, "window_mode", "Fenstermodus", GraphicsSettings.WINDOW_MODES.map(func(m): return WINDOW_LABELS[m]),
@@ -415,6 +417,7 @@ func _refresh() -> void:
 	_select("shadows", settings.shadows)
 	_select("speed_effects", settings.speed_effects)
 	_select("panorama", settings.panorama)
+	_select("item_glow", settings.item_glow)
 	_select("sound", settings.sound_enabled)
 	_select_or_add("sound_volume", settings.sound_volume, func(v): return "%d %%" % roundi(v * 100.0))
 	_select_or_add("wind_volume", settings.wind_volume, func(v): return "Aus" if v == 0.0 else "%d %%" % roundi(v * 100.0))

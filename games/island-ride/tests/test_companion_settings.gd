@@ -1,4 +1,4 @@
-## Einstellungen des Begleiters (Spec #76, #80): „Begleiter“ an/aus und „Toni-Lautstärke“ stehen im Einstellungsmenü,
+## Einstellungen des Begleiters (Spec #76, #80): „Begleiter“ an/aus und „Toni-Stimme“ stehen im Einstellungsmenü,
 ## wirken sofort, werden in `settings.cfg` (Abschnitt `[companion]`) gespeichert und überstehen einen Neustart; eine alte
 ## Datei ohne den Abschnitt ergibt die Standardwerte (an, 80 %). Dazu das Ducking in RideSound als Pegelrechnung am Bus.
 extends "res://tests/support/bus_test.gd"

@@ -11,6 +11,8 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest"]
+fit = ["fit-tool>=0.9"]
+garmin = ["garminconnect>=0.3.20"]
 # Begleiter (vspin-companion): Abhängigkeiten der echten Adapter (Claude Agent SDK, faster-whisper, Audio) –
 # nur dort importiert, nie beim Import von vspin_companion und nie in Tests (die laufen mit Fakes ohne das Extra).
 # Nicht enthalten: die CUDA-Bibliotheken (nvidia-cublas-cu12, nvidia-cudnn-cu12 9.x, etwa 1,3 GB) – siehe README.

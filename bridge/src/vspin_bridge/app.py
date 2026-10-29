@@ -12,6 +12,7 @@ from .bus import HOST, PORT, BusServer, ToOthers
 from .bus.messages import (
     SET_GRADE,
     ClientMessageError,
+    SaveRide,
     Relay,
     SetGrade,
     ack_message,
@@ -22,10 +23,12 @@ from .bus.messages import (
 )
 from .clock import bridge_time_ms
 from .console import Console
+from .garmin import GarminConnectUploader, LoginState, Uploader
 from .heart_rate_relay import HeartRateFactory, HeartRateRelay, bleak_heart_rate
 from .keyboard import HELP, Key, Keyboard, keyboard_available
 from .parsers import Decoder, ParseError
 from .processing import CADENCE_MAX, CADENCE_MIN, CadenceProcessor
+from .ride_saver import RideSaver
 from .session import Session, open_session
 from .sources.base import (
     Capability,
@@ -66,6 +69,7 @@ class Bridge:
         host: str = HOST,
         port: int = PORT,
         heart_rate: HeartRateFactory = bleak_heart_rate,
+        uploader: Uploader | None = None,
     ) -> None:
         self._source = source
         self._sessions_dir = sessions_dir
@@ -91,6 +95,10 @@ class Bridge:
         self._heart_rate = HeartRateRelay(
             heart_rate, self._on_heart_rate_status, self._on_heart_rate_raw, self._bus.send_to, console
         )
+        # Fahrt speichern (Spec #84): FIT-Datei in die Fahrtablage, auf Wunsch Upload zu Garmin Connect.
+        self._rides = RideSaver(
+            sessions_dir, uploader or GarminConnectUploader(), self._bus.send_to, self._on_garmin_login, console
+        )
         self._stop: asyncio.Event | None = None
         self._stale_timer: asyncio.TimerHandle | None = None
         self._stale_since_ms = 0  # Bridge-Zeit des letzten Samples (bzw. der Verbindung)
@@ -111,6 +119,8 @@ class Bridge:
                 raise SessionStartError(f"{self._sessions_dir}: {exc.strerror or exc}") from exc
             self._console.info(f"Session: {self._session.csv.path}")
             self._console.info(f"Rohdaten: {self._session.raw.path}")
+            self._rides.session_csv = self._session.csv.path
+            self._rides.start()
             await self._heart_rate.start()  # aus bis zum ersten Befehl, fasst bis dahin BLE nicht an
             if isinstance(self._source, SimulatorSource) and keyboard_available():
                 keyboard = Keyboard(self._on_key)
@@ -140,6 +150,7 @@ class Bridge:
             self._cancel_stale_timer()
             if keyboard is not None:
                 keyboard.stop()
+            await self._rides.stop()  # laufendes Speichern samt Upload zu Ende, `ride_saved` geht noch raus
             await self._heart_rate.stop()  # danach keine Pulsmeldung mehr
             await self._bus.stop()
             if self._session is not None:
@@ -261,15 +272,18 @@ class Bridge:
         """Zuletzt per `set_grade` gesetzte virtuelle Steigung (Anteil) – für das Session-Logging."""
         return self._grade
 
-    async def _on_client_message(self, raw: str | bytes) -> str | ToOthers:
-        """Antwort (`ack`/`error`) für genau den Client, der `raw` gesendet hat – oder `ToOthers`:
-        Nachrichten zwischen Spiel und Begleiter gehen unverändert an alle anderen, ohne Antwort."""
+    async def _on_client_message(self, raw: str | bytes) -> str | ToOthers | None:
+        """Antwort (`ack`/`error`) für genau den Client, der `raw` gesendet hat; `save_ride` antwortet später
+        mit `ride_saved` – oder `ToOthers`: Nachrichten zwischen Spiel und Begleiter gehen unverändert an alle
+        anderen, ohne Antwort."""
         try:
             message = parse_client_message(raw)
         except ClientMessageError as exc:
             return error_message(exc.reason, exc.detail)
         if isinstance(message, Relay):
             return ToOthers(message.raw)
+        if isinstance(message, SaveRide):
+            return self._rides.handle(message, self._bus.sender())
         if not isinstance(message, SetGrade):
             return await self._heart_rate.handle(message, self._bus.sender())
         return await self._set_grade(message)
@@ -295,8 +309,18 @@ class Bridge:
 
     def _status_message(self) -> str:
         return status_message(
-            bridge_time_ms(), self._state, self._source.name, self._source.capabilities, self._heart_rate.status
+            bridge_time_ms(),
+            self._state,
+            self._source.name,
+            self._source.capabilities,
+            self._heart_rate.status,
+            str(self._rides.login),
         )
+
+    def _on_garmin_login(self, state: LoginState) -> None:
+        """Änderung des Anmeldezustands ist eine Statusänderung: genau ein `status` an alle."""
+        self._bus.publish(self._status_message())
+        self._console.info(f"Garmin: {state}")
 
     def _on_heart_rate_status(self, status: HeartRateStatus) -> None:
         """Änderung des Pulszustands ist eine Statusänderung: genau ein `status` an alle."""

@@ -122,13 +122,16 @@ static func ack(for_type: String, ok: bool, reason = null) -> Dictionary:
 
 
 ## Baustein: `status`-Nachricht wie von der Bridge (docs/bus-protocol.md). Mit `heart_rate` (Baustein
-## `heart_rate_block`) steht der Pulsblock als letzter Schlüssel dabei; ohne ist es eine ältere Bridge.
+## `heart_rate_block`) steht der Pulsblock als letzter Schlüssel dabei; ohne ist es eine ältere Bridge. Mit `garmin`
+## (z. B. `{"login": "logged_in"}`) steht der Block `garmin` dahinter.
 static func status(state: String = "connected", source: String = "sim",
-		capabilities: Array = ["CADENCE"], at: float = 0.0, heart_rate: Dictionary = {}) -> Dictionary:
+		capabilities: Array = ["CADENCE"], at: float = 0.0, heart_rate: Dictionary = {}, garmin: Dictionary = {}) -> Dictionary:
 	var message := {"v": 0, "type": "status", "t_ms": int(at * 1000.0),
 			"state": state, "source": source, "capabilities": capabilities}
 	if not heart_rate.is_empty():
 		message["heart_rate"] = heart_rate
+	if not garmin.is_empty():
+		message["garmin"] = garmin  # hinter dem Pulsblock (Spec #84); ohne = ältere Bridge
 	return {"at": at, "send": message}
 
 

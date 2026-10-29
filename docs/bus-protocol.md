@@ -132,6 +132,75 @@ Nur an den Anfrager, wenn seine Suche ohne sein `stop` endet. `reason`: `timeout
 `taken_over` (ein anderer Client sucht jetzt). Ohne Bluetooth-Adapter scheitert die Suche still: `ack`, keine
 Ergebnisse, nach Ablauf `timeout`.
 
+### Fahrt speichern (Spec #84)
+
+```json
+{"v": 0, "type": "save_ride", "ride_id": "a1b2c3",
+ "start_t_ms": 123456, "end_t_ms": 3723456, "lap_end_t_ms": [1923456],
+ "distance": [[123456, 0.0], [124456, 8.1], [3723456, 28012.5]], "upload": true}
+```
+Am Ende einer Fahrt: Die Bridge schreibt die FIT-Datei der Fahrt aus der Session-CSV dieses Bridge-Laufs und lädt sie
+auf Wunsch einmal zu Garmin Connect hoch (ADR-0008, Nachtrag #84). Alle `t_ms` sind Bridge-Zeit (`telemetry.t_ms`).
+
+| Feld | Regel |
+|---|---|
+| `ride_id` | 1–64 Zeichen aus `A–Z a–z 0–9 _ -`; Teil des Dateinamens. Gleiche `ride_id` = dieselbe Fahrt (Datei und Upload-Marke). |
+| `start_t_ms`, `end_t_ms` | ganze Zahlen ≥ 0 (auch `123.0`), `end_t_ms` > `start_t_ms` und nicht nach der aktuellen Bridge-Zeit – eine Fahrt aus einem früheren Bridge-Lauf steht nicht in dieser Session-CSV. Ausnahme: Die Fahrtablage kennt die `ride_id` schon aus einem früheren Bridge-Lauf (siehe unten). |
+| `lap_end_t_ms` | optional (fehlt/`null` = keine Runde): Liste ganzer Zahlen, das Ende jeder vollen Runde. Werte außerhalb (Start, Ende] zählen nicht; ein Rest nach der letzten vollen Runde wird ein eigener Lap. |
+| `distance` | Streckenspur des Spiels, etwa 1 Hz: Liste von `[t_ms, Meter]`, `t_ms` streng steigend, Meter endliche Zahl ≥ 0 und nicht fallend; leer = Datei ohne Strecke und Geschwindigkeit. Arcade-Fahrten wie gefahren. Ein Frame darf höchstens 1 MiB groß sein (bei 1 Hz und auf 0,1 m gerundeten Metern reicht das für über 10 h). |
+| `upload` | `true` oder `false`: zu Garmin Connect hochladen? Die FIT-Datei entsteht immer. |
+
+Ein ungültiger Befehl bekommt sofort `error` mit `reason: "invalid_ride"`. Sonst gibt es kein `ack`: Die Antwort ist
+`ride_saved`, **nur an den Client, der gespeichert hat**, nie als Broadcast, sobald Datei und Upload fertig sind (der
+Upload kann Sekunden dauern; Telemetrie und Bus laufen weiter, auch für den Absender):
+```json
+{"v": 0, "type": "ride_saved", "ride_id": "a1b2c3",
+ "fit_path": "C:\\Users\\…\\sessions\\rides\\2026-10-28_18-04-12_a1b2c3.fit", "fit_error": null,
+ "upload": {"state": "uploaded", "message": "Fahrt zu Garmin Connect hochgeladen."}}
+```
+`fit_path`: absoluter Pfad der Datei `<sessions_dir>/rides/<zeit>_<ride_id>.fit` (`<zeit>` = Start der Fahrt in Ortszeit,
+`YYYY-MM-DD_HH-MM-SS`), `null`, wenn keine entstand; dann steht in `fit_error` der Grund (deutsch, für den Dialog), etwa
+`FIT-Export nicht möglich: fit-tool fehlt (im Ordner bridge/: pip install -e ".[fit]")`, und `upload` ist `null`.
+Erneutes Speichern derselben `ride_id` **im selben Bridge-Lauf** schreibt dieselbe Datei neu (gleiche Angaben, gleiche
+Bytes). **In einem späteren Bridge-Lauf** (etwa nach einem gescheiterten Upload, `pip install -e ".[garmin]"` und Neustart)
+baut die Bridge die Datei nie neu – die Bridge-Zeit beginnt je Lauf bei 0, die neue Session-CSV hätte unter denselben
+`t_ms` fremde Samples. Sie nimmt die vorhandene Datei unverändert: `fit_path` nennt sie, der Upload läuft wie sonst mit
+genau dieser Datei (Upload-Marke, höchstens ein Versuch); die Angaben des neuen `save_ride` außer `upload` zählen dann
+nicht, auch die Bridge-Zeit nicht. Fehlt die Datei, ist `fit_path` `null`, `upload` `null`, und `fit_error` sagt es:
+`FIT-Datei <name> fehlt in der Fahrtablage. Die Fahrt stammt aus einem früheren Bridge-Lauf und lässt sich nicht neu
+schreiben – ihre Samples stehen nicht in dieser Session.` Welcher Lauf eine Fahrt geschrieben hat, merkt sich die
+Fahrtablage (`rides/rides.json`, Name der Session-CSV je `ride_id`). `upload.message` ist ein deutscher Text für den
+Dialog, ohne Zugangsdaten und ohne Fehlertexte der Bibliothek:
+
+| `upload.state` | Bedeutung | `message` |
+|---|---|---|
+| `uploaded` | hochgeladen (Erfolg) | `Fahrt zu Garmin Connect hochgeladen.` |
+| `duplicate` | Garmin kennt die Fahrt schon (Erfolg) | `Die Fahrt ist schon in Garmin Connect.` |
+| `already_uploaded` | schon von dieser Bridge hochgeladen, kein zweiter Versuch (Erfolg) | `Die Fahrt ist schon in Garmin Connect – nicht erneut hochgeladen.` |
+| `skipped` | `upload: false` | `Nicht hochgeladen – der Upload ist für diese Fahrt abgeschaltet.` |
+| `not_logged_in` | keine Token-Datei, Garmin nicht gefragt | `Nicht bei Garmin angemeldet – im Terminal anmelden: python -m vspin_bridge.garmin login` |
+| `auth_expired` | Token abgelaufen oder abgelehnt | `Anmeldung abgelaufen – bitte neu anmelden (python -m vspin_bridge.garmin login).` |
+| `rejected` | Garmin lehnt ab (4xx, auch 429) | `Garmin Connect meldet zu viele Anfragen – später erneut versuchen. Die FIT-Datei bleibt für den manuellen Import liegen.` bzw. `Garmin Connect hat die Fahrt abgelehnt (HTTP 4xx). Die FIT-Datei bleibt für den manuellen Import liegen.` |
+| `failed` | Netz, 5xx, Unbekanntes, Bibliothek passt nicht | `Upload zu Garmin Connect gescheitert (…). Die FIT-Datei bleibt für den manuellen Import liegen.` (Varianten in `garmin/uploader.py`) |
+| `unavailable` | Bibliothek `garminconnect` nicht installiert | `Garmin-Upload nicht installiert: pip install -e ".[garmin]" im Ordner bridge/.` |
+
+Höchstens ein Upload-Versuch je `save_ride`, nichts wird wiederholt (Garmin sperrt Konten nach Fehlversuchen). Nach
+einem Erfolg (`uploaded`, `duplicate`) merkt sich die Bridge die `ride_id` in der Fahrtablage (`rides/rides.json`, auch
+über einen Neustart); ein gescheiterter Upload nicht – erneutes Speichern darf es noch einmal versuchen. Gespeichert wird
+eine Fahrt zur Zeit, weitere `save_ride` warten.
+
+**Anmeldezustand:** Hinter dem Pulsblock steht in jedem `status` der Block `garmin`:
+```json
+{"v": 0, "type": "status", "t_ms": 123456, "state": "connected", "source": "sim", "capabilities": ["CADENCE"],
+ "heart_rate": {"state": "off", "device": null}, "garmin": {"login": "logged_in"}}
+```
+`garmin.login`: `logged_in` heißt nur, dass die Token-Datei `garmin_tokens.json` im Token-Verzeichnis existiert (sie
+wird nicht gelesen; ob das Token noch gilt, zeigt erst ein Upload); das Verzeichnis allein zählt nicht – es bleibt nach
+`logout` der Bibliothek stehen und liegt während der Anmeldung im Terminal schon leer da. `not_logged_in` (Anmelden im
+Terminal: `python -m vspin_bridge.garmin login`), `unavailable` (Bibliothek fehlt). Die Bridge prüft ihn beim Start, nach
+jedem `save_ride` und alle 5 s (Anmeldung im Terminal, während die Bridge läuft); eine Änderung ist eine Statusänderung:
+genau ein `status` an alle, nie ohne Änderung. Seit #84 – additiv, `v` bleibt `0`.
+
 ## Clients → alle anderen Clients (Spiel ↔ Begleiter)
 
 Seit #77, additiv, `v` bleibt `0`. Spiel und Begleiter (`vspin-companion`, ADR-0002 Nachtrag #76) sprechen über
@@ -175,7 +244,7 @@ Fahrtzustand, alle 5 s während einer Fahrt (nicht im Menü, nicht in der Pause)
 | `heart_rate`, `hr_zone` | bpm und Pulszone 1–5; `null` ohne Puls |
 | `ghost_gap_s` | Abstand zum Ghost in Sekunden, negativ = vor dem Ghost; `null` ohne Ghost |
 | `best_time_s` | Bestzeit für Strecke und Richtung in Sekunden; `null` ohne Bestzeit |
-| `companion_volume` | Lautstärke der Stimme des Begleiters, 0–1, wie im Einstellungsmenü des Spiels („Toni-Lautstärke“). Der Begleiter spricht über das Windows-Standardgerät, nicht über das Spiel – deshalb gibt das Spiel den Wert weiter, und eine Änderung wirkt spätestens nach 5 s. Kommt auch bei `ride_start` |
+| `companion_volume` | Lautstärke der Stimme des Begleiters, 0–1, wie im Einstellungsmenü des Spiels („Toni-Stimme“). Der Begleiter spricht über das Windows-Standardgerät, nicht über das Spiel – deshalb gibt das Spiel den Wert weiter, und eine Änderung wirkt spätestens nach 5 s. Kommt auch bei `ride_start` |
 
 ### `ride_event` (Spiel → Begleiter)
 
@@ -264,3 +333,4 @@ Antwort auf eine kaputte oder unbekannte Client-Nachricht:
 | `invalid_grade` | `grade` fehlt oder ist keine endliche Zahl |
 | `invalid_devices` | `devices` fehlt, ist keine Liste, oder ein Eintrag ist kein Objekt mit `address` (nicht leerer Text), `name` (Text) und `role` (`strap` oder `watch`) |
 | `invalid_duration` | `duration_s` ist keine Zahl oder nicht > 0 und höchstens 120 |
+| `invalid_ride` | `save_ride` verletzt eine Regel aus „Fahrt speichern“ (Feld fehlt, falscher Typ, `ride_id` unzulässig, Ende nicht nach dem Start oder nach der Bridge-Zeit, Streckenspur nicht steigend) |
