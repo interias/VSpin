@@ -208,9 +208,16 @@ er gibt die Tasten des rechten weiter). Erkannt wird er an Herstellerdaten der F
 8 = links), ersatzweise am Namen „Zwift SF2“. Nach dem Verbinden prüft die Bridge die Gerätedatenbank: Fehlt `0xFC82`
 (bzw. `00000001-19ca-4651-86e5-fa29dcdd09d1`), ist er **gesperrt** (`status.controller.state: "locked"`; ab Firmware
 1.3 versteckt der Ride V2 den Service, bis er einmal in Zwift verbunden war, etwa 24 h lang) – dann trennt sie und
-versucht es frühestens nach 30 s wieder. Den Akku liest sie einmal aus `0x2A19`. Sie **schreibt nie** auf den
-Controller: kein Handshake, keine Tasten, kein Abo. Im Terminal steht jede Änderung, z. B.
-`Controller: connected, Zwift SF2 (left), Batterie 81 %`.
+versucht es frühestens nach 30 s wieder. Den Akku liest sie einmal aus `0x2A19`. Im Terminal steht jede Änderung,
+z. B. `Controller: connected, Zwift SF2 (left), Batterie 81 %, Handshake answered`.
+
+**Handshake und Rohprotokoll (Spec #89, Messteil):** Ist er nicht gesperrt, abonniert die Bridge zuerst alle Notify-
+und Indicate-Characteristics der Zwift-Services (aus der Gerätedatenbank, ersatzweise `…0002`/`…0004` der Basis
+`0000000X-19ca-4651-86e5-fa29dcdd09d1`) und schreibt dann einmal je Verbindung `RideOn` (ASCII) auf die beschreibbare
+(`…0003`). Sonst schreibt sie nichts auf den Controller und wertet keine Taste aus. Alles, was er sendet, steht roh in
+`sessions/<zeit>.controller.jsonl` (unten bei „Sessions“); die Einordnung der Antwort (`status.controller.handshake`:
+`answered | encrypted | no_answer | none`) ist eine Hypothese nach der öffentlichen Beschreibung des
+Zwift-Play-Protokolls (docs/bus-protocol.md, ADR-0003). Aus dieser Aufzeichnung entsteht später der Tastendecoder.
 
 ## Verbindungsfenster am Bus
 
@@ -221,8 +228,8 @@ Gemerkte Geräte und Suche auf Anfrage laufen für alle Rollen über `device_rel
 Rolle ein eigener Fake, der Controller über `InProcessBridge(..., controller=…)`).
 
 **Nur am Gerät prüfbar:** die Suche nach Herstellerdaten unter WinRT, die Sperre des Controllers und ihr Ende nach
-dem Verbinden in Zwift, drei gleichzeitige Verbindungen (Trainer, Puls, Controller) an einem Adapter, Background
-Pairing mit dem echten Trainer.
+dem Verbinden in Zwift, Characteristics und Antwort des Ride V2 auf `RideOn` (Spec #89, Controller-Protokoll), drei
+gleichzeitige Verbindungen (Trainer, Puls, Controller) an einem Adapter, Background Pairing mit dem echten Trainer.
 
 ## Begleiter (vspin-companion)
 
@@ -484,7 +491,7 @@ Endet die Quelle (Profil ohne `repeat`), meldet die Bridge `disconnected` und bl
 
 ## Sessions
 
-Jeder Bridge-Lauf schreibt drei Dateien (ADR-0008) nach `sessions/` – relativ zum
+Jeder Bridge-Lauf schreibt vier Dateien (ADR-0008) nach `sessions/` – relativ zum
 Arbeitsverzeichnis, anderer Ort mit `--sessions-dir DIR`. Die Pfade stehen beim Start im Terminal.
 
 - `YYYY-MM-DD_HH-MM-SS.csv`: eine Zeile pro Sample am Bus, Spalten
@@ -516,6 +523,27 @@ Arbeitsverzeichnis, anderer Ort mit `--sessions-dir DIR`. Die Pfade stehen beim 
   gebondetes Pairing); `write`/`indication`: jedes Schreiben auf den Control Point `0x2AD9` und jede Indication von
   dort (Antwort `80 <Op-Code> <Ergebnis>`); `notification`: Machine Status `0x2ADA` (`ff` = eine andere App hat die
   Steuerung); `error`: gescheiterte Anfragen, Schreib- und Abo-Fehler. Ohne Trainer bleibt die Datei leer.
+- `YYYY-MM-DD_HH-MM-SS.controller.jsonl` (Controller-Rohprotokoll, Spec #89): je Ereignis des Lenkercontrollers eine
+  Zeile, Form wie das Steuerprotokoll (`t_ms` Bridge-Zeit, `event` zuerst); `char` kurz (`0002` für
+  `00000002-19ca-…`, `2a19` für SIG-UUIDs), Daten als `hex`:
+
+  ```
+  {"t_ms": 5012, "event": "connect", "address": "CC:…", "name": "Zwift SF2", "side": "left", "rssi": -61}
+  {"t_ms": 5013, "event": "services", "services": ["0000fc82-…", …], "chars": [{"service": "0000fc82-…", "char": "00000002-19ca-…", "properties": ["notify"]}, …]}
+  {"t_ms": 5020, "event": "subscribe", "char": "0002", "kind": "notification"}
+  {"t_ms": 5024, "event": "subscribe", "char": "0004", "kind": "indication"}
+  {"t_ms": 5031, "event": "write", "char": "0003", "hex": "526964654f6e", "response": true}
+  {"t_ms": 5060, "event": "indication", "char": "0004", "hex": "526964654f6e0102"}
+  {"t_ms": 5061, "event": "handshake", "state": "answered"}
+  {"t_ms": 7410, "event": "notification", "char": "0002", "hex": "2308…"}
+  {"t_ms": 9120, "event": "disconnect", "address": "CC:…", "name": "Zwift SF2", "side": "left", "by": "device"}
+  ```
+
+  `services` einmal je Verbindung (Services und Characteristics der Gerätedatenbank mit Eigenschaften, volle UUIDs);
+  `subscribe` je Abo; `write` das `RideOn` (`response`: mit oder ohne Antwort); `notification`/`indication` **jede**
+  Meldung aller abonnierten Characteristics; `handshake` die Einordnung; `locked` (mit Gerät) statt Abo und Schreiben,
+  wenn er gesperrt ist; `disconnect` (`by`: `bridge` oder `device`); `error` (`text`). Keine Zugangsdaten. Ohne
+  Controller bleibt die Datei leer.
 
 Ist einer der Namen schon belegt, bekommen alle `_2`, `_3`, … angehängt. Jede Zeile wird
 sofort geflusht, auch nach Strg+C oder Absturz bleiben lesbare Dateien. Scheitert das Schreiben

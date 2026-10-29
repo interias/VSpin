@@ -13,6 +13,20 @@ ohne Terminal). Je Zeile ein JSON-Objekt, `t_ms` zuerst (Bridge-Zeit wie CSV und
 Schreiben auf den Control Point `0x2AD9`; `indication`: jede Indication von `0x2AD9`; `notification`: jede Notification
 von Machine Status `0x2ADA`; `error`: gescheiterte Anfragen, Schreib- und Abo-Fehler. Keine Zugangsdaten. Jede Zeile wird
 sofort geflusht. Ohne Trainer (Simulator, Replay) bleibt die Datei leer.
+
+Derselbe Schreiber führt das Controller-Rohprotokoll `<zeit>.controller.jsonl` (Spec #89, Messteil; Ereignisse in
+`sources/controller.py`)::
+
+    {"t_ms": 5012, "event": "connect", "address": "CC:…", "name": "Zwift SF2", "side": "left", "rssi": -61}
+    {"t_ms": 5013, "event": "services", "services": ["0000fc82-…"], "chars": [{"service": "0000fc82-…",
+        "char": "00000002-19ca-…", "properties": ["notify"]}, …]}
+    {"t_ms": 5020, "event": "subscribe", "char": "0002", "kind": "notification"}
+    {"t_ms": 5031, "event": "write", "char": "0003", "hex": "526964654f6e", "response": true}
+    {"t_ms": 5060, "event": "indication", "char": "0004", "hex": "526964654f6e…"}
+    {"t_ms": 5061, "event": "handshake", "state": "answered"}
+    {"t_ms": 9120, "event": "disconnect", "address": "CC:…", "name": "Zwift SF2", "side": "left", "by": "device"}
+
+dazu `locked` (mit Gerät) und `error` (`text`).
 """
 
 import json

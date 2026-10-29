@@ -74,7 +74,7 @@ Dahinter stehen seit Spec #75 die Blöcke `trainer` (Stand der Steuerung und ver
  "trainer": {"control": "active", "device": {"address": "AA:BB:CC:DD:EE:01", "name": "KICKR CORE 2"},
              "mode": "sim", "target_power": null},
  "controller": {"state": "connected", "device": {"address": "CC:00:00:00:00:08", "name": "Zwift SF2", "side": "left"},
-                "battery": 81},
+                "battery": 81, "handshake": "answered"},
  "signal": {"trainer": -55, "heart_rate": null, "controller": -61}}
 ```
 `trainer.device`: der verbundene Trainer (`address`, `name` aus den gemerkten Geräten, sonst aus der Ankündigung),
@@ -108,8 +108,24 @@ Gelesen wird der Trainer in jedem dieser Zustände weiter.
 
 `controller.device`: bei `connected` und `locked` das Gerät (`side`: `left | right` aus den Herstellerdaten, sonst
 die gemerkte Seite oder `null`), sonst `null`. `controller.battery`: Akku in Prozent aus Battery Level `0x2A19`
-(einmal nach dem Verbinden gelesen), `null`, wenn es ihn nicht gibt. Die Bridge **schreibt nie** auf den Controller
-(kein Handshake, keine Tasten, kein Abo). Jede Änderung ist eine Statusänderung: genau ein `status` je Änderung.
+(einmal nach dem Verbinden gelesen), `null`, wenn es ihn nicht gibt. Jede Änderung ist eine Statusänderung: genau ein
+`status` je Änderung.
+
+`controller.handshake` (Spec #89, additiv, `v` bleibt `0`): Stand des Klartext-Handshakes. Die Bridge schreibt auf den
+Controller **nur** diesen Handshake: Nach dem Verbinden (nicht bei `locked`) abonniert sie zuerst alle Notify- und
+Indicate-Characteristics der Zwift-Services und schreibt dann einmal je Verbindung `RideOn` (ASCII) auf die
+beschreibbare; alles, was zurückkommt, steht roh im Controller-Protokoll der Session (`sessions/<zeit>.controller.jsonl`,
+bridge/README.md). Die Tasten wertet sie noch nicht aus. Die Einordnung der Antwort ist eine **Hypothese** nach der
+öffentlichen Beschreibung des Zwift-Play-Protokolls (ob der Ride V2 sie teilt, ist unbelegt):
+
+| `controller.handshake` | Bedeutung |
+|---|---|
+| `none` | kein Ergebnis: nicht verbunden, gesperrt oder die Antwort steht noch aus (bis 3 s nach dem Schreiben) |
+| `answered` | die Antwort beginnt mit `RideOn` und trägt kein Schlüsselmaterial |
+| `encrypted` | die Antwort beginnt mit `RideOn` und trägt danach mindestens 64 Byte (laut Beschreibung 2 Byte und ein öffentlicher Schlüssel): der Controller verlangt Verschlüsselung, die VSpin nicht kann. Die Bridge schreibt in diesem Lauf nicht mehr auf ihn, auch nicht nach dem Neuverbinden. Das Spiel zeigt „Controller verlangt Verschlüsselung – Tasten in VSpin noch nicht nutzbar“. |
+| `no_answer` | keine Antwort binnen 3 s (oder das Schreiben scheiterte); eine spätere Antwort ordnet die Bridge noch ein |
+
+Ältere Bridges ohne das Feld: Clients nehmen `none` an.
 
 `signal`: Signalstärke in dBm je Rolle (`trainer`, `heart_rate`, `controller`) – die der Ankündigung, nach der das
 verbundene (bzw. gesperrte) Gerät verbunden wurde; `null` ohne Gerät. Sie wird nur beim Verbinden gesetzt und löst

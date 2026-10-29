@@ -5,7 +5,8 @@
 ##                                 Controller: Akku, sonst „—“) und Signalstärke; die Überschrift springt zur Einrichtung
 ##                                 der Rolle. Trainer zusätzlich der Stand der Steuerung, „Nur lesen“ und bei `lost` bzw.
 ##                                 `error` der Knopf „Steuerung zurückholen“ (fordert nur auf diesen Klick neu an);
-##                                 Controller „gesperrt – einmal in Zwift verbinden (gilt ca. 24 h)“ statt eines Fehlers.
+##                                 Controller „gesperrt – einmal in Zwift verbinden (gilt ca. 24 h)“ statt eines Fehlers,
+##                                 verbunden mit `handshake: encrypted` (Spec #89) der Hinweis auf die Verschlüsselung.
 ## Darunter scrollt die Einrichtung; von oben nach unten:
 ##   Karte Trainer                 Anleitung, gemerktes Gerät, „Suchen“, gefundene Trainer mit „Als Trainer merken“,
 ##                                 „Vergessen“, Hinweise, wenn nichts gefunden wird (mit dem Simulator nicht suchbar)
@@ -51,6 +52,7 @@ const TILE_FONT_SIZE := 18
 ## Kein Wert (Controller ohne Akku, keine Signalstärke).
 const NO_VALUE := "—"
 const CONTROLLER_LOCKED_TEXT := "gesperrt – einmal in Zwift verbinden (gilt ca. 24 h)"
+const CONTROLLER_ENCRYPTED_TEXT := "Controller verlangt Verschlüsselung – Tasten in VSpin noch nicht nutzbar"
 const RECLAIM_TEXT := "Steuerung zurückholen"
 ## Stand der Steuerung (`status.trainer.control`) in der Trainerkachel als [Text, Farbe-Schlüssel].
 const CONTROL_TEXTS := {
@@ -687,6 +689,8 @@ func _controller_tile() -> Array:
 	var battery := "Akku %d %%" % _bus.controller_battery if _bus.controller_battery >= 0 else "Akku " + NO_VALUE
 	match _bus.controller_state:
 		BusClient.CONTROLLER_CONNECTED:
+			if _bus.controller_handshake == BusClient.CONTROLLER_HANDSHAKE_ENCRYPTED:
+				return [[CONTROLLER_ENCRYPTED_TEXT, COLOR_WARN], device_name, battery, signal_line]
 			return [["Verbunden", COLOR_OK], device_name, battery, signal_line]
 		BusClient.CONTROLLER_LOCKED:
 			return [[CONTROLLER_LOCKED_TEXT, COLOR_WARN], device_name, battery, signal_line]

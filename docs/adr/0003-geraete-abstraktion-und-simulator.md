@@ -73,3 +73,18 @@ Die Bridge zeichnet rohe BLE-Notifications mit Zeitstempel auf (Replay-Format).
   ihr kein fremdes Gerät übernimmt.
 - `sim` und `replay` bleiben CLI-Modi: Mit ihnen gibt es keinen Trainer, `set_devices` für den Trainer bleibt ohne
   Wirkung. Die Klasse der echten Radquelle heißt `TrainerSource`.
+
+## Nachtrag (2026-10-29, Spec #89): Der Controller wird beschrieben – nur Handshake und Abo
+
+- Mit Spec #75 hat die Bridge nie auf den Lenkercontroller des Zwift Ride geschrieben (verbinden, Gerätedatenbank prüfen,
+  Akku lesen). Für die Lenkertasten muss sie ihn ansprechen. Seit Spec #89 abonniert sie nach dem Verbinden **zuerst**
+  alle Notify-/Indicate-Characteristics seiner Zwift-Services und schreibt **dann einmal je Verbindung** den
+  Klartext-Handshake `RideOn` – sonst nichts: keine Tasten, kein Menü, keine Haptik. Bei `locked` schreibt und abonniert
+  sie nichts; verlangt der Controller Verschlüsselung (`status.controller.handshake: "encrypted"`), schreibt sie in diesem
+  Lauf nie mehr auf ihn.
+- **Clean-room** (ADR-0009): Grundlage ist allein die öffentliche Prosa-Beschreibung des Zwift-Play-Protokolls
+  (makinolo.com). Für den Ride V2 (`0xFC82`) fand sich keine; ob er dieselben Characteristics und dieselbe Antwort hat,
+  ist unbelegt. Deshalb **misst** die Bridge zuerst: Alles, was er sendet, geht roh ins Controller-Protokoll der Session
+  (`<zeit>.controller.jsonl`), die Einordnung der Antwort ist eine Hypothese. Den Tastendecoder baut ein späteres Paket
+  aus einer eigenen Aufzeichnung; Kryptografie (Schlüsseltausch, Verschlüsselung) und neue Abhängigkeiten bleiben außen
+  vor.

@@ -11,6 +11,10 @@ beides mit. Die Verbindung kann `read` und `write` (mit Antwort, mit Zeitlimit) 
 Services der Gerätedatenbank. `subscribe` gilt für Notify und Indicate gleich. Die Reihenfolge
 „erst Indications abonnieren, dann schreiben“ gehört der Quelle; die Nahtstelle ermöglicht sie.
 
+Erweiterung (Spec #89, Controller): Die Verbindung nennt auch die Characteristics der Gerätedatenbank mit ihren
+Eigenschaften (`characteristics`), und `write` kann ohne Antwort schreiben („write without response“), für eine
+Characteristic, die nur das kann.
+
 Alle Rückrufe kommen im Event-Loop der Bridge an (bleak ruft sie dort auf, der Fake auch).
 """
 
@@ -38,6 +42,16 @@ class Advertisement:
     manufacturer_data: Mapping[int, bytes] = field(default_factory=dict, hash=False)
 
 
+@dataclass(frozen=True, slots=True)
+class GattCharacteristic:
+    """Eine Characteristic der Gerätedatenbank: `service` und `uuid` als volle 128-Bit-UUIDs (klein geschrieben),
+    `properties` wie bleak sie nennt (z. B. `notify`, `indicate`, `read`, `write`, `write-without-response`)."""
+
+    service: str
+    uuid: str
+    properties: frozenset[str] = frozenset()
+
+
 class BleScan(Protocol):
     """Eine laufende Suche."""
 
@@ -55,6 +69,12 @@ class BleConnection(Protocol):
         Ankündigung. Fehlt ein erwarteter Service, ist das Gerät z. B. gesperrt."""
         ...
 
+    @property
+    def characteristics(self) -> tuple[GattCharacteristic, ...]:
+        """Characteristics der Gerätedatenbank mit Eigenschaften, in ihrer Reihenfolge. Wirft `BleError`, wenn sie
+        sich nicht lesen lässt."""
+        ...
+
     async def subscribe(self, char: str, on_notify: Callable[[bytes], None]) -> None:
         """Notifications oder Indications der Characteristic `char` (volle 128-Bit-UUID)
         abonnieren; für die Quelle ist beides dasselbe. Wirft `BleError`."""
@@ -64,9 +84,10 @@ class BleConnection(Protocol):
         """Wert der Characteristic `char` lesen. Wirft `BleError`, auch bei Zeitüberschreitung."""
         ...
 
-    async def write(self, char: str, data: bytes) -> None:
+    async def write(self, char: str, data: bytes, *, response: bool = True) -> None:
         """`data` mit Antwort („write with response“) in `char` schreiben. Kehrt zurück, wenn das
-        Gerät quittiert hat. Wirft `BleError`, auch bei Zeitüberschreitung."""
+        Gerät quittiert hat. Mit `response=False` ohne Antwort (kehrt nach dem Absenden zurück). Wirft `BleError`,
+        auch bei Zeitüberschreitung."""
         ...
 
     async def disconnect(self) -> None:

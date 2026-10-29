@@ -374,18 +374,41 @@ func test_locked_controller_shows_the_zwift_hint_instead_of_an_error() -> void:
 	assert_eq(game.bus.controller_state, "locked")
 	assert_eq(_tile(menu, "controller"), [["gesperrt – einmal in Zwift verbinden (gilt ca. 24 h)",
 			DEVICES_MENU.COLOR_WARN], "Zwift SF2 (links)", "Akku 64 %", "Signal -64 dBm (gut)"])
+	assert_eq(game.bus.controller_handshake, "none", "gesperrt: kein Handshake")
+
+
+func test_controller_tile_per_handshake_state() -> void:
+	# Spec #89: Verlangt der Controller Verschlüsselung, sagt die Kachel das; sonst bleibt sie „Verbunden“.
+	assert_eq(DEVICES_MENU.CONTROLLER_ENCRYPTED_TEXT,
+			"Controller verlangt Verschlüsselung – Tasten in VSpin noch nicht nutzbar")
+	var device := {"address": LEFT, "name": "Zwift SF2", "side": "left"}
+	var cases := [["encrypted", [DEVICES_MENU.CONTROLLER_ENCRYPTED_TEXT, DEVICES_MENU.COLOR_WARN]],
+			["answered", ["Verbunden", DEVICES_MENU.COLOR_OK]], ["no_answer", ["Verbunden", DEVICES_MENU.COLOR_OK]],
+			["none", ["Verbunden", DEVICES_MENU.COLOR_OK]]]
+	var script := []
+	for i in range(cases.size()):
+		script.append(FakeBusServer.status("connected", "sim", ["CADENCE"], 0.4 * i, {}, "", {},
+				FakeBusServer.controller_block("connected", device, 81, cases[i][0]), {"controller": -61}))
+	var bus := start_fake_bus(script)
+	var game := await _spawn_game(bus)
+	var menu := await _open(game)
+	for entry in cases:
+		assert_true(await run_until(func(): return game.bus.controller_handshake == entry[0], 3.0), "Stand %s" % entry[0])
+		await wait_process_frames(2)
+		assert_eq(_tile(menu, "controller"), [entry[1], "Zwift SF2 (links)", "Akku 81 %", "Signal -61 dBm (gut)"],
+				"Kachel bei %s" % entry[0])
 
 
 # --- Layout ---------------------------------------------------------------------------------------
 
 
 ## Fenster in `viewport_size` (Pixel) mit vollem Inhalt: alle Rollen gemerkt, Trainer `lost` (Knopf sichtbar),
-## Controller gesperrt, Suchergebnisse.
-func _window_in(viewport_size: Vector2i) -> CanvasLayer:
+## Controller gesperrt (oder `controller` als Block, z. B. verbunden mit Verschlüsselungshinweis), Suchergebnisse.
+func _window_in(viewport_size: Vector2i, controller_block: Dictionary = {}) -> CanvasLayer:
 	var status := _ble_status(0.0, "lost")
 	status["send"]["heart_rate"] = FakeBusServer.heart_rate_block("disconnected")
-	status["send"]["controller"] = FakeBusServer.controller_block("locked",
-			{"address": LEFT, "name": "Zwift SF2", "side": "left"}, 64)
+	status["send"]["controller"] = controller_block if not controller_block.is_empty() \
+			else FakeBusServer.controller_block("locked", {"address": LEFT, "name": "Zwift SF2", "side": "left"}, 64)
 	var bus := start_fake_bus([status])
 	var client := connect_client(bus)
 	assert_true(await run_until(func(): return client.bus_connected and client.trainer_control == "lost", 3.0))
@@ -429,6 +452,14 @@ func _assert_fits(menu: CanvasLayer, label: String) -> void:
 
 func test_layout_fits_low_window() -> void:
 	_assert_fits(await _window_in(Vector2i(1152, 648)), "1152×648")
+
+
+func test_layout_fits_low_window_with_the_encryption_hint() -> void:
+	var encrypted := FakeBusServer.controller_block("connected", {"address": LEFT, "name": "Zwift SF2", "side": "left"},
+			81, "encrypted")
+	var menu := await _window_in(Vector2i(1152, 648), encrypted)
+	assert_true(menu.tiles_text().contains(DEVICES_MENU.CONTROLLER_ENCRYPTED_TEXT))
+	_assert_fits(menu, "1152×648, verschlüsselt")
 
 
 func test_layout_fits_half_screen_and_full_screen_windows() -> void:

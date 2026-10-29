@@ -96,13 +96,15 @@ def trainer_block(
 
 
 def controller_block(status: ControllerStatus) -> dict:
-    """Controllerblock in `status`: Zustand, Gerät (bei `connected`/`locked`, sonst `null`) und Batterie in Prozent."""
+    """Controllerblock in `status`: Zustand, Gerät (bei `connected`/`locked`, sonst `null`), Batterie in Prozent und
+    Stand des Klartext-Handshakes (`Handshake`, Spec #89; additiv)."""
     device = status.device
     side = None if device is None or device.side is None else str(device.side)
     return {
         "state": str(status.state),
         "device": None if device is None else {"address": device.address, "name": device.name, "side": side},
         "battery": status.battery,
+        "handshake": str(status.handshake),
     }
 
 
