@@ -149,6 +149,8 @@ func test_endless_ride_ends_with_result_of_full_laps_only() -> void:
 	assert_almost_eq(game.save_game.best_time_s(RideConfig.TRACK_GRAYBOX, LapTiming.DIRECTION_CW),
 			game.lap_timing.lap_times[0], 0.001, "angefangene Runde zählt nicht für die Bestzeit")
 	await press_key(KEY_ENTER)
+	assert_true(game.ride_save_dialog.visible, "Enter → Dialog „Fahrt speichern“ (Spec #84)")
+	game.ride_save_dialog.discard()
 	assert_eq(game.state, "menu", "Enter → Menü")
 	assert_eq(game.save_game.rides().size(), 1, "nicht doppelt gespeichert")
 

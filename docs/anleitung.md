@@ -11,7 +11,7 @@ Voraussetzungen: Python 3.12, [Godot 4.4](https://godotengine.org/download) (Sta
 ```powershell
 cd bridge
 py -3.12 -m venv .venv
-.venv\Scripts\pip install -e ".[test]"
+.venv\Scripts\pip install -e ".[test,fit]"
 ```
 
 **2. Bridge starten** – eine der Quellen:
