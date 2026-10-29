@@ -47,7 +47,7 @@ def test_speed_cadence_and_estimated_power(bridge_process, bus_client, tmp_path)
     assert len(run.telemetry) == 9
     assert column(run, "speed_kmh") == [25 + 0.25 * i for i in range(9)]  # 0,01 km/h
     assert column(run, "power_w") == [140 + i for i in range(9)]
-    # JC312-Watt sind geschätzt (ADR-0004) – am Bus und in der CSV markiert.
+    # Replay-Watt sind geschätzt (ADR-0004) – am Bus und in der CSV markiert.
     assert column(run, "power_estimated") == [True] * 9
     assert {r["power_estimated"] for r in run.rows} == {"true"}
     assert column(run, "heart_rate") == [None] * 9

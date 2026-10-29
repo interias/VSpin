@@ -32,7 +32,7 @@ Insel-Teststrecke. Optionen: (A) echte Geodaten (DEM + OSM),
 - Volle Gestaltungskontrolle, schnell „schön“ erreichbar, kein Geodaten-Pipeline-Aufwand.
 - Nicht 1:1 real; Asset-Lizenzen werden in `games/*/ASSETS.md` dokumentiert.
 - Die Strecke liefert eine Steigung pro Position → Grundlage für spätere
-  Widerstandssteuerung (ESP32).
+  Widerstandssteuerung (Trainer, ADR-0007).
 
 ## Später möglich
 

@@ -5,7 +5,7 @@
 
 ## Kontext
 
-Das JC312 kennt die Stellung des Widerstandsknopfs nicht. Eventuell gemeldete
+Das Rad kennt die Stellung des Widerstandsknopfs nicht. Eventuell gemeldete
 Watt sind daher vermutlich nur aus der Kadenz hochgerechnet. Daten können
 rauschen, aussetzen oder abreißen. Vorgabe: für den Anfang so einfach wie möglich.
 
@@ -31,7 +31,7 @@ rauschen, aussetzen oder abreißen. Vorgabe: für den Anfang so einfach wie mög
 ## Konsequenzen
 
 - Minimaler Code, alle Werte bleiben ehrlich gekennzeichnet.
-- Bessere Watt kommen erst mit echter Messung (ESP32-Retrofit).
+- Bessere Watt kommen erst mit echter Messung (Trainer mit Leistungsmessung, FTMS).
 
 ## Zurückgestellt
 
@@ -75,22 +75,22 @@ den der Fahrer tritt; das Spiel hält den letzten Wert bis zum nächsten.
   2,5 s), nur ohne EMA; der letzte angenommene Wert gilt bis zum nächsten (docs/bus-protocol.md). `cadence` bleibt
   unverändert. Das Spiel liest es als `BusClient.cadence_raw`; die Kadenzmuster (#50) nutzen **`cadence_raw`**,
   HUD und Fahrmodell weiter `cadence`.
-- **Erst mit dem JC312 endgültig (#1):** Meldetakt (FTMS-Notifications bzw. CSC-Kurbel-Events je Umdrehung) und
+- **Erst mit dem echten Gerät endgültig (#1):** Meldetakt (FTMS-Notifications bzw. CSC-Kurbel-Events je Umdrehung) und
   ob das Rad selbst glättet. Bei **CSC bestimmt die 2,5-s-Regel das Innehalten**, nicht der EMA: hört der Fahrer
   auf, wiederholt der Sensor nur das letzte Event, die Kadenz bleibt 2,5 s stehen – Innehalten (2 s) kommt
   ~2,5 s zu spät (Fixture `csc_stop`: letztes Event bei 3 s, Kadenz 0 bei 5,5 s, Innehalten bei 7,5 s statt 5 s),
-  geglättet wie ungeglättet. Liefert das JC312 nur CSC, braucht Innehalten eine andere Stopp-Regel (z. B. aus dem
+  geglättet wie ungeglättet. Liefert das Rad nur CSC, braucht Innehalten eine andere Stopp-Regel (z. B. aus dem
   letzten Kurbel-Intervall) – eine Änderung dieser ADR, nicht von #45. Die Schwellen der Muster kalibriert #50
   (Spec #27: konfigurierbar, endgültig mit #1).
 
 ## Nachtrag (2026-10-28, Spec #75): Watt sind je Gerät gemessen oder geschätzt
 
-Die Entscheidung „Watt nur als `estimated` markiert“ galt dem JC312, das den Widerstandsknopf nicht kennt. Mit dem
+Die Entscheidung „Watt nur als `estimated` markiert“ galt einem Rad, das den Widerstandsknopf nicht kennt. Mit dem
 FTMS-Trainer (Wahoo KICKR CORE 2) ändert sich die Herkunft, nicht die Regel „ehrlich kennzeichnen“:
 
 - **Die Herkunft ist eine Eigenschaft des Geräts bzw. der Quelle, nicht der Characteristic.** Der Trainer misst die
   Leistung (laut Hersteller ±2 %): seine Watt gehen als `measured` auf den Bus (`power_estimated: false`). Das
-  Replay einer JC312-Aufnahme, das Kadenzmodell und der Simulator schätzen weiter (`power_estimated: true`);
+  Replay einer Aufnahme ohne Leistungsmessung, das Kadenzmodell und der Simulator schätzen weiter (`power_estimated: true`);
   bestehende Aufnahmen und ihre Fixtures behalten ihr Ergebnis.
 - **Umsetzung:** Die Quelle trägt die Herkunft (`power_estimated`), die Bridge legt den `Decoder` danach an
   (`Decoder(power_estimated=…)`). Das gilt für `0x2AD2` und `0x2A63`.

@@ -5,19 +5,19 @@
 
 ## Kontext
 
-Ziel ist eine eigene Game-Plattform für das JC312. Optionen für v1:
+Ziel ist eine eigene Game-Plattform für den Indoor-Trainer (FTMS). Optionen für v1:
 (A) nur Telemetrie, (B) Telemetrie + Simulator + ein Prototyp-Game, (C) Game-Hub.
 
 ## Entscheidung
 
 **B.** v1 umfasst:
 
-- Telemetrie vom echten JC312 unter Windows
+- Telemetrie vom echten Trainer unter Windows
 - Simulator als gleichwertige Datenquelle
 - genau ein Prototyp-Game
 - Session-Logging auf Platte
 
-**Abnahmekriterium v1:** 10 Minuten am echten JC312 treten, ein Spiel reagiert
+**Abnahmekriterium v1:** 10 Minuten am echten Trainer treten, ein Spiel reagiert
 spürbar verzögerungsfrei (< 200 ms Kurbel → Bildschirm) auf die Kadenz, die
 Session liegt danach als Datei vor. Dasselbe Spiel läuft ohne Rad mit dem Simulator.
 

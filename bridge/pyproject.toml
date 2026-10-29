@@ -1,7 +1,7 @@
 [project]
 name = "vspin-bridge"
 version = "0.0.0"
-description = "BLE-Bridge für das Wenoker JC312 – Telemetrie auf einen lokalen WebSocket-Bus"
+description = "Telemetrie-Bridge für FTMS-Trainer und Pulsgurte – Telemetrie auf einen lokalen WebSocket-Bus"
 requires-python = ">=3.12"
 license = "MIT"
 dependencies = [

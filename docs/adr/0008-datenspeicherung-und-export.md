@@ -51,7 +51,7 @@ Die `HeartRateSource` ist umgesetzt und läuft in der Bridge **neben** der Radqu
   eine eigene BLE-Verbindung zu einem Brustgurt oder einer Uhr (Heart Rate Service `0x180D`) und meldet ihren
   Zustand im eigenen Block `status.heart_rate`. Die Folge „Bridge muss mehrere BLE-Verbindungen parallel halten
   können (Rad + Puls)“ ist damit eingelöst: Die Pulsquelle hat ihre eigene Verbindung hinter der BLE-Nahtstelle
-  `vspin_bridge/ble/`, die die `BleSource` fürs Rad (#9) wiederverwenden soll.
+  `vspin_bridge/ble/`, die die `TrainerSource` fürs Rad (#9) wiederverwenden soll.
 - **Vorrang Gurt vor Uhr** ergibt sich allein aus der Reihenfolge der gemerkten Geräte. Eine verbundene Uhr wird
   gegen den Gurt getauscht, sobald er sendet; ihr Wert gilt, bis der Gurt den ersten liefert.
 - **`telemetry.heart_rate` / `hr_bpm`:** Wert der Pulsquelle, solange ein Pulsgerät verbunden ist oder ihr Wert

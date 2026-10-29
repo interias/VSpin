@@ -5,8 +5,7 @@ Werden von allen Byte-Quellen benutzt (Replay, Trainer per BLE). Unterstützt:
 - CSC Measurement `0x2A5B` (`csc.py`) – Kadenz aus Kurbel-Events.
 - FTMS Indoor Bike Data `0x2AD2` (`ftms.py`) – Geschwindigkeit, Kadenz, Leistung, Puls.
   Ob die Leistung gemessen oder geschätzt ist, bestimmt die Quelle (`Decoder(power_estimated=…)`,
-  ADR-0004): das Replay einer JC312-Aufnahme schätzt (das JC312 kennt die Stellung des
-  Widerstandsknopfs nicht), der Trainer misst.
+  ADR-0004): das Replay einer Aufnahme ohne Leistungsmessung schätzt, der Trainer misst.
 - Cycling Power Measurement `0x2A63` (`cycling_power.py`) – Kadenz aus den Kurbeldaten, wenn ein
   Trainer sie nicht in `0x2AD2` meldet.
 
@@ -32,7 +31,7 @@ FITNESS_MACHINE_FEATURE = "00002acc-0000-1000-8000-00805f9b34fb"
 
 class Decoder:
     """`power_estimated`: Herkunft der Leistung aus `0x2AD2` und `0x2A63` – `True` geschätzt (Replay einer
-    JC312-Aufnahme, Standard), `False` gemessen (Trainer)."""
+    Aufnahme ohne Leistungsmessung, Standard), `False` gemessen (Trainer)."""
 
     def __init__(self, power_estimated: bool = True) -> None:
         self._csc = CscCadence()

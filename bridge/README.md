@@ -338,7 +338,7 @@ Ausgewertete Characteristics:
 | Characteristic | Werte |
 |---|---|
 | CSC Measurement `0x2A5B` | Kadenz aus den Kurbeldaten (Δ Umdrehungen / Δ Event-Zeit, Überlauf beider uint16-Zähler berücksichtigt). Raddaten werden gelesen, aber nicht ausgewertet: ohne Radumfang keine Geschwindigkeit (`speed_kmh` bleibt `null`). Nach > 64 s ohne neues Kurbel-Event ist die Event-Zeit nicht mehr eindeutig – das nächste Event ist dann nur neuer Bezugspunkt. |
-| FTMS Indoor Bike Data `0x2AD2` | Flag-basiert (uint16 Flags): alle Felder werden gelesen, damit die Offsets stimmen; genutzt werden Instantaneous Speed (0,01 km/h – vorhanden, wenn Bit 0 „More Data“ **nicht** gesetzt ist), Instantaneous Cadence (0,5 rpm), Instantaneous Power (W) und Heart Rate (bpm; 0 = kein Sensor → `null`). Was laut Flags fehlt, ist `null`. Die Leistung gilt als geschätzt: `power_estimated` ist `true` (ADR-0004 – das JC312 kennt die Stellung des Widerstandsknopfs nicht). Bytes hinter den angekündigten Feldern werden ignoriert. |
+| FTMS Indoor Bike Data `0x2AD2` | Flag-basiert (uint16 Flags): alle Felder werden gelesen, damit die Offsets stimmen; genutzt werden Instantaneous Speed (0,01 km/h – vorhanden, wenn Bit 0 „More Data“ **nicht** gesetzt ist), Instantaneous Cadence (0,5 rpm), Instantaneous Power (W) und Heart Rate (bpm; 0 = kein Sensor → `null`). Was laut Flags fehlt, ist `null`. Die Leistung gilt als geschätzt: `power_estimated` ist `true` (ADR-0004; der Trainer-Pfad meldet gemessene Watt). Bytes hinter den angekündigten Feldern werden ignoriert. |
 
 Andere Characteristics und zu kurze Pakete werden übersprungen (eine Zeile im Terminal je Art),
 stehen aber trotzdem in den Session-Rohdaten. Jede ausgewertete Notification ergibt genau ein
@@ -449,7 +449,7 @@ wie das Spiel; „Strg+C“ ist SIGINT bzw. unter Windows Strg+Untbr an die eige
 **Messung Kadenzmuster (#45):** `python tests/cadence_latency.py` (im Ordner `bridge/`, mit `PYTHONPATH=src` oder
 installiertem Paket) misst die Erkennungsverzögerung von Antritt und Innehalten am geglätteten gegen den
 ungeglätteten Wert – Profile mit Meldetakt 250 ms und 1 s, Rauschen mit Seeds 1–20, dazu CSC-Replays – und gibt eine
-Tabelle aus. `--profile DATEI`, `--interval MS`, `--seeds N`, `--replay DATEI.raw.jsonl` (z. B. ein JC312-Mitschnitt,
+Tabelle aus. `--profile DATEI`, `--interval MS`, `--seeds N`, `--replay DATEI.raw.jsonl` (z. B. ein Mitschnitt vom Trainer,
 #1) wählen andere Eingaben. Die Detektoren dort sind vorläufig (Definition im Kopf der Datei); die Zahlen ohne
 Rauschen hält `tests/test_cadence_raw.py` fest.
 
@@ -468,6 +468,6 @@ src/vspin_bridge/
   processing.py Datenaufbereitung (ADR-0004)
   bus/          WebSocket-Server (docs/bus-protocol.md)
   session/      Session-CSV und Rohdaten (ADR-0008)
-tests/fixtures/  Replay-Fixtures (handgebaut; später echte JC312-Dumps)
+tests/fixtures/  Replay-Fixtures (handgebaut; später echte Trainer-Dumps)
 tests/cadence_latency.py  Messung Erkennungsverzögerung der Kadenzmuster (#45)
 ```

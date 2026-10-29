@@ -1,6 +1,6 @@
 ## Lesart und Grenzen
 
-- Die Kadenzverläufe sind **erfundene, dokumentierte Daten** (`Balancing.PROFILES`), keine Messungen. Absolute Quoten (z. B. „Einsteiger schafft Stufe 1 zu 46 %“) hängen an diesen Annahmen; belastbar sind **Verhältnisse und Brüche**: eine Herausforderung, die gegenüber ihrer Schwester oder gegenüber den Nachbarstufen abbricht, oder eine Stufe, die kein Verlauf erreicht. Kalibrieren mit echten Fahrten (JC312, #1) bleibt offen.
+- Die Kadenzverläufe sind **erfundene, dokumentierte Daten** (`Balancing.PROFILES`), keine Messungen. Absolute Quoten (z. B. „Einsteiger schafft Stufe 1 zu 46 %“) hängen an diesen Annahmen; belastbar sind **Verhältnisse und Brüche**: eine Herausforderung, die gegenüber ihrer Schwester oder gegenüber den Nachbarstufen abbricht, oder eine Stufe, die kein Verlauf erreicht. Kalibrieren mit echten Fahrten (Trainer, #1) bleibt offen.
 - Fähigkeiten (#50) und legendäre Effekte sind **nicht** simuliert (sie brauchen `cadence_raw` mit gezielten Gesten, die ein synthetischer Verlauf nur erfinden könnte). Alle Quoten sind deshalb eine Untergrenze: Fähigkeiten verstärken nur den Fortschritt mit Kadenz in der Zone.
 - Fahrer „bei der Sache“ gelten für die Dauer einer Herausforderung als Zweizustandsmodell (siehe Kopf von `src/balancing.gd`); Laufbahnen legen das jeweils bessere Teil je Platz an, verwerten den Rest und geben Talentpunkte zuerst für Ausrüstungswerte aus.
 

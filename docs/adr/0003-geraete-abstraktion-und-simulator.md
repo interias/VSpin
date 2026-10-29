@@ -5,9 +5,9 @@
 
 ## Kontext
 
-Das Protokoll des JC312 ist noch unbekannt (FTMS oder CSC, evtl. proprietär).
-Entwicklung muss ohne Rad und ohne Windows möglich sein. Später soll ein
-ESP32-Retrofit Widerstandssteuerung ergänzen.
+Das Protokoll des Rads ist noch unbekannt (FTMS oder CSC, evtl. proprietär).
+Entwicklung muss ohne Rad und ohne Windows möglich sein. Später soll
+Widerstandssteuerung am Trainer (FTMS) ergänzt werden.
 
 ## Entscheidung
 
@@ -28,7 +28,7 @@ Implementierungen:
 
 | Quelle | Ebene | Zweck |
 |---|---|---|
-| `BleSource` (FTMS / CSC / ggf. proprietär) | Bytes → Parser | echtes Rad |
+| `TrainerSource` (FTMS / CSC / ggf. proprietär) | Bytes → Parser | echtes Rad |
 | `ReplaySource` | aufgezeichnete Roh-Notifications → Parser | Parser-Tests mit echten Daten, ohne Rad |
 | `SimulatorSource` | direkt `TelemetrySample` | Game-Entwicklung |
 
@@ -46,12 +46,12 @@ Die Bridge zeichnet rohe BLE-Notifications mit Zeitstempel auf (Replay-Format).
 
 - Games können nicht unterscheiden, ob Daten echt oder simuliert sind.
 - Parser sind ohne Hardware unit-testbar; der Discovery-Dump liefert erste Fixtures.
-- `set_grade` ist von Anfang an Teil der Schnittstelle (Andockpunkt ESP32).
+- `set_grade` ist von Anfang an Teil der Schnittstelle (Andockpunkt Trainer-Steuerung).
 
 ## Verworfen
 
 - **Virtuelles BLE-Peripheral** zum Simulieren: hoher Aufwand, unter Windows
-  umständlich; diese Rolle übernimmt später der ESP32.
+  umständlich; diese Rolle entfällt mit dem FTMS-Trainer.
 
 ## Nachtrag (2026-10-07, #19): `set_resistance` heißt `set_grade`
 
@@ -72,4 +72,4 @@ Die Bridge zeichnet rohe BLE-Notifications mit Zeitstempel auf (Replay-Format).
   stärkste FTMS-Gerät; die Bridge aus dem Spiel startet mit `--known-trainers` und wartet auf die Liste, damit sie vor
   ihr kein fremdes Gerät übernimmt.
 - `sim` und `replay` bleiben CLI-Modi: Mit ihnen gibt es keinen Trainer, `set_devices` für den Trainer bleibt ohne
-  Wirkung. Die Klasse der echten Radquelle heißt `TrainerSource` (die Tabelle oben nennt noch `BleSource`).
+  Wirkung. Die Klasse der echten Radquelle heißt `TrainerSource`.
