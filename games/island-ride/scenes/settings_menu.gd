@@ -9,6 +9,8 @@
 ## GraphicsSettings.apply_engine an ItemIcons weiter (beim Start und nach jeder Auswahl).
 ## Die Kameraperspektive (#59, CameraViews) steht nicht in den Einstellungen, sondern im Spielstand: Die Hauptszene setzt
 ## `camera_view`, das Feld zeigt es, eine Auswahl meldet `settings_changed("camera_view")`, und die Hauptszene speichert.
+## Begleiter (#76, #91): „Begleiter“, „Toni-Stimme“ und „Toni fährt mit“ (Toni als Figur neben dem Fahrer; die Hauptszene liest
+## `settings.companion_rides` je Frame).
 ## Ton (#44): „Ton“ an/aus und „Lautstärke“ in der rechten Spalte; die Hauptszene stellt den Bus über `settings_changed`.
 ## Tageszeit, Wetter (G8) und Jahreszeit (#39) stehen in denselben Einstellungen (`[sky]`); auf die Welt wirken sie über
 ## `settings_changed`, das die Hauptszene an den SkyController weitergibt.
@@ -251,6 +253,7 @@ func _build() -> void:
 	_add_row(grid, "companion_volume", "Toni-Stimme",
 			GraphicsSettings.COMPANION_VOLUMES.map(func(v): return "%d %%" % roundi(v * 100.0)),
 			GraphicsSettings.COMPANION_VOLUMES, func(v): settings.companion_volume = v)
+	_add_row(grid, "companion_rides", "Toni fährt mit", ["An", "Aus"], [true, false], func(v): settings.companion_rides = v)
 	_add_row(grid, "window_mode", "Fenstermodus", GraphicsSettings.WINDOW_MODES.map(func(m): return WINDOW_LABELS[m]),
 			GraphicsSettings.WINDOW_MODES, _on_window_mode)
 	_add_row(grid, "window_size", "Fenstergröße", [], [], _on_window_size)
@@ -423,6 +426,7 @@ func _refresh() -> void:
 	_select_or_add("wind_volume", settings.wind_volume, func(v): return "Aus" if v == 0.0 else "%d %%" % roundi(v * 100.0))
 	_select("companion", settings.companion_enabled)
 	_select_or_add("companion_volume", settings.companion_volume, func(v): return "%d %%" % roundi(v * 100.0))
+	_select("companion_rides", settings.companion_rides)
 	_select("camera_view", camera_view)
 	_select("window_mode", settings.window_mode)
 	var number := settings.fixed_hour if settings.time_mode == DayNight.MODE_FIXED 			else settings.timelapse_day_min if settings.time_mode == DayNight.MODE_TIMELAPSE else 0.0

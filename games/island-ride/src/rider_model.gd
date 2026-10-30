@@ -6,6 +6,7 @@
 ##   wear(outfit)   Garderobe (#36): Farben je Material, z. B. Wardrobe.outfit(…); nur Kosmetik. Auch die Arcade-
 ##                  Ausrüstung (#49, Loot.appearance): dazu Felgen, Schuhe und der Talisman am Sattel
 ##   reset_look()   zurück zum Grund-Look (vor Garderobe und Ausrüstung), Talisman ab
+##   set_talk(head_yaw, hand_raise)   Reden (#91, Begleiter Toni): Kopf zur Seite drehen, linke Hand vom Lenker lösen
 ##
 ## Koordinaten (Meter): Ursprung am Boden unter der Radmitte, Fahrtrichtung −Z (wie PathFollow3D), rechts +X.
 ## Knoten: `Lean` (Schräglage um die Aufstandslinie) → `Bike` (Rahmen, starr), `FrontWheel`/`RearWheel` (rollen),
@@ -38,6 +39,8 @@ const UPPER_ARM := 0.31
 const FOREARM := 0.30
 ## Hände auf den Bremsgriffen (rechts; links gespiegelt).
 const HAND := Vector3(0.21, 0.91, -0.53)
+## Linke Hand bei der Geste (#91), voll gelöst vom Lenker: seitlich und höher.
+const GESTURE_HAND := Vector3(-0.30, 1.14, -0.42)
 ## Ferse/Knöchel relativ zum Pedal.
 const ANKLE_FROM_PEDAL := Vector3(0.0, 0.075, 0.07)
 ## Wiegen mit dem Tritt (rad): Oberkörper und Rad gegenläufig.
@@ -72,6 +75,10 @@ var _shoes: Array[Node3D] = []
 var _upper_arms: Array[Node3D] = []
 var _forearms: Array[Node3D] = []
 var _hands: Array[Node3D] = []
+
+## Reden (#91, set_talk): Kopfdrehung um die Senkrechte (rad, positiv = nach links) und Lösung der linken Hand 0..1.
+var _head_yaw := 0.0
+var _hand_raise := 0.0
 
 var _materials := {}
 ## Grundfarbe je Material aus GEAR_MATERIALS (für reset_look) und der Talisman am Sattel (#49).
@@ -108,6 +115,14 @@ func make_ghost(alpha: float = GHOST_ALPHA) -> void:
 		material.metallic = 0.0
 	for mesh in find_children("*", "MeshInstance3D", true, false):
 		(mesh as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+## Reden (#91): Kopf um `head_yaw` (rad, positiv = nach links) drehen und die linke Hand um `hand_raise` (0 = am Lenker,
+## 1 = Geste) lösen. Ohne Aufruf bleibt alles wie gebaut; die Pose wird mit dem nächsten `update` gesetzt.
+func set_talk(head_yaw: float, hand_raise: float) -> void:
+	_head_yaw = head_yaw
+	_hand_raise = clampf(hand_raise, 0.0, 1.0)
+	_apply_pose()
 
 
 ## Garderobe (#36) und Arcade-Ausrüstung (#49): Farben `outfit` (Material-Schlüssel aus GEAR_MATERIALS → Farbe)
@@ -153,7 +168,7 @@ func _apply_pose() -> void:
 	_rear_wheel.rotation.x = -motion.wheel_angle
 	_crank.rotation.x = -motion.crank_angle
 	_torso.basis = Basis.from_euler(Vector3(-(TORSO_PITCH_RAD + motion.bend), 0.0, -TORSO_SWAY_RAD * sway))
-	_head.rotation.x = (TORSO_PITCH_RAD + motion.bend) * 0.8
+	_head.basis = Basis(Vector3.RIGHT, (TORSO_PITCH_RAD + motion.bend) * 0.8) * Basis(Vector3.UP, _head_yaw)
 	for side in range(2):
 		var mirror := 1.0 if side == 0 else -1.0
 		var pedal := pedal_position(side)
@@ -166,6 +181,8 @@ func _apply_pose() -> void:
 		_shoes[side].position = pedal + Vector3(0.0, 0.045, 0.02)
 		var shoulder := _torso.transform * Vector3(SHOULDER_HALF_WIDTH * mirror, TORSO_LENGTH - 0.04, 0.0)
 		var hand := Vector3(HAND.x * mirror, HAND.y, HAND.z)
+		if side == 1:
+			hand = hand.lerp(GESTURE_HAND, _hand_raise)
 		var elbow := RiderMotion.joint_point(shoulder, hand, UPPER_ARM, FOREARM, Vector3(0.5 * mirror, -0.6, 0.4))
 		_aim(_upper_arms[side], shoulder, elbow)
 		_aim(_forearms[side], elbow, hand)

@@ -1,6 +1,6 @@
 ## Grafik- und Fenstereinstellungen der Inselfahrt (Menü `F2`, G4): Kantenglättung, Render-Auflösung, VSync,
 ## fps-Limit, Schatten, Tempo-Effekte (#42), Panorama-Momente (#43), Ton an/aus und Lautstärke (#44, Abschnitt `[sound]`),
-## Begleiter an/aus und seine Lautstärke (Spec #76, Abschnitt `[companion]`),
+## Begleiter an/aus, seine Lautstärke (Spec #76) und „Toni fährt mit“ (Spec #91; Abschnitt `[companion]`),
 ## Leuchten der Ausrüstungssymbole (#83, wirkt über `apply_engine` auf ItemIcons), Fenstermodus und -geometrie; dazu
 ## Tageszeit, Wetter und Jahreszeit (G8, #39; Abschnitt `[sky]`, nur geschrieben, sobald im Menü gewählt – sonst gilt
 ## `config.cfg [sky]`). Gespeichert in `user://settings.cfg` (ConfigFile), getrennt von der Spiel-Konfiguration
@@ -91,6 +91,8 @@ var wind_volume := DEFAULT_WIND_VOLUME
 ## Begleiter (Spec #76): Standard an; das Spiel startet ihn aber nur dort, wo es auch die Bridge startet (BridgeLauncher).
 var companion_enabled := true
 var companion_volume := DEFAULT_COMPANION_VOLUME
+## „Toni fährt mit“ (Spec #91): Toni als Figur neben dem Fahrer; Standard an. Wirkt nur mit „Begleiter“ an und einem Begleiter am Bus.
+var companion_rides := true
 var window_mode := WINDOW_WINDOWED
 var window_size := Vector2i(1600, 900)
 ## Position der Client-Fläche (ohne Rahmen); POSITION_CENTERED = mittig.
@@ -136,6 +138,7 @@ static func load_file(path: String = DEFAULT_PATH) -> GraphicsSettings:
 	settings.companion_enabled = bool(file.get_value("companion", "enabled", settings.companion_enabled))
 	settings.companion_volume = clampf(_number(file.get_value("companion", "volume", settings.companion_volume),
 			settings.companion_volume), 0.0, 1.0)
+	settings.companion_rides = bool(file.get_value("companion", "rides", settings.companion_rides))
 	settings.window_mode = _choice(file.get_value("window", "mode", settings.window_mode), WINDOW_MODES,
 			settings.window_mode)
 	var size = file.get_value("window", "size", settings.window_size)
@@ -186,6 +189,7 @@ func save_file(path: String = DEFAULT_PATH) -> Error:
 	file.set_value("sound", "wind_volume", wind_volume)
 	file.set_value("companion", "enabled", companion_enabled)
 	file.set_value("companion", "volume", companion_volume)
+	file.set_value("companion", "rides", companion_rides)
 	file.set_value("window", "mode", window_mode)
 	file.set_value("window", "size", window_size)
 	file.set_value("window", "position", window_position)
