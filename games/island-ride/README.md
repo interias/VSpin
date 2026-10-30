@@ -522,6 +522,7 @@ Startmenü) und „Beenden“ (beendet das Spiel; im Browser ausgeblendet) – `
 | Fahrtwind | Aus, 25, 50, 75, 100 % – eigener Regler nur für den Fahrtwind, zusätzlich zur Lautstärke (#69) | 100 % |
 | Begleiter | An, Aus – Toni, der sprechende Begleiter (#76, #80); Aus: kein Start, keine Nachrichten an den Bus, kein Symbol, kein Ducking | An |
 | Toni-Stimme | 20, 40, 60, 80, 100 % – Lautstärke von Tonis Stimme (spielt der Begleiter selbst ab, nicht über den Bus „Spiel“) | 80 % |
+| Toni fährt mit | An, Aus – Toni als Figur neben dem Fahrer (#91); wirkt nur mit „Begleiter“ an und einem Begleiter am Bus | An |
 | Fenstermodus | Fenster (mit Rahmen, frei skalierbar), Randloses Fenster, Vollbild | Fenster 1600 × 900, mittig |
 | Fenstergröße | 960 × 1040, 1280 × 720, 1600 × 900, 1920 × 1080, 2560 × 1440 (im Vollbild: Bildschirmauflösung) | 1600 × 900 |
 
@@ -1532,6 +1533,24 @@ die Bridge, die die Nachrichten nur weiterleitet (`docs/bus-protocol.md`, „Cli
 - **Wertung:** Toni liest nur; nichts von ihm wirkt auf Tempo, Wertung, Bestzeit oder Beute (ADR-0010). Die Ansagen
   von Training und Arcade bleiben unverändert.
 
+### Toni fährt mit (#91)
+
+Toni ist neben der Stimme auch als Figur zu sehen: ein zweiter Fahrer (`RiderModel`, aus Grundkörpern, in eigenen
+Farben – orange Trikot, grüner Rahmen, gelber Helm, deckend) fährt **rechts** neben dir, der Ghost links. Das ist nur
+Darstellung (ADR-0010); die Logik steht in `src/companion_rider.gd` (`CompanionRider`, reine Logik wie `Ghost`), die
+Szene (`Companion` unter der Strecke, `_update_companion_rider` in `scenes/main.gd`) setzt Lage und Pose daraus.
+
+- **Sichtbar** nur in der Fahrt (Rundfahrt und Arcade, nicht im Training), mit „Begleiter“ **und** „Toni fährt mit“ an,
+  solange das Spiel ein `companion_status` gesehen hat – läuft kein Begleiter (oder fällt der Bus weg), erscheint keine
+  Figur. Während des Kamera-Intros ist er ausgeblendet. Bei „heiser“ fährt er weiter, ohne zu reden.
+- **Bewegung:** seitlich um 1,5 m (± 0,12 m) neben dir, nie in deiner Fahrlinie und damit nie vor der Kamera; längs
+  zwischen 1 m hinter und 3 m vor dir. Er fällt weich zurück und schließt wieder auf (zwei überlagerte Schwingungen,
+  deterministisch aus der Fahrzeit – kein Zufall), am Anstieg etwas zurück, bergab vor. Er fährt mit derselben
+  Spurführung wie der Ghost auf der Strecke; in der Pause steht er.
+- **Reden:** Solange `companion_status` `speaking` meldet, dreht er den Kopf zu dir und löst die linke Hand dezent vom
+  Lenker. Keine neue Bus-Nachricht; Lippen oder Gesicht gibt es nicht.
+- **Kameras:** sichtbar in Nah, Verfolger und Weit; eine Ich-Perspektive gibt es nicht.
+
 ### Puls (#64)
 
 Puls ist eine zweite Quelle der Bridge (Brustgurt oder Uhr per BLE, `docs/bus-protocol.md`, Abschnitt Puls). Das Spiel
@@ -1784,6 +1803,7 @@ scenes/devices_menu.gd  DevicesMenu: Verbindungsfenster – Kacheln Trainer/Puls
 src/lap_timing.gd       LapTiming: Rundenwertung – Rundenzeiten, Ziel nach n Runden oder endlos, Bestzeit, Ghost-Aufzeichnung – reine Logik
 src/segment_timing.gd   SegmentTiming: Segmentzeiten (Live-Zeit, gewertete Segmente, Segment-Bestzeit) – reine Logik
 src/ghost.gd            Ghost: Runde als Strecke über Zeit – aufzeichnen, abspielen, Abstand in s – reine Logik
+src/companion_rider.gd  CompanionRider: Toni als Mitfahrer – Abstand längs/seitlich, Reden (Kopf, Geste), eigene Farben – reine Logik (#91)
 src/training.gd         Training: Einheit laden, Ablauf (Phase, Restzeit, Ansage), Bewertung der Zielkadenz bzw. Zielleistung (ERG, #75) – reine Logik
 src/zone_bar.gd         ZoneBar: Zonenbalken – Zielbereich, Wert als Marke, Zustand in Farbe und Form (#58)
 src/gate_placement.gd   GatePlacement: Lage eines zeitgebundenen Tors aus Restzeit und Tempo, Festsetzen – reine Logik (#58)

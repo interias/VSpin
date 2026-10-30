@@ -94,6 +94,7 @@ Entscheidungen stehen als ADRs unter [`docs/adr/`](docs/adr/).
 | Begriff | Bedeutung |
 |---|---|
 | **Begleiter** (Toni, `vspin-companion`) | Sprechender Radkumpel: eigener Python-Prozess am Bus, hört über die Sprechtaste zu, antwortet mit Stimme und meldet sich von selbst. Liest nur, wirkt nie auf Tempo, Wertung oder Beute (ADR-0010, ADR-0011). _Vermeiden:_ Bot, Assistent, Sprachassistent. |
+| **Toni als Mitfahrer** | Tonis Figur im Spiel (#91): fährt rechts neben dem Fahrer (der Ghost links), fällt mal zurück und schließt auf; beim Reden Kopf zum Fahrer, eine Hand vom Lenker. Nur in Rundfahrt und Arcade, mit Begleiter am Bus und „Toni fährt mit“ an. |
 | **Wecker** | Weckt den Begleiter in zufälligen Abständen (Start 3–8 min, per Stimme einstellbar) und sofort bei Ereignissen; Toni entscheidet dann selbst, ob er etwas sagt. _Vermeiden:_ Wake-Word – Toni hört nie dauernd mit. |
 | **Seele** (`soul.md`) | Tonis Charakter als Textdatei, höchstens 1 500 Zeichen; per Stimme änderbar („sei mal ernster“). |
 | **Gedächtnis** (`memory.md`) | Was Toni über den Fahrer weiß (Ziele, Vorlieben, Running Gags), höchstens 3 000 Zeichen; nach jeder Fahrt aufgeräumt. Nicht der Gesprächsverlauf – der lebt nur im Speicher, eine Sitzung je Fahrt. |

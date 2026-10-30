@@ -119,3 +119,22 @@ func test_ducking_lowers_the_bus_only_while_speaking_and_fades() -> void:
 	assert_eq(sound.duck, 1.0)
 	assert_almost_eq(AudioServer.get_bus_volume_db(index), linear_to_db(0.7), 0.01, "wieder auf dem eingestellten Pegel")
 	sound.apply_settings(true, GraphicsSettings.DEFAULT_SOUND_VOLUME, 1.0)
+
+
+func test_toni_rides_row_is_on_by_default_applies_at_once_and_is_saved() -> void:
+	assert_true(GraphicsSettings.new().companion_rides, "Standard: an")
+	var menu := _spawn_menu()
+	assert_true(menu.options.has("companion_rides"), "Zeile „Toni fährt mit“")
+	assert_eq(menu.options["companion_rides"].get_item_text(menu.options["companion_rides"].selected), "An")
+	watch_signals(menu)
+	_choose(menu, "companion_rides", false)
+	assert_false(menu.settings.companion_rides, "wirkt sofort")
+	assert_signal_emitted_with_parameters(menu, "settings_changed", ["companion_rides"])
+	assert_false(GraphicsSettings.load_file(TEMP_PATH).companion_rides, "gespeichert")
+	var again := _spawn_menu()
+	assert_false(again.settings.companion_rides)
+	assert_eq(again.options["companion_rides"].get_item_text(again.options["companion_rides"].selected), "Aus")
+	var file := FileAccess.open(TEMP_PATH, FileAccess.WRITE)
+	file.store_string("[companion]\nenabled=true\nvolume=0.4\n")
+	file.close()
+	assert_true(GraphicsSettings.load_file(TEMP_PATH).companion_rides, "alte Datei ohne Schlüssel: Standard an")
