@@ -300,6 +300,36 @@ def test_occupied_raw_file_name_moves_the_whole_session(bridge_process, bus_clie
     assert csv_path.with_name(csv_path.stem + ".raw.jsonl").read_bytes() == b""
 
 
+def test_simulator_session_has_an_empty_control_file(bridge_process, bus_client, tmp_path):
+    # Steuerprotokoll (Spec #89): gehört zu jeder Session; ohne Trainer bleibt es leer.
+    bridge = start_sim(bridge_process, tmp_path)
+    telemetry(connect(bus_client), 2)
+    assert bridge.stop() == 0
+    [csv_path] = tmp_path.glob("*.csv")
+    assert csv_path.with_name(csv_path.stem + ".control.jsonl").read_bytes() == b""
+    # Controller-Rohprotokoll (Spec #89): ebenso, ohne Controller leer.
+    assert csv_path.with_name(csv_path.stem + ".controller.jsonl").read_bytes() == b""
+
+
+def test_occupied_control_file_name_moves_the_whole_session(bridge_process, bus_client, tmp_path):
+    now = datetime.now()
+    occupied = []
+    for offset in range(-1, 20):
+        path = tmp_path / ((now + timedelta(seconds=offset)).strftime(NAME_FORMAT) + ".control.jsonl")
+        path.write_text("fremd\n", encoding="utf-8")
+        occupied.append(path)
+
+    bridge = start_sim(bridge_process, tmp_path)
+    telemetry(connect(bus_client), 2)
+    assert bridge.stop() == 0
+
+    assert all(p.read_text(encoding="utf-8") == "fremd\n" for p in occupied)
+    [csv_path] = tmp_path.glob("*.csv")
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_2\.csv", csv_path.name)
+    assert csv_path.with_name(csv_path.stem + ".raw.jsonl").read_bytes() == b""
+    assert len(list(tmp_path.glob("*.raw.jsonl"))) == 1  # keine halbe Session unter dem belegten Namen
+
+
 def test_sessions_directory_is_git_ignored():
     repo = BRIDGE_ROOT.parent
 
@@ -310,6 +340,7 @@ def test_sessions_directory_is_git_ignored():
 
     assert ignored("sessions/2026-10-06_12-00-00.csv")
     assert ignored("bridge/sessions/2026-10-06_12-00-00.csv")
+    assert ignored("bridge/sessions/2026-10-06_12-00-00.control.jsonl")  # Steuerprotokoll (Spec #89)
     assert not ignored("bridge/src/vspin_bridge/session/csv_log.py")  # Gegenprobe: greift nicht überall
 
 

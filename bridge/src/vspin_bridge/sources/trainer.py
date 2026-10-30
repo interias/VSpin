@@ -39,6 +39,9 @@ Widerstand (ADR-0007, Nachtrag Spec #75; Bausteine in `trainer_control.py`):
 - **Nur lesen** (`read_only`, CLI `--read-only`): kein Abo von `0x2AD9`, keine Anforderung, kein Schreibzugriff;
   `set_grade` → `ControlRefusedError("read_only")`.
 - Stand der Steuerung in `control` (`ControlState`); jede Änderung meldet `on_control_changed(state, grund)`.
+- **Steuerprotokoll** (Spec #89): `on_control_log` bekommt jeden Wechsel der Steuerung samt Grund, jedes Schreiben und
+  jede Indication auf `0x2AD9`, jede Notification von `0x2ADA` und jeden Fehler (Einträge wie in
+  `session/control_log.py`); die Bridge schreibt sie in die Session-Datei `<zeit>.control.jsonl`.
 - **Steuerung zurückholen** (`reclaim_control()`, Knopf im Verbindungsfenster): nach `lost` oder `error` nur auf einen
   Klick des Fahrers – `0x00`, `0x07` und die letzte Steigung wie beim Verbinden. Von selbst fordert die Quelle nie neu an.
 
@@ -94,9 +97,11 @@ from .trainer_control import (
     RESULT_NOT_SUPPORTED,
     STATUS_CONTROL_PERMISSION_LOST,
     STATUS_RESET,
+    ControlLog,
     ControlPoint,
     ControlPointError,
     ControlState,
+    short_uuid,
     simulation_parameters,
     target_power_parameter,
 )
@@ -157,6 +162,7 @@ class TrainerSource:
         self.control = ControlState.READ_ONLY if read_only else ControlState.NONE
         self.on_control_changed: Callable[[ControlState, str], None] = lambda state, reason: None
         self.on_info: Callable[[str], None] = lambda text: None
+        self.on_control_log: ControlLog = lambda entry: None  # Steuerprotokoll (Spec #89)
         self._control_point: ControlPoint | None = None
         self._grade: float | None = None  # zuletzt gemeldete Steigung – wird nach dem (Neu-)Verbinden nachgesendet
         self._written: float | None = None  # zuletzt an den Trainer geschriebene Steigung (dieser Verbindung)
@@ -221,7 +227,9 @@ class TrainerSource:
                 if not features.simulation:
                     self._set_control(ControlState.NOT_SUPPORTED, "Trainer meldet keine Indoor Bike Simulation")
                 elif not self._read_only:
-                    control_point = ControlPoint(connection, self._response_timeout_s)
+                    control_point = ControlPoint(
+                        connection, self._response_timeout_s, lambda entry: self.on_control_log(entry)
+                    )
                     await self._take_control(connection, control_point)
             elif self._cycling_power_available:
                 # Leistungsmesser ohne FTMS: Leistung und Kadenz kommen allein aus 0x2A63.
@@ -489,8 +497,10 @@ class TrainerSource:
             return
         self.capabilities.add(Capability.RESISTANCE_CONTROL)
         self._control_point = control_point
-        with contextlib.suppress(BleError):  # Machine Status ist optional; ohne ihn meldet sich ein Verlust per 0x05
+        try:  # Machine Status ist optional; ohne ihn meldet sich ein Verlust per 0x05
             await connection.subscribe(MACHINE_STATUS, lambda data: self._on_machine_status(control_point, data))
+        except BleError as exc:
+            self.on_control_log({"event": "error", "text": f"Abo von 0x2ADA gescheitert: {exc}"})
         await self._request_control(control_point)
 
     async def _request_control(self, control_point: ControlPoint) -> None:
@@ -616,6 +626,7 @@ class TrainerSource:
             self._power_catch_up = None
 
     def _on_machine_status(self, control_point: ControlPoint, data: bytes) -> None:
+        self.on_control_log({"event": "notification", "char": short_uuid(MACHINE_STATUS), "hex": data.hex()})
         if control_point is not self._control_point or not data or self._releasing:
             return  # Nachzügler einer alten Verbindung bzw. das eigene Reset beim Beenden
         if data[0] == STATUS_CONTROL_PERMISSION_LOST:
@@ -652,6 +663,7 @@ class TrainerSource:
         if self._read_only or state is self.control:
             return  # im Nur-lesen-Modus bleibt es `read_only`
         self.control = state
+        self.on_control_log({"event": "state", "state": str(state), "reason": reason})
         self.on_control_changed(state, reason)
 
     # --- Hilfen --------------------------------------------------------------------------

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from bleak.exc import BleakError
-from vspin_bridge.ble import Advertisement, BleError
+from vspin_bridge.ble import Advertisement, BleError, GattCharacteristic
 from vspin_bridge.ble import bleak_adapter
 from vspin_bridge.ble.bleak_adapter import BleakAdapter
 
@@ -167,6 +167,31 @@ def test_service_uuids_of_the_device_database_are_lowercase():
     assert connection.service_uuids == {FTMS, CYCLING_POWER}
 
 
+def test_characteristics_of_the_device_database_with_properties():
+    # Spec #89: Characteristics je Service mit den Eigenschaften, wie bleak sie nennt.
+    connection, client = connect()
+    client.services = [
+        SimpleNamespace(uuid="0000FC82-0000-1000-8000-00805F9B34FB", characteristics=[
+            SimpleNamespace(uuid="00000002-19CA-4651-86E5-FA29DCDD09D1", properties=["notify"]),
+            SimpleNamespace(
+                uuid="00000003-19ca-4651-86e5-fa29dcdd09d1", properties=["write-without-response", "write"]
+            ),
+        ]),
+    ]
+    assert connection.characteristics == (
+        GattCharacteristic("0000fc82-0000-1000-8000-00805f9b34fb", "00000002-19ca-4651-86e5-fa29dcdd09d1",
+                           frozenset({"notify"})),
+        GattCharacteristic("0000fc82-0000-1000-8000-00805f9b34fb", "00000003-19ca-4651-86e5-fa29dcdd09d1",
+                           frozenset({"write", "write-without-response"})),
+    )
+
+
+def test_write_without_response():
+    connection, client = connect()
+    asyncio.run(connection.write(CONTROL_POINT, b"RideOn", response=False))
+    assert client.writes == [(CONTROL_POINT, b"RideOn", False)]
+
+
 def test_read_returns_bytes():
     connection, _ = connect()
     value = asyncio.run(connection.read(CONTROL_POINT))
@@ -222,6 +247,8 @@ def test_service_uuids_that_cannot_be_read_are_a_ble_error():
     client.services = Undiscovered()
     with pytest.raises(BleError, match="Services"):
         connection.service_uuids  # noqa: B018
+    with pytest.raises(BleError, match="Characteristics"):
+        connection.characteristics  # noqa: B018
 
 
 def test_hanging_read_and_write_time_out_as_ble_error():

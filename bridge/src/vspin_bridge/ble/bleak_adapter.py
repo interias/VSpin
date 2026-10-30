@@ -8,7 +8,7 @@ from bleak.backends.device import BLEDevice
 from bleak.backends.scanner import AdvertisementData
 from bleak.exc import BleakError
 
-from .base import Advertisement, BleError
+from .base import Advertisement, BleError, GattCharacteristic
 
 # Fehler, die bleak je nach Plattform beim Suchen, Verbinden und Trennen wirft
 # (WinRT meldet einiges als OSError, Zeitüberschreitung als TimeoutError).
@@ -105,15 +105,26 @@ class _BleakConnection:
         except _BLE_FAILURES as error:
             raise BleError(f"{self.address}: Services nicht lesbar: {error}") from error
 
+    @property
+    def characteristics(self) -> tuple[GattCharacteristic, ...]:
+        try:
+            return tuple(
+                GattCharacteristic(service.uuid.lower(), char.uuid.lower(), frozenset(char.properties))
+                for service in self._client.services
+                for char in service.characteristics
+            )
+        except _BLE_FAILURES as error:
+            raise BleError(f"{self.address}: Characteristics nicht lesbar: {error}") from error
+
     async def read(self, char: str) -> bytes:
         try:
             return bytes(await asyncio.wait_for(self._client.read_gatt_char(char), self._io_timeout_s))
         except _BLE_FAILURES as error:
             raise BleError(f"{self.address}: {char} nicht lesbar: {error}") from error
 
-    async def write(self, char: str, data: bytes) -> None:
+    async def write(self, char: str, data: bytes, *, response: bool = True) -> None:
         try:
-            await asyncio.wait_for(self._client.write_gatt_char(char, data, response=True), self._io_timeout_s)
+            await asyncio.wait_for(self._client.write_gatt_char(char, data, response=response), self._io_timeout_s)
         except _BLE_FAILURES as error:
             raise BleError(f"{self.address}: {char} nicht beschreibbar: {error}") from error
 

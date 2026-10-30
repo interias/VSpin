@@ -1,6 +1,6 @@
 """Rollen-Bus und Verbindungsfenster (Spec #75, P4): `set_devices`, Suche je Rolle, Aliase aus #64, Status je Rolle,
-Trainerwahl aus gemerkten Geräten, Gerätewechsel mit Freigabe, Controller (sichtbar, gesperrt, Batterie, nie ein
-Schreibzugriff) und „Steuerung zurückholen“ nach `lost`.
+Trainerwahl aus gemerkten Geräten, Gerätewechsel mit Freigabe, Controller (sichtbar, gesperrt, Batterie; seit Spec #89
+nur der Klartext-Handshake als Schreibzugriff, gesperrt keiner) und „Steuerung zurückholen“ nach `lost`.
 
 Die Bridge läuft im Testprozess, jede Rolle auf einem eigenen BLE-Fake (`fake_ble.py`) wie in echt auf einem eigenen
 `BleakAdapter`. Alles, was einen Fake skriptet, läuft über `bridge.call` im Event-Loop der Bridge.
@@ -10,13 +10,22 @@ import time
 from collections.abc import Callable, Iterator
 
 import pytest
-from bridge_harness import HOST, InProcessBridge, wait_until
+from bridge_harness import HOST, InProcessBridge, read_jsonl, wait_until
 from fake_ble import FakeBleAdapter
 from heart_rate_harness import STRAP, BusReader, HeartRateRig, block, pulse
 from trainer_harness import KICKR, TARGET_SIMULATION, control_responder, control_writes, kickr, simulation
 
 from vspin_bridge import app, cli
-from vspin_bridge.sources.controller import BATTERY_LEVEL, RIDE_SERVICE, ZWIFT_COMPANY_ID, ControllerSource
+from vspin_bridge.sources.controller import (
+    BATTERY_LEVEL,
+    RIDE_ON,
+    RIDE_SERVICE,
+    ZWIFT_COMPANY_ID,
+    ZWIFT_CONTROL_POINT,
+    ZWIFT_MEASUREMENT,
+    ZWIFT_RESPONSE,
+    ControllerSource,
+)
 from vspin_bridge.sources.heart_rate import HEART_RATE_SERVICE
 from vspin_bridge.sources.sim import SimulatorSource
 from vspin_bridge.sources.trainer import FTMS_SERVICE, TrainerSource
@@ -30,7 +39,7 @@ LEFT = "CC:00:00:00:00:08"
 RIGHT = "CC:00:00:00:00:07"
 BATTERY_SERVICE = "0000180f-0000-1000-8000-00805f9b34fb"
 REQUEST_CONTROL, RESET, START = b"\x00", b"\x01", b"\x07"
-CONTROLLER_OFF = {"state": "off", "device": None, "battery": None}
+CONTROLLER_OFF = {"state": "off", "device": None, "battery": None, "handshake": "none"}
 
 
 class Rig:
@@ -175,7 +184,9 @@ def test_set_devices_per_role_acks_and_broadcasts_exactly_one_status_per_change(
     devices_bridge(trainer=False)
     sender, other = BusReader(bus_client()), BusReader(bus_client())
     assert sender.reply(set_devices("controller", controller(LEFT, "left"))) == ack("set_devices")
-    assert sender.statuses()[-1]["controller"] == {"state": "disconnected", "device": None, "battery": None}
+    assert sender.statuses()[-1]["controller"] == {
+        "state": "disconnected", "device": None, "battery": None, "handshake": "none"
+    }
     assert sender.reply(set_devices("heart_rate", {"address": STRAP.address, "name": STRAP.name, "role": "strap"})) == (
         ack("set_devices")
     )
@@ -470,7 +481,15 @@ def assert_controller_never_written(rig: Rig) -> None:
     assert rig.bridge.call(lambda: [c.subscriptions for c in adapter.connections.values()]) in ([], [{}])
 
 
-def test_visible_controller_connects_with_battery_and_without_a_single_write(devices_bridge, bus_client):
+def assert_controller_written_only_ride_on(rig: Rig, *addresses: str) -> None:
+    """Spec #89: Der einzige Schreibzugriff ist `RideOn` auf den Control Point, einmal je Verbindung (in dieser
+    Reihenfolge der Adressen)."""
+    adapter = rig.controller.adapter
+    expected = [(address, ZWIFT_CONTROL_POINT, RIDE_ON) for address in addresses]
+    wait_until(lambda: rig.bridge.call(lambda: list(adapter.writes)) == expected, 3.0, f"RideOn an {addresses}")
+
+
+def test_visible_controller_connects_with_battery_and_writes_only_ride_on(devices_bridge, bus_client):
     rig = devices_bridge(trainer=False)
     client = BusReader(bus_client())
     rig.controller_on(LEFT, 8, battery=81, rssi=-61)
@@ -480,14 +499,16 @@ def test_visible_controller_connects_with_battery_and_without_a_single_write(dev
         "state": "connected",
         "device": {"address": LEFT, "name": "Zwift SF2", "side": "left"},
         "battery": 81,
+        "handshake": "none",  # Antwort steht noch aus
     }
     assert status["signal"]["controller"] == -61
     assert rig.bridge.call(lambda: rig.controller.adapter.connected) == {LEFT}
-    assert_controller_never_written(rig)
+    assert_controller_written_only_ride_on(rig, LEFT)
     assert "Controller: connected, Zwift SF2 (left), Batterie 81 %" in rig.bridge.log()
     assert rig.bridge.stop() is None
-    # Loop beendet: direkt lesen. Auch das Beenden schreibt nichts, die Verbindung ist zu.
-    assert rig.controller.adapter.writes == [] and rig.controller.adapter.connected == set()
+    # Loop beendet: direkt lesen. Das Beenden schreibt nichts mehr, die Verbindung ist zu.
+    assert rig.controller.adapter.writes == [(LEFT, ZWIFT_CONTROL_POINT, RIDE_ON)]
+    assert rig.controller.adapter.connected == set()
 
 
 def test_controller_without_battery_service_reports_none(devices_bridge, bus_client):
@@ -509,6 +530,7 @@ def test_locked_controller_is_reported_and_left_alone(devices_bridge, bus_client
         "state": "locked",
         "device": {"address": LEFT, "name": "Zwift SF2", "side": "left"},
         "battery": 64,
+        "handshake": "none",
     }
     time.sleep(0.5)
     adapter = rig.controller.adapter
@@ -525,7 +547,7 @@ def test_locked_controller_is_tried_again_after_the_pause(devices_bridge, bus_cl
     client.next("status", lambda m: m["controller"]["state"] == "locked")
     rig.controller_on(LEFT, 8, locked=False)  # einmal in Zwift verbunden: der Service ist sichtbar
     assert client.next("status", lambda m: m["controller"]["state"] == "connected")["controller"]["battery"] == 77
-    assert_controller_never_written(rig)
+    assert_controller_written_only_ride_on(rig, LEFT)  # erst nach der Sperre, nie beim gesperrten Versuch
 
 
 def test_left_controller_wins_over_the_right(devices_bridge, bus_client):
@@ -542,7 +564,7 @@ def test_left_controller_wins_over_the_right(devices_bridge, bus_client):
     status = client.next("status", lambda m: (m["controller"]["device"] or {}).get("side") == "left")
     assert status["controller"]["state"] == "connected"
     wait_until(lambda: rig.bridge.call(lambda: rig.controller.adapter.connected) == {LEFT}, 3.0, "rechts getrennt")
-    assert_controller_never_written(rig)
+    assert_controller_written_only_ride_on(rig, RIGHT, LEFT)
 
 
 def test_controller_dropout_reconnects_in_the_background(devices_bridge, bus_client):
@@ -552,12 +574,48 @@ def test_controller_dropout_reconnects_in_the_background(devices_bridge, bus_cli
     assert client.reply(set_devices("controller", controller(LEFT, "left"))) == ack("set_devices")
     client.next("status", lambda m: m["controller"]["state"] == "connected")
     rig.bridge.call(rig.controller.adapter.drop, LEFT)
-    assert client.next("status")["controller"] == {"state": "disconnected", "device": None, "battery": None}
+    assert client.next("status")["controller"] == {
+        "state": "disconnected", "device": None, "battery": None, "handshake": "none"
+    }
     client.next("status", lambda m: m["controller"]["state"] == "connected")
     assert [m["state"] for m in client.statuses()] == ["connected"] * len(client.statuses())  # das Rad läuft weiter
     assert client.reply(set_devices("controller")) == ack("set_devices")
     assert client.statuses()[-1]["controller"] == CONTROLLER_OFF
-    assert_controller_never_written(rig)
+    assert_controller_written_only_ride_on(rig, LEFT, LEFT)  # einmal je Verbindung
+
+
+def test_session_controller_file_records_handshake_and_every_notification(devices_bridge, bus_client):
+    # Spec #89: `<zeit>.controller.jsonl` neben den anderen Session-Dateien, Bridge-Zeit; `status.controller.handshake`.
+    rig = devices_bridge(trainer=False)
+    client = BusReader(bus_client())
+    rig.controller_on(LEFT, 8, battery=81, rssi=-61)
+    answer = RIDE_ON + b"\x01\x02" + bytes(64)  # mit öffentlichem Schlüssel: verlangt Verschlüsselung
+    rig.bridge.call(rig.controller.adapter.answer, LEFT, ZWIFT_CONTROL_POINT, ZWIFT_RESPONSE, answer)
+    assert client.reply(set_devices("controller", controller(LEFT, "left"))) == ack("set_devices")
+    status = client.next("status", lambda m: m["controller"]["handshake"] == "encrypted")
+    assert status["controller"]["state"] == "connected"
+    rig.bridge.call(rig.controller.adapter.indicate, LEFT, ZWIFT_MEASUREMENT, b"\x23\x08")
+    assert "Controller: connected, Zwift SF2 (left), Batterie 81 %, Handshake encrypted" in rig.bridge.log()
+    assert rig.bridge.stop() is None
+    [csv_path] = rig.bridge.sessions_dir.glob("*.csv")
+    path = csv_path.with_name(csv_path.stem + ".controller.jsonl")
+    lines = read_jsonl(path)
+    assert all(list(line)[:2] == ["t_ms", "event"] and isinstance(line["t_ms"], int) for line in lines)
+    assert [line["t_ms"] for line in lines] == sorted(line["t_ms"] for line in lines)
+    events = [{key: value for key, value in line.items() if key != "t_ms"} for line in lines]
+    device = {"address": LEFT, "name": "Zwift SF2", "side": "left"}
+    assert events[0] == {"event": "connect", **device, "rssi": -61}
+    assert events[1]["event"] == "services" and RIDE_SERVICE in events[1]["services"]
+    assert events[2:] == [
+        {"event": "subscribe", "char": "0002", "kind": "notification"},
+        {"event": "subscribe", "char": "0004", "kind": "indication"},
+        {"event": "write", "char": "0003", "hex": "526964654f6e", "response": True},
+        {"event": "indication", "char": "0004", "hex": answer.hex()},
+        {"event": "handshake", "state": "encrypted"},
+        {"event": "notification", "char": "0002", "hex": "2308"},
+        {"event": "disconnect", **device, "by": "bridge"},  # beim Beenden
+    ]
+    assert f"Controller-Protokoll: {path}" in rig.bridge.log()
 
 
 def test_trainer_status_and_ftms_scan_are_untouched_by_the_controller(devices_bridge, bus_client):

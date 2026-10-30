@@ -9,6 +9,8 @@ Bausteine für `TrainerSource` nach Bluetooth SIG FTMS 1.0 – kein Wahoo- oder 
   ist), Schreiben mit Antwort, dann Warten auf die Indication mit Zeitlimit (`RESPONSE_TIMEOUT_S`). Das Abo der
   Indications kommt **vor** dem ersten Schreiben (ohne Abo lehnt das Gerät Schreibzugriffe ab).
 - **`ControlState`:** Stand der Steuerung, auf dem Bus `status.trainer.control` (docs/bus-protocol.md).
+- **Steuerprotokoll** (Spec #89): `ControlPoint` meldet jedes Schreiben, jede Indication und jeden Fehler an `on_log`
+  (Einträge wie in `session/control_log.py`, ohne `t_ms`); die Bridge schreibt sie in `<zeit>.control.jsonl`.
 
 ERG (P7): Target Power `0x05` geht wie `0x11` über `ControlPoint.request`; Zustand, Kontrollverlust und Grundlast
 gelten für beide. Ein `0x11` nach `0x05` schaltet den Trainer zurück in die Simulation.
@@ -16,6 +18,7 @@ gelten für beide. Ein `0x11` nach `0x05` schaltet den Trainer zurück in die Si
 
 import asyncio
 import struct
+from collections.abc import Callable
 from enum import StrEnum
 
 from ..ble import BleConnection, BleError
@@ -56,6 +59,13 @@ CRR = 0.0040
 CW_KG_PER_M = 0.51
 
 RESPONSE_TIMEOUT_S = 2.0  # so lange wartet eine Anfrage auf die Antwort-Indication
+
+ControlLog = Callable[[dict], None]  # ein Eintrag des Steuerprotokolls (ohne `t_ms`)
+
+
+def short_uuid(char: str) -> str:
+    """`00002ad9-0000-1000-8000-00805f9b34fb` → `2ad9` (Kurzform im Steuerprotokoll)."""
+    return char[4:8].lower()
 
 
 class ControlState(StrEnum):
@@ -111,16 +121,23 @@ def target_power_parameter(watts: int) -> bytes:
 class ControlPoint:
     """Control Point einer Verbindung. Nach `close()` (Verbindung weg) scheitert jede Anfrage mit `BleError`."""
 
-    def __init__(self, connection: BleConnection, timeout_s: float = RESPONSE_TIMEOUT_S) -> None:
+    def __init__(
+        self, connection: BleConnection, timeout_s: float = RESPONSE_TIMEOUT_S, on_log: ControlLog | None = None
+    ) -> None:
         self._connection = connection
         self._timeout_s = timeout_s
+        self._log: ControlLog = on_log or (lambda entry: None)
         self._lock = asyncio.Lock()
         self._waiting: tuple[int, asyncio.Future[int]] | None = None
         self.closed = False
 
     async def subscribe(self) -> None:
         """Indications von `0x2AD9` abonnieren – vor dem ersten Schreiben. Wirft `BleError`."""
-        await self._connection.subscribe(CONTROL_POINT, self._on_indication)
+        try:
+            await self._connection.subscribe(CONTROL_POINT, self._on_indication)
+        except BleError as exc:
+            self._log({"event": "error", "text": f"Abo von 0x2AD9 gescheitert: {exc}"})
+            raise
 
     async def request(self, op: int, params: bytes = b"") -> None:
         """`op` mit `params` schreiben und die Antwort abwarten. Wirft `ControlPointError` (kein Erfolg, keine Antwort
@@ -130,16 +147,23 @@ class ControlPoint:
                 raise BleError("Verbindung zum Trainer getrennt")
             future: asyncio.Future[int] = asyncio.get_running_loop().create_future()
             self._waiting = (op, future)
+            data = bytes([op]) + params
             try:
-                await self._connection.write(CONTROL_POINT, bytes([op]) + params)
+                self._log({"event": "write", "char": short_uuid(CONTROL_POINT), "hex": data.hex()})
+                await self._connection.write(CONTROL_POINT, data)
                 try:
                     result = await asyncio.wait_for(future, self._timeout_s)
                 except TimeoutError:
                     raise ControlPointError(op, None) from None
+            except (ControlPointError, BleError) as exc:
+                self._log({"event": "error", "text": f"0x{op:02X}: {exc}"})
+                raise
             finally:
                 self._waiting = None
         if result != RESULT_SUCCESS:
-            raise ControlPointError(op, result)
+            error = ControlPointError(op, result)
+            self._log({"event": "error", "text": str(error)})
+            raise error
 
     def close(self) -> None:
         self.closed = True
@@ -147,6 +171,7 @@ class ControlPoint:
             self._waiting[1].set_exception(BleError("Verbindung zum Trainer getrennt"))
 
     def _on_indication(self, data: bytes) -> None:
+        self._log({"event": "indication", "char": short_uuid(CONTROL_POINT), "hex": data.hex()})
         if len(data) < 3 or data[0] != OP_RESPONSE or self._waiting is None:
             return  # keine Antwort oder keine offene Anfrage (Nachzügler nach dem Zeitlimit)
         op, future = self._waiting

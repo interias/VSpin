@@ -151,9 +151,12 @@ static func status(state: String = "connected", source: String = "sim",
 
 
 ## Baustein: Block `controller` einer `status`-Nachricht (Spec #75). `device` = {address, name, side}; `battery` in
-## Prozent, null = unbekannt.
-static func controller_block(state: String = "off", device = null, battery = null) -> Dictionary:
-	return {"state": state, "device": device, "battery": battery}
+## Prozent, null = unbekannt; `handshake` (Spec #89) nur, wenn gesetzt (sonst wie eine ältere Bridge ohne das Feld).
+static func controller_block(state: String = "off", device = null, battery = null, handshake = null) -> Dictionary:
+	var block := {"state": state, "device": device, "battery": battery}
+	if handshake != null:
+		block["handshake"] = handshake
+	return block
 
 
 ## Baustein: Suchergebnis `device_found` einer Rolle (nur an den Anfrager); `side` nur beim Controller.

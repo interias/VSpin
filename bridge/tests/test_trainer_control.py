@@ -784,3 +784,147 @@ def test_reconnect_and_reclaim_in_erg_resend_the_target_power():
         assert control_writes(adapter)[-3:] == [*TAKEN, target_power(215)]
 
     run(scenario)
+
+
+# --- Windows/bleak-Fallen und Steuerprotokoll (Spec #89) --------------------------------------
+
+
+def logged(source: TrainerSource) -> list[dict]:
+    """Sammelt das Steuerprotokoll der Quelle (Einträge ohne `t_ms`)."""
+    entries: list[dict] = []
+    source.on_control_log = entries.append
+    return entries
+
+
+def test_answer_that_comes_before_the_write_is_acknowledged_still_counts():
+    # Ein Stack darf die Antwort-Indication vor der Quittung des Schreibzugriffs ausliefern.
+    async def scenario(adapter):
+        adapter.answer_before_ack = True
+        sim_kickr(adapter)
+        source, changes = controlled(adapter)
+        await source.connect()
+        assert source.control is ControlState.ACTIVE and changes == ["requesting", "active"]
+        await source.set_grade(0.04)
+        assert control_writes(adapter) == [*TAKEN, simulation(400)]
+
+    run(scenario)
+
+
+def test_answer_with_extra_bytes_counts():
+    # `0x80 <Op-Code> <Ergebnis>` und dahinter weitere Bytes (Response Parameter): zählt wie die kurze Antwort.
+    async def scenario(adapter):
+        sim_kickr(adapter, respond=lambda data: bytes([0x80, data[0], 0x01, 0x00, 0x00]))
+        source, _ = controlled(adapter)
+        await source.connect()
+        assert source.control is ControlState.ACTIVE
+        await source.set_grade(0.04)  # kein Fehler: die Antwort auf 0x11 ist ein Erfolg
+
+    run(scenario)
+
+
+def test_answer_to_another_op_code_is_not_the_answer():
+    # Ein Nachzügler (Antwort auf 0x00) ist keine Antwort auf 0x07: Zeitlimit, `error`.
+    async def scenario(adapter):
+        sim_kickr(adapter, respond=lambda data: bytes([0x80, 0x00, 0x01]))
+        source, _ = controlled(adapter)
+        entries = logged(source)
+        await source.connect()
+        assert source.control is ControlState.ERROR
+        assert entries[-1] == {"event": "state", "state": "error", "reason": "keine Antwort auf 0x07 (Zeitlimit)"}
+
+    run(scenario)
+
+
+def test_write_error_without_bonded_pairing_is_error_with_a_clear_reason():
+    # Windows ohne gebondetes Pairing: lesen geht, das Schreiben auf 0x2AD9 scheitert.
+    async def scenario(adapter):
+        sim_kickr(adapter)
+        adapter.fail_writes[KICKR] = 1
+        source, _ = controlled(adapter)
+        reasons: list[str] = []
+        source.on_control_changed = lambda state, reason: reasons.append(f"{state}: {reason}")
+        await source.connect()
+        assert adapter.connected == {KICKR} and source.control is ControlState.ERROR
+        assert reasons[-1].startswith("error: Control Point nicht beschreibbar:")
+        assert control_writes(adapter) == []
+
+    run(scenario)
+
+
+def test_control_log_records_states_writes_indications_and_machine_status():
+    async def scenario(adapter):
+        sim_kickr(adapter)
+        source, _ = controlled(adapter)
+        entries = logged(source)
+        await source.connect()
+        await source.set_grade(0.04)
+        adapter.indicate(KICKR, MACHINE_STATUS, b"\xff")
+        assert entries == [
+            {"event": "state", "state": "requesting", "reason": "fordere die Steuerung an"},
+            {"event": "write", "char": "2ad9", "hex": "00"},
+            {"event": "indication", "char": "2ad9", "hex": "800001"},
+            {"event": "write", "char": "2ad9", "hex": "07"},
+            {"event": "indication", "char": "2ad9", "hex": "800701"},
+            {"event": "state", "state": "active", "reason": "VSpin steuert den Trainer"},
+            {"event": "write", "char": "2ad9", "hex": simulation(400).hex()},
+            {"event": "indication", "char": "2ad9", "hex": "801101"},
+            {"event": "notification", "char": "2ada", "hex": "ff"},
+            {"event": "state", "state": "lost", "reason": "Machine Status: Control Permission Lost (0xFF)"},
+        ]
+
+    run(scenario)
+
+
+@pytest.mark.parametrize(
+    ("results", "fail_write", "error"),
+    [
+        ({0x07: None}, False, "0x07: keine Antwort auf 0x07 (Zeitlimit)"),
+        ({0x00: 0x05}, False, "Trainer lehnt 0x00 ab: Steuerung nicht erlaubt (0x05)"),
+        ({}, True, "0x00: AA:00:00:00:10:01: 00002ad9-0000-1000-8000-00805f9b34fb nicht beschreibbar"),
+    ],
+)
+def test_control_log_records_errors(results, fail_write, error):
+    async def scenario(adapter):
+        sim_kickr(adapter, respond=control_responder(results))
+        if fail_write:
+            adapter.fail_writes[KICKR] = 1
+        source, _ = controlled(adapter)
+        entries = logged(source)
+        await source.connect()
+        assert {"event": "error", "text": error} in entries
+        assert entries[-1]["event"] == "state" and entries[-1]["state"] in ("error", "lost")
+
+    run(scenario)
+
+
+def test_control_log_records_a_control_point_that_cannot_be_subscribed():
+    async def scenario(adapter):
+        sim_kickr(adapter)
+        source, _ = controlled(adapter)
+        entries = logged(source)
+        original = adapter.connect
+
+        async def connect(address, on_disconnect):
+            connection = await original(address, on_disconnect)
+            subscribe = connection.subscribe
+
+            async def refusing(char, on_notify):
+                if char in (CONTROL_POINT, MACHINE_STATUS):
+                    raise BleError("Insufficient Authentication")
+                await subscribe(char, on_notify)
+
+            connection.subscribe = refusing
+            return connection
+
+        adapter.connect = connect
+        await source.connect()
+        assert entries == [
+            {"event": "error", "text": "Abo von 0x2AD9 gescheitert: Insufficient Authentication"},
+            {
+                "event": "state",
+                "state": "not_supported",
+                "reason": "Control Point nicht abonnierbar: Insufficient Authentication",
+            },
+        ]
+
+    run(scenario)
