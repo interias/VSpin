@@ -44,6 +44,9 @@
 ## vorn) – gleiches Tempo wie der Fahrer (Beispielfahrt 22 km/h, bei `--fps-*` dessen Tempo), halbtransparent
 ## neben/vor dem Fahrer, mit `--hud` der Abstand im HUD. Mit `--title --laps=N` steht er (nur im Speicher) als
 ## Bestzeit und letzte Fahrt in der Ghost-Auswahl der Seite „Rundfahrt“.
+## Toni (#91): `--toni` lässt Toni als Figur mitfahren, als wäre ein Begleiter am Bus (Zustand `idle`); `--toni=speaking`
+## zeigt ihn beim Reden (Kopf zum Fahrer, Hand vom Lenker). Die Probe verbindet dann nie zum Bus; Sendeversuche der Hauptszene
+## (etwa Gerätelisten) enden dann mit einem Skriptfehler im Protokoll, ohne Folgen für das Bild.
 ## Fahrtenbuch (#35): `--title --logbook` füllt den Spielstand (nur im Speicher) mit Beispielfahrten, Bestzeiten,
 ## Segmentzeiten, Medaillen und Erfolgen, öffnet das Fahrtenbuch aus dem Startmenü und speichert je Seite
 ## `logbook_overview.png`, `logbook_achievements.png` und `logbook_rides.png` statt der Titelbilder.
@@ -126,6 +129,8 @@ var _laps := -1
 var _segments := false
 ## Rückstand auf den Beispiel-Ghost in Sekunden (`--ghost`; NAN = ohne Ghost).
 var _ghost_s := NAN
+## Begleiter-Zustand für Toni als Figur (`--toni[=state]`; "" = ohne Toni).
+var _toni_state := ""
 ## Fahrtenbuch statt Titelbilder (`--logbook`), Einblendungen von Erfolg und Levelaufstieg (`--rewards`).
 var _logbook := false
 ## Nahaufnahmen der Tiere (`--fauna`).
@@ -230,6 +235,8 @@ func _initialize() -> void:
 			_segments = true
 		elif arg.begins_with("--ghost="):
 			_ghost_s = float(value)
+		elif arg == "--toni" or arg.begins_with("--toni="):
+			_toni_state = value if arg.begins_with("--toni=") else BusClient.COMPANION_IDLE
 		elif arg == "--logbook":
 			_logbook = true
 		elif arg == "--rewards":
@@ -1135,6 +1142,13 @@ func _place(d: float) -> void:
 			_ride.lap_timing.advance(d, d / (22.0 / 3.6))
 		_ride.ghost = _sample_ghost(22.0 / 3.6)
 		_ride.ghost_rider.visible = true
+	if not _toni_state.is_empty():  # Begleiter am Bus nachgestellt; ohne echten Bus, der ihn wieder abmelden würde
+		_ride.bus._peer = null
+		_ride.bus._retry_in_s = INF
+		_ride.bus.bus_connected = true
+		_ride.bus.companion_seen = true
+		_ride.bus.companion_state = _toni_state
+		_ride.bus.companion_speaking = _toni_state == BusClient.COMPANION_SPEAKING
 	_ride._update_view()
 	_ride._update_camera(0.0, true)
 

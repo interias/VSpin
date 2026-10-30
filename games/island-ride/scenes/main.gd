@@ -154,6 +154,13 @@
 ##                Windows-Standardgerät, sein Pegel lässt sich nicht über einen Godot-Bus regeln.
 ##   Anzeige      HUD-Symbol für `companion_status` (nur wenn das Spiel schon eins gesehen hat) und einmal je Fahrt „Toni ist
 ##                heiser“; solange `speaking` duckt `RideSound` den Spielton.
+##   Mitfahrer    „Toni fährt mit“ (Spec #91, `CompanionRider`, Kind `Companion` der Strecke): Toni als Figur (RiderModel in eigenen
+##                Farben, deckend – anders als der halbtransparente Ghost) rechts neben dem Fahrer, der Ghost fährt links. Er fällt
+##                längs (−1…+3 m) deterministisch zurück und schließt wieder auf, bergauf etwas zurück, bergab vor, und bleibt seitlich
+##                ≥ 1,3 m daneben – nie in der Fahrlinie vor der Kamera. Sichtbar nur in Rundfahrt und Arcade, mit „Begleiter“ und
+##                „Toni fährt mit“ an, solange ein `companion_status` gesehen wurde (Prozess weg = Figur weg) und nicht im Kamera-
+##                Intro. Spricht er (`speaking`), dreht er den Kopf zum Fahrer und löst eine Hand; „heiser“ fährt stumm weiter. Nur
+##                Darstellung (ADR-0010): Tempo, Wertung und Beute kennen ihn nicht.
 extends Node3D
 
 ## Neuer Spielzustand (siehe STATE_*).
@@ -232,6 +239,10 @@ const CAMERA_PANORAMA_LOOK_M := 12.0
 const CAMERA_PANORAMA_LOOK_HEIGHT_M := 2.0
 ## Ghost: seitlicher Versatz zum Fahrer auf der Straße (m, nach links), damit beide nebeneinander fahren.
 const GHOST_OFFSET_M := -1.3
+## Tonis Kadenz im Verhältnis zu der des Fahrers (Spec #91), damit beide Kurbeln nicht im Gleichschritt laufen.
+const COMPANION_CADENCE_FACTOR := 0.96
+## Spielzustände, in denen Toni mitfährt (in der Fahrt, auch pausiert; Training und Menü nicht).
+const COMPANION_RIDER_STATES := [STATE_RIDING, STATE_PAUSED_MANUAL, STATE_PAUSED_CONNECTION]
 ## Intervall-Tore (#58): so weit hinter dem Fahrer (m) bleibt ein durchfahrenes Tor noch stehen (hinter der Kamera).
 const GATE_KEEP_BEHIND_M := 20.0
 ## Beute (#49): so weit vor dem Fahrer (m) steht die Lichtsäule eines Fundes (Tests lesen sie hier).
@@ -329,6 +340,10 @@ var loot_beam: LootBeam:
 ## Mitfahrer des Ghosts auf der Strecke und sein halbtransparentes Fahrermodell.
 var ghost_rider: PathFollow3D
 var ghost_model: RiderModel
+## Toni als Mitfahrer (Spec #91): Logik, Streckenfolger (rechts neben dem Fahrer) und Figur.
+var companion_rider := CompanionRider.new()
+var companion_follower: PathFollow3D
+var companion_model: RiderModel
 ## Intervall-Tore im Training (#58): das nächste und das zuletzt durchfahrene (Kinder von `Track`) und die Lage des
 ## nächsten.
 var gate_next: CourseGate
@@ -498,6 +513,7 @@ func _ready() -> void:
 	settings_menu.visibility_changed.connect(_on_settings_visibility_changed)
 	_setup_track()
 	_setup_ghost_rider()
+	_setup_companion_rider()
 	gate_next = _new_gate("IntervalGate")
 	gate_passed = _new_gate("IntervalGatePassed")
 	arcade_stage = ArcadeStage.new()
@@ -578,6 +594,7 @@ func _process(delta: float) -> void:
 	power_average.add(bus.power_w() if not bus.power_estimated() else NAN, delta)
 	_update_view()
 	_update_rider(delta)
+	_update_companion_rider(delta)
 	_update_camera(delta)
 	speed_effects.update(model.speed_kmh() if state == STATE_RIDING else 0.0, delta)
 
@@ -638,6 +655,21 @@ func _setup_track() -> void:
 	add_child(world)
 	world.build(track)
 	panorama_spots = world.panorama_spots()
+
+
+## Mitfahrer Toni (Spec #91): eigene Figur in eigenen Farben, rechts neben dem Fahrer; ausgeblendet, bis er mitfährt.
+func _setup_companion_rider() -> void:
+	companion_follower = PathFollow3D.new()
+	companion_follower.name = "Companion"
+	companion_follower.loop = true
+	companion_follower.h_offset = CompanionRider.LATERAL_M
+	companion_follower.visible = false
+	track.add_child(companion_follower)
+	companion_model = RiderModel.new()
+	companion_model.name = "Model"
+	companion_model.position = rider_model.position
+	companion_follower.add_child(companion_model)
+	companion_model.wear(CompanionRider.OUTFIT)
 
 
 ## Mitfahrer für den Ghost neben dem Fahrer: eigene Kopie des Fahrermodells, halbtransparent; ausgeblendet ohne Ghost.
@@ -922,6 +954,7 @@ func _set_direction(direction: String) -> void:
 	var turn := PI if track.reversed() else 0.0
 	rider_model.rotation.y = turn
 	ghost_model.rotation.y = turn
+	companion_model.rotation.y = turn
 	ghost_rider.h_offset = -GHOST_OFFSET_M if track.reversed() else GHOST_OFFSET_M
 	if world != null:
 		world.set_direction(direction)
@@ -1205,6 +1238,7 @@ func _enter_menu() -> void:
 	hud.visible = false
 	rider.visible = false
 	ghost_rider.visible = false
+	companion_follower.visible = false
 	settings_menu.set_ride_active(false)
 	_end_panorama()
 	_set_camera_mode(CAMERA_FOLLOW)
@@ -1752,6 +1786,7 @@ func _begin_companion_ride() -> void:
 	_state_s = 0.0
 	_hoarse_noted = false
 	_interval_index = -1
+	companion_rider.reset()
 
 
 ## Fahrt für den Begleiter beenden: gehaltene Sprechtaste loslassen, `ride_end` senden (einmal je Fahrt).
@@ -2047,6 +2082,33 @@ func _update_rider(delta: float) -> void:
 	var per_rpm := model.target_speed_mps(1.0, grade)
 	ghost_model.update(speed / per_rpm if per_rpm > 0.0 else 0.0, speed, grade, curvature_at(d), state != STATE_RIDING,
 			delta)
+
+
+## Fährt Toni gerade mit (Spec #91)? Nur in der Fahrt (Rundfahrt, Arcade), mit „Begleiter“ und „Toni fährt mit“ an, solange das
+## Spiel ein `companion_status` gesehen hat (Prozess weg oder Bus weg: nein) und nicht im Kamera-Intro.
+func companion_rider_visible() -> bool:
+	return state in COMPANION_RIDER_STATES and ride_mode != SaveGame.MODE_TRAINING and training == null \
+			and companion_enabled() and settings_menu.settings.companion_rides \
+			and bus.bus_connected and bus.companion_seen and camera_mode != CAMERA_INTRO
+
+
+## Toni neben dem Fahrer: Lage aus CompanionRider (längs/seitlich, Steigung), Pose wie der Fahrer mit leicht anderer Kadenz;
+## beim Reden Kopf zum Fahrer und eine Hand vom Lenker (nicht bei „heiser“). Liest nur, ändert nichts an der Fahrt.
+func _update_companion_rider(delta: float) -> void:
+	var shown := companion_rider_visible()
+	companion_follower.visible = shown
+	if not shown:
+		return
+	companion_rider.set_speaking(bus.companion_speaking and bus.companion_state != BusClient.COMPANION_HOARSE)
+	companion_rider.advance(delta, current_grade(), state == STATE_RIDING)
+	var d := model.distance_m + companion_rider.longitudinal_m()
+	companion_follower.progress = track.path_distance(d)
+	var side := -1.0 if track.reversed() else 1.0
+	companion_follower.h_offset = side * companion_rider.lateral_m()
+	var speed := maxf(model.speed_mps + companion_rider.longitudinal_speed_mps(), 0.0)
+	companion_model.update(bus.cadence * COMPANION_CADENCE_FACTOR, speed, track.grade_at(d), curvature_at(d),
+			state != STATE_RIDING, delta)
+	companion_model.set_talk(companion_rider.head_turn_rad(), companion_rider.hand_raise())
 
 
 ## Trainingszeile, Zonenbalken und Ansage im HUD (ausgeblendet ohne Training und im Ergebnis).
